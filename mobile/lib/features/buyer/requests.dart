@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/l10n/strings.dart';
+import '../../core/theme/theme.dart';
+import '../../shared/widgets/brand_image.dart';
 import '../../shared/widgets/components.dart';
 import '../../shared/widgets/data_form.dart';
 import '../../shared/widgets/photo_picker.dart';
+import '../../shared/widgets/supply_art.dart';
 
 class RequestSupplyScreen extends StatefulWidget {
   const RequestSupplyScreen({super.key});
@@ -22,10 +27,17 @@ class _RequestSupplyState extends State<RequestSupplyScreen> {
         const Text(
             'Tell us your requirements. Our team will follow up when suitable supply is found.'),
         const SizedBox(height: 24),
-        PhotoPicker(
-            photos: photos,
-            limit: 1,
-            onChanged: (value) => setState(() => photos = value)),
+        ExpansionTile(
+            tilePadding: EdgeInsets.zero,
+            title: const Text('Add a reference photo (optional)',
+                style: TextStyle(fontSize: 14)),
+            children: [
+              PhotoPicker(
+                  photos: photos,
+                  limit: 1,
+                  onChanged: (value) => setState(() => photos = value)),
+              const SizedBox(height: 16)
+            ]),
         const SizedBox(height: 24),
         DataForm(
             path: '/requests',
@@ -54,7 +66,7 @@ class _RequestSupplyState extends State<RequestSupplyScreen> {
                   'reference_photo': photos.isEmpty ? null : photos.first
                 },
             button: 'Submit request',
-            onSuccess: (data) => context.go('/requests/${data['id']}'))
+            onSuccess: (data) => context.go('/request-submitted/${data['id']}'))
       ]));
 }
 
@@ -75,7 +87,7 @@ class RequestDetail extends StatelessWidget {
                   const SizedBox(height: 24),
                   StatusText(data['status']),
                   const SizedBox(height: 16),
-                  const Text('Submitted → Sourcing → Supply Found → Confirmed'),
+                  SourcingProgress(data['status']),
                   const SizedBox(height: 24),
                   MoneySummary({
                     'Supply': label(data['category']),
@@ -154,22 +166,52 @@ class BusinessScreen extends StatelessWidget {
             padding: const EdgeInsets.all(20),
             children: entry == null
                 ? [
-                    Text('Your next chapter\nstarts here.',
-                        style: Theme.of(context).textTheme.headlineLarge),
-                    const SizedBox(height: 12),
-                    const Text(
-                        'Explore a business idea. Let Omoterra help with your supply.'),
-                    const SizedBox(height: 24),
-                    for (final e in businesses.entries)
-                      Padding(
-                          padding: const EdgeInsets.only(bottom: 12),
-                          child: Surface(
-                              child: ListTile(
-                                  contentPadding: EdgeInsets.zero,
-                                  title: Text(e.value[0]),
-                                  trailing: const Icon(Icons.arrow_forward),
-                                  onTap: () =>
-                                      context.push('/business/${e.key}'))))
+                    Consumer(builder: (context, ref, _) {
+                      final s = ref.s;
+                      return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(s.startBusinessIntro,
+                                style: const TextStyle(
+                                    color: OColors.secondary, height: 1.5)),
+                            const SizedBox(height: 20),
+                            for (final e in businesses.entries)
+                              Padding(
+                                  padding: const EdgeInsets.only(bottom: 12),
+                                  child: InkWell(
+                                      onTap: () =>
+                                          context.push('/business/${e.key}'),
+                                      borderRadius: BorderRadius.circular(16),
+                                      child: Container(
+                                          padding: const EdgeInsets.all(12),
+                                          decoration: BoxDecoration(
+                                              color: Colors.white,
+                                              borderRadius:
+                                                  BorderRadius.circular(16),
+                                              border: Border.all(
+                                                  color: OColors.border)),
+                                          child: Row(children: [
+                                            ClipRRect(
+                                                borderRadius:
+                                                    BorderRadius.circular(10),
+                                                child: SizedBox(
+                                                    width: 58,
+                                                    child: BrandImage(
+                                                        'business_${e.key}',
+                                                        fallbackArt: e.key,
+                                                        height: 58))),
+                                            const SizedBox(width: 13),
+                                            Expanded(
+                                                child: Text(e.value[0],
+                                                    style: const TextStyle(
+                                                        fontSize: 14.5,
+                                                        fontWeight:
+                                                            FontWeight.w600))),
+                                            const Icon(Icons.chevron_right,
+                                                color: OColors.muted),
+                                          ]))))
+                          ]);
+                    })
                   ]
                 : request
                     ? [
@@ -190,7 +232,12 @@ class BusinessScreen extends StatelessWidget {
                                   'wants_stock', 'Do you need starting stock?',
                                   options: ['yes', 'no']),
                               FormFieldSpec('target_start_date',
-                                  'When would you like to start?')
+                                  'When would you like to start?', options: [
+                                'within_2_weeks',
+                                'within_1_month',
+                                'within_3_months',
+                                'still_planning'
+                              ])
                             ],
                             transform: (d) => {
                                   ...d,
@@ -201,15 +248,92 @@ class BusinessScreen extends StatelessWidget {
                             onSuccess: (_) => context.go('/business-submitted'))
                       ]
                     : [
-                        const Icon(Icons.storefront_outlined, size: 64),
-                        const SectionHeader('What you’ll need'),
-                        Text(entry[1]),
-                        const SectionHeader('How Omoterra helps'),
-                        Text(entry[2]),
-                        const SizedBox(height: 32),
-                        OmoterraButton('Request a Setup Plan',
-                            onPressed: () =>
-                                context.push('/business/$type/request'))
+                        Consumer(builder: (context, ref, _) {
+                          final s = ref.s;
+                          return Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                ClipRRect(
+                                    borderRadius: BorderRadius.circular(16),
+                                    child: BrandImage('business_$type',
+                                        fallbackArt: type!, height: 176)),
+                                const SizedBox(height: 18),
+                                Text(entry[0],
+                                    style: Theme.of(context)
+                                        .textTheme
+                                        .headlineMedium),
+                                SectionHeader(s.whatYouNeed),
+                                Text(entry[1],
+                                    style: const TextStyle(height: 1.5)),
+                                SectionHeader(s.howOmoterraHelps),
+                                Text(entry[2],
+                                    style: const TextStyle(height: 1.5)),
+                                const SizedBox(height: 28),
+                                OmoterraButton(s.requestSetupPlan,
+                                    onPressed: () =>
+                                        context.push('/business/$type/request'))
+                              ]);
+                        })
                       ]));
+  }
+}
+
+class RequestSubmitted extends StatelessWidget {
+  final String id;
+  const RequestSubmitted(this.id, {super.key});
+  @override
+  Widget build(BuildContext context) => Scaffold(
+          body: SafeArea(
+              child: ListView(padding: const EdgeInsets.all(24), children: [
+        const SizedBox(height: 52),
+        const Center(child: SupplyArt('request', size: 130)),
+        const SizedBox(height: 24),
+        Text('We’re sourcing this for you.',
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.headlineMedium),
+        const SizedBox(height: 16),
+        Text('Reference #${id.substring(0, 8).toUpperCase()}',
+            textAlign: TextAlign.center),
+        const SizedBox(height: 16),
+        const Text(
+            'The Omoterra team will review your requirements and follow up with suitable supply.',
+            textAlign: TextAlign.center),
+        const SizedBox(height: 32),
+        OmoterraButton('View request',
+            onPressed: () => context.go('/requests/$id')),
+        const SizedBox(height: 12),
+        OmoterraButton('Back to Home',
+            secondary: true, onPressed: () => context.go('/buyer')),
+      ])));
+}
+
+class SourcingProgress extends StatelessWidget {
+  final String status;
+  const SourcingProgress(this.status, {super.key});
+  @override
+  Widget build(BuildContext context) {
+    if (status == 'cancelled') return const StatusText('cancelled');
+    const steps = ['submitted', 'sourcing', 'supply_found', 'confirmed'];
+    return Column(children: [
+      for (int i = 0; i < steps.length; i++)
+        Padding(
+            padding: const EdgeInsets.symmetric(vertical: 9),
+            child: Row(children: [
+              Icon(
+                  i <= steps.indexOf(status)
+                      ? Icons.check_circle
+                      : Icons.circle_outlined,
+                  size: 20,
+                  color: i <= steps.indexOf(status)
+                      ? const Color(0xFF123D2D)
+                      : const Color(0xFF909A94)),
+              const SizedBox(width: 14),
+              Text(label(steps[i]),
+                  style: TextStyle(
+                      fontWeight: steps[i] == status
+                          ? FontWeight.w700
+                          : FontWeight.w400)),
+            ]))
+    ]);
   }
 }

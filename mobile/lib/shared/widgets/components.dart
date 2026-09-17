@@ -5,6 +5,8 @@ import 'package:intl/intl.dart';
 import '../../core/api/repository.dart';
 import '../../core/theme/theme.dart';
 import '../models/domain.dart';
+import 'brand_image.dart';
+import 'supply_art.dart';
 
 String label(String value) => value
     .split('_')
@@ -131,7 +133,7 @@ class EmptyState extends StatelessWidget {
   Widget build(BuildContext context) => Surface(
       color: OColors.pale,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        const Icon(Icons.eco_outlined, size: 32, color: OColors.forest),
+        const SupplyArt('crate', size: 70, surface: false),
         const SizedBox(height: 16),
         Text(title, style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
@@ -179,10 +181,20 @@ class ResourceView extends ConsumerWidget {
   }
 }
 
+/// Maps a listing category onto a photography slot in assets/images/.
+String _slot(String category) => const {
+      'chicken_meat': 'meat',
+      'beef': 'meat',
+      'goat_meat': 'meat',
+    }[category] ??
+    category;
+
 class ProductImage extends StatelessWidget {
   final List<String> photos;
   final double height;
-  const ProductImage(this.photos, {super.key, this.height = 150});
+  final String category;
+  const ProductImage(this.photos,
+      {super.key, this.height = 150, this.category = 'crate'});
   @override
   Widget build(BuildContext context) => ClipRRect(
       borderRadius: BorderRadius.circular(14),
@@ -190,11 +202,10 @@ class ProductImage extends StatelessWidget {
           height: height,
           width: double.infinity,
           child: photos.isEmpty
-              ? Container(
-                  color: OColors.soft,
-                  child: const Center(
-                      child: Icon(Icons.agriculture_outlined,
-                          size: 48, color: OColors.forest)))
+              // No backend photo yet: fall back to supplied category
+              // photography, then to the in-app vector artwork.
+              ? BrandImage('category_${_slot(category)}',
+                  fallbackArt: category, height: height)
               : PageView(
                   children: photos.map((photo) {
                   final ownApi = photo.startsWith('/media/');
@@ -230,32 +241,85 @@ class ListingCard extends StatelessWidget {
   const ListingCard(this.listing, {super.key, required this.onTap});
   @override
   Widget build(BuildContext context) => Padding(
-      padding: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.only(bottom: 12),
       child: InkWell(
           borderRadius: BorderRadius.circular(16),
           onTap: onTap,
-          child: Surface(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                Hero(tag: listing.id, child: ProductImage(listing.photos)),
-                const SizedBox(height: 16),
-                Text(label(listing.category),
-                    style: Theme.of(context).textTheme.titleLarge),
-                const SizedBox(height: 4),
-                Text(
-                    '${listing.region} · ${listing.specs['avg_weight_kg'] ?? listing.specs['weight_range'] ?? listing.specs['cut_type'] ?? 'Ready supply'}',
-                    style: Theme.of(context).textTheme.bodySmall),
-                const SizedBox(height: 12),
-                Text('${tsh(listing.price)} / ${listing.unitType}',
+          child: Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: OColors.border)),
+              child:
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                SizedBox(
+                    width: 92,
+                    child: Hero(
+                        tag: listing.id,
+                        child: ProductImage(listing.photos,
+                            category: listing.category, height: 92))),
+                const SizedBox(width: 14),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Row(children: [
+                        Expanded(
+                            child: Text(label(listing.category),
+                                style: const TextStyle(
+                                    fontSize: 15,
+                                    fontWeight: FontWeight.w700))),
+                        const Icon(Icons.favorite_border,
+                            size: 19, color: OColors.muted),
+                      ]),
+                      const SizedBox(height: 4),
+                      Text(
+                          '${listing.specs['avg_weight_kg'] != null ? '${listing.specs['avg_weight_kg']} kg · ' : ''}${amount(listing.available)} available',
+                          style: Theme.of(context).textTheme.bodySmall),
+                      Text(listing.region,
+                          style: Theme.of(context).textTheme.bodySmall),
+                      const SizedBox(height: 8),
+                      Text('${tsh(listing.price)} / ${listing.unitType}',
+                          style: const TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w700,
+                              color: OColors.forest)),
+                    ])),
+              ]))));
+}
+
+class CategoryCard extends StatelessWidget {
+  final String category;
+  final bool selected;
+  final VoidCallback onTap;
+  const CategoryCard(this.category,
+      {super.key, this.selected = false, required this.onTap});
+  @override
+  Widget build(BuildContext context) => Semantics(
+      selected: selected,
+      button: true,
+      child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+              padding: const EdgeInsets.all(10),
+              decoration: BoxDecoration(
+                  color: selected ? OColors.soft : Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(
+                      color: selected ? OColors.forest : OColors.border,
+                      width: selected ? 1.5 : 1)),
+              child: Column(children: [
+                ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: BrandImage('category_${_slot(category)}',
+                        fallbackArt: category, height: 74)),
+                const SizedBox(height: 8),
+                Text(label(category),
+                    textAlign: TextAlign.center,
                     style: const TextStyle(
-                        fontSize: 22,
-                        fontWeight: FontWeight.w700,
-                        color: OColors.forest)),
-                const SizedBox(height: 4),
-                Text(
-                    '${amount(listing.available)} ${listing.unitType == 'kg' ? 'kg' : '${listing.unitType}s'} available',
-                    style: Theme.of(context).textTheme.bodySmall)
+                        fontWeight: FontWeight.w600, fontSize: 13))
               ]))));
 }
 
@@ -326,26 +390,48 @@ Future<T?> omoterraSheet<T>(BuildContext context, Widget child) =>
                 20, 8, 20, 24 + MediaQuery.viewInsetsOf(context).bottom),
             child: SingleChildScrollView(child: child)));
 
-
 class OmoterraDateField extends StatefulWidget {
   final String title;
   final TextEditingController controller;
   final bool pastAllowed;
-  const OmoterraDateField(this.title, this.controller, {super.key, this.pastAllowed = false});
+  const OmoterraDateField(this.title, this.controller,
+      {super.key, this.pastAllowed = false});
   @override
   State<OmoterraDateField> createState() => _DateFieldState();
 }
+
 class _DateFieldState extends State<OmoterraDateField> {
   @override
-  Widget build(BuildContext context) => Padding(padding: const EdgeInsets.only(bottom: 16), child: TextFormField(controller: widget.controller, readOnly: true,
-    decoration: InputDecoration(labelText: widget.title, suffixIcon: const Icon(Icons.calendar_today_outlined, size: 19)),
-    validator: (value) => DateTime.tryParse(value ?? '') == null ? 'Choose a date' : null,
-    onTap: () async {
-      final now = DateTime.now();
-      final earliest = widget.pastAllowed ? DateTime(now.year - 3) : DateTime(now.year, now.month, now.day);
-      final latest = widget.pastAllowed ? now : now.add(const Duration(days: 730));
-      final initial = DateTime.tryParse(widget.controller.text) ?? now;
-      final picked = await showDatePicker(context: context, initialDate: initial.isBefore(earliest) ? earliest : initial.isAfter(latest) ? latest : initial, firstDate: earliest, lastDate: latest);
-      if (picked != null && mounted) setState(() => widget.controller.text = picked.toIso8601String().split('T').first);
-    }));
+  Widget build(BuildContext context) => Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: TextFormField(
+          controller: widget.controller,
+          readOnly: true,
+          decoration: InputDecoration(
+              labelText: widget.title,
+              suffixIcon: const Icon(Icons.calendar_today_outlined, size: 19)),
+          validator: (value) =>
+              DateTime.tryParse(value ?? '') == null ? 'Choose a date' : null,
+          onTap: () async {
+            final now = DateTime.now();
+            final earliest = widget.pastAllowed
+                ? DateTime(now.year - 3)
+                : DateTime(now.year, now.month, now.day);
+            final latest =
+                widget.pastAllowed ? now : now.add(const Duration(days: 730));
+            final initial = DateTime.tryParse(widget.controller.text) ?? now;
+            final picked = await showDatePicker(
+                context: context,
+                initialDate: initial.isBefore(earliest)
+                    ? earliest
+                    : initial.isAfter(latest)
+                        ? latest
+                        : initial,
+                firstDate: earliest,
+                lastDate: latest);
+            if (picked != null && mounted) {
+              setState(() => widget.controller.text =
+                  picked.toIso8601String().split('T').first);
+            }
+          }));
 }

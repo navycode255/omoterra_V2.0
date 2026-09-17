@@ -3,86 +3,127 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/api/repository.dart';
 import '../../core/auth/session.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/theme/theme.dart';
 import '../../shared/widgets/components.dart';
 import '../../shared/widgets/data_form.dart';
 import '../../shared/widgets/photo_picker.dart';
+import '../../shared/widgets/supply_art.dart';
+import 'inventory_screens.dart';
 
 class SupplierHome extends ConsumerWidget {
   const SupplierHome({super.key});
   @override
-  Widget build(BuildContext context, WidgetRef ref) =>
-      ListView(padding: const EdgeInsets.all(20), children: [
-        Text(
-            'Hello, ${ref.watch(sessionProvider).valueOrNull?.name.split(' ').first ?? 'there'}',
-            style: const TextStyle(color: OColors.secondary)),
-        const SizedBox(height: 8),
-        Text('Your supply.\nNew possibilities.',
-            style: Theme.of(context).textTheme.headlineLarge),
-        const SizedBox(height: 24),
-        ResourceView('/supplier/stock', builder: (rows) {
-          num sum(String key) => (rows as List)
-              .fold<num>(0, (sum, r) => sum + num.parse('${r[key]}'));
-          return Column(children: [
-            Surface(
-                color: OColors.soft,
-                child: Row(children: [
-                  for (final e in {
-                    'Available': 'quantity_available',
-                    'Reserved': 'quantity_reserved',
-                    'Sold': 'quantity_sold'
-                  }.entries)
-                    Expanded(
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                          Text(amount(sum(e.value)),
-                              style:
-                                  Theme.of(context).textTheme.headlineMedium),
-                          Text(e.key,
-                              style: const TextStyle(
-                                  fontSize: 12, color: OColors.secondary))
-                        ]))
-                ])),
-            for (final row in rows)
-              if (row['listing_status'] == 'needs_confirmation')
-                Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Surface(
-                        color: OColors.pale,
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Text('Confirm your stock',
-                                  style:
-                                      TextStyle(fontWeight: FontWeight.w700)),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.s;
+    return ListView(
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+        children: [
+          Text(
+              s.greeting(ref
+                      .watch(sessionProvider)
+                      .valueOrNull
+                      ?.name
+                      .split(' ')
+                      .first ??
+                  ''),
+              style: Theme.of(context).textTheme.headlineMedium),
+          const SizedBox(height: 18),
+          ResourceView('/supplier/stock', builder: (rows) {
+            return Column(children: [
+              StockBalances(rows, labels: s),
+              for (final row in rows)
+                if (row['listing_status'] == 'needs_confirmation')
+                  Padding(
+                      padding: const EdgeInsets.only(top: 12),
+                      child: Container(
+                          padding: const EdgeInsets.all(16),
+                          decoration: BoxDecoration(
+                              color: const Color(0xFFFDF8F0),
+                              borderRadius: BorderRadius.circular(14),
+                              border: Border.all(
+                                  color: const Color(0xFFF0DEC4))),
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Row(children: [
+                                  const Icon(Icons.schedule,
+                                      size: 17, color: OColors.warning),
+                                  const SizedBox(width: 7),
+                                  Text(s.confirmStock,
+                                      style: const TextStyle(
+                                          fontWeight: FontWeight.w700,
+                                          fontSize: 14)),
+                                ]),
+                                const SizedBox(height: 6),
+                                Text(
+                                    s.confirmStockBody(
+                                        amount(row['quantity_available']),
+                                        label(row['category']).toLowerCase()),
+                                    style: const TextStyle(
+                                        fontSize: 13,
+                                        color: OColors.secondary)),
+                                const SizedBox(height: 8),
+                                TextButton(
+                                    style: TextButton.styleFrom(
+                                        padding: EdgeInsets.zero,
+                                        minimumSize: const Size(0, 34)),
+                                    onPressed: () =>
+                                        context.push('/stock/${row['id']}'),
+                                    child: Text(
+                                        s.confirmQty(amount(
+                                            row['quantity_available']))))
+                              ])))
+            ]);
+          }),
+          const SizedBox(height: 12),
+          ResourceView('/supplier/payouts',
+              builder: (rows) => InkWell(
+                  onTap: () => context.push('/payouts'),
+                  borderRadius: BorderRadius.circular(16),
+                  child: Container(
+                      padding: const EdgeInsets.all(18),
+                      decoration: BoxDecoration(
+                          color: OColors.soft,
+                          borderRadius: BorderRadius.circular(16)),
+                      child: Row(children: [
+                        Expanded(
+                            child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                              Text(s.expectedPayment,
+                                  style: const TextStyle(
+                                      fontSize: 12.5,
+                                      color: OColors.secondary)),
+                              const SizedBox(height: 5),
                               Text(
-                                  'Are ${amount(row['quantity_available'])} ${label(row['category']).toLowerCase()} still available?'),
-                              TextButton(
-                                  onPressed: () =>
-                                      context.push('/stock/${row['id']}'),
-                                  child: const Text('Confirm availability'))
-                            ])))
-          ]);
-        }),
-        SectionHeader('Expected payment',
-            action: 'View payouts', onTap: () => context.push('/payouts')),
-        ResourceView('/supplier/payouts',
-            builder: (rows) => InkWell(
-                onTap: () => context.push('/payouts'),
-                child: MoneySummary({
-                  'Pending': tsh((rows as List)
-                      .where((r) => r['status'] == 'pending')
-                      .fold<num>(
-                          0, (s, r) => s + num.parse('${r['total_payable']}')))
-                }))),
-        const SizedBox(height: 24),
-        OmoterraButton('+ Add Stock',
-            onPressed: () => context.push('/stock/new')),
-        SectionHeader('Your stock',
-            action: 'View all', onTap: () => context.go('/stock')),
-        const StockList()
-      ]);
+                                  tsh((rows as List)
+                                      .where((r) => r['status'] == 'pending')
+                                      .fold<num>(
+                                          0,
+                                          (sum, r) => sum +
+                                              num.parse(
+                                                  '${r['total_payable']}'))),
+                                  style: const TextStyle(
+                                      fontSize: 23,
+                                      fontWeight: FontWeight.w700,
+                                      color: OColors.forest)),
+                            ])),
+                        const Icon(Icons.chevron_right, color: OColors.forest),
+                      ])))),
+          const SizedBox(height: 18),
+          FilledButton.icon(
+              onPressed: () => context.push('/stock/new'),
+              icon: const Icon(Icons.add, size: 19),
+              label: Text(s.addStock)),
+          const SizedBox(height: 10),
+          OmoterraButton('Sales records',
+              secondary: true, onPressed: () => context.push('/sales')),
+          SectionHeader(s.yourStock,
+              action: s.viewAll, onTap: () => context.go('/stock')),
+          const StockList()
+        ]);
+  }
 }
 
 class StockList extends StatelessWidget {
@@ -166,83 +207,120 @@ class StockDetail extends ConsumerWidget {
     await omoterraSheet(
         context,
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(
-              action == 'confirm'
-                  ? 'Confirm your stock'
-                  : action == 'pause'
-                      ? 'Pause listing'
-                      : 'Update quantity',
+          Text(action == 'confirm' ? 'Confirm your stock' : 'Pause listing',
               style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 12),
           Text(action == 'confirm'
-              ? 'Are ${amount(row['quantity_available'])} ${label(row['category']).toLowerCase()} still available?'
-              : action == 'pause'
-                  ? 'Buyers will no longer be able to reserve this stock.'
-                  : 'Enter the original total, including reserved and sold stock.'),
+              ? 'Are ${stockUnits(row['quantity_available'], row['unit_type'])} still available?'
+              : 'Buyers will no longer be able to reserve this stock. Existing confirmed orders remain reserved.'),
           const SizedBox(height: 24),
           DataForm(
               path: '/supplier/stock/$id',
               method: 'PATCH',
               fixed: {'action': action},
-              fields: action == 'update'
-                  ? [
-                      FormFieldSpec('quantity_total', 'Total quantity',
-                          numeric: true,
-                          initial:
-                              amount(row['quantity_total']).replaceAll(',', ''))
-                    ]
-                  : [],
+              fields: const [],
               button: action == 'confirm'
                   ? 'Confirm ${amount(row['quantity_available'])}'
-                  : 'Save',
+                  : 'Pause listing',
               onSuccess: (_) {
-                ref.invalidate(resourceProvider('/supplier/stock/$id'));
-                ref.invalidate(resourceProvider('/supplier/stock'));
+                refreshStock(ref, id);
                 Navigator.pop(context);
-              })
+              }),
+          if (action == 'confirm')
+            TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                  context.push('/stock/$id/correct');
+                },
+                child: const Text('The count is different')),
         ]));
   }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => Scaffold(
-      appBar: AppBar(title: const Text('Stock details')),
+      appBar: AppBar(title: const Text('Stock details'), actions: [
+        IconButton(
+            tooltip: 'Refresh stock',
+            onPressed: () => refreshStock(ref, id),
+            icon: const Icon(Icons.refresh))
+      ]),
       body: ListView(padding: const EdgeInsets.all(20), children: [
         ResourceView('/supplier/stock/$id',
             builder: (row) =>
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  ProductImage(List<String>.from(row['photos'])),
-                  const SizedBox(height: 24),
+                  ProductImage(List<String>.from(row['photos']),
+                      category: row['category'], height: 190),
+                  const SizedBox(height: 20),
                   Text(label(row['category']),
                       style: Theme.of(context).textTheme.headlineMedium),
                   const SizedBox(height: 8),
                   StatusText(row['listing_status']),
-                  const SizedBox(height: 24),
+                  const SizedBox(height: 20),
+                  StockBalances([row]),
+                  const SizedBox(height: 20),
+                  OmoterraButton('Record a sale',
+                      onPressed: num.parse('${row['quantity_available']}') > 0
+                          ? () => context.push('/stock/$id/sell')
+                          : null),
+                  const SizedBox(height: 8),
+                  const Text(
+                      'Omoterra deliveries are recorded automatically. Use this button for goods sold elsewhere.',
+                      style: TextStyle(fontSize: 12, color: OColors.secondary)),
+                  const SectionHeader('Manage your stock'),
+                  _action(
+                      context,
+                      'Correct stock count',
+                      'Fix an entry mistake. Sold history stays unchanged.',
+                      'history',
+                      '/stock/$id/correct'),
+                  _action(
+                      context,
+                      'Add stock received',
+                      'Increase this batch with a receipt in history.',
+                      'crate',
+                      '/stock/$id/add'),
+                  _action(
+                      context,
+                      'Stock history',
+                      'See sales, corrections and reservations.',
+                      'receipt',
+                      '/stock/$id/history'),
+                  const SectionHeader('Stock information'),
                   MoneySummary({
-                    'Original quantity': amount(row['quantity_total']),
-                    'Available': amount(row['quantity_available']),
-                    'Reserved': amount(row['quantity_reserved']),
-                    'Sold': amount(row['quantity_sold']),
+                    'Recorded total':
+                        stockUnits(row['quantity_total'], row['unit_type']),
                     'Your asking price':
-                        '${tsh(row['farmer_asking_price_per_unit'])} / ${row['unit_type']}'
+                        '${tsh(row['farmer_asking_price_per_unit'])} / ${row['unit_type']}',
+                    'Region': row['region']
                   }),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 12),
                   MoneySummary(Map<String, dynamic>.from(row['specs'])
                       .map((k, v) => MapEntry(label(k), '$v'))),
-                  const SizedBox(height: 24),
-                  OmoterraButton('Update quantity',
-                      onPressed: () => action(context, ref, row, 'update')),
                   if (!['pending_review', 'rejected']
                       .contains(row['listing_status'])) ...[
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 24),
                     OmoterraButton('Confirm availability',
                         secondary: true,
                         onPressed: () => action(context, ref, row, 'confirm')),
                     TextButton(
                         onPressed: () => action(context, ref, row, 'pause'),
-                        child: const Text('Pause listing'))
-                  ]
+                        child: const Text('Pause listing')),
+                  ],
                 ]))
       ]));
+  Widget _action(BuildContext context, String title, String subtitle,
+          String kind, String route) =>
+      Padding(
+          padding: const EdgeInsets.only(bottom: 8),
+          child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: SupplyArt(kind, size: 46),
+              title: Text(title,
+                  style: const TextStyle(
+                      fontSize: 14, fontWeight: FontWeight.w700)),
+              subtitle: Text(subtitle, style: const TextStyle(fontSize: 12)),
+              trailing: const Icon(Icons.chevron_right, size: 20),
+              onTap: () => context.push(route)));
 }
 
 class AddStockScreen extends ConsumerStatefulWidget {
@@ -345,51 +423,78 @@ class _AddStockState extends ConsumerState<AddStockScreen> {
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
+                    _StepDots(current: step, total: 5),
+                    const SizedBox(height: 20),
                     Text(
                         [
-                          'Choose a category',
-                          'Stock details',
-                          'Price & location',
-                          'Photos',
-                          'Review your stock'
+                          ref.s.selectCategory,
+                          ref.s.stockDetails,
+                          ref.s.priceAndLocation,
+                          ref.s.addPhotos,
+                          ref.s.previewSubmit
                         ][step],
                         style: Theme.of(context).textTheme.headlineMedium),
-                    const SizedBox(height: 12),
-                    LinearProgressIndicator(
-                        value: (step + 1) / 5, minHeight: 3),
-                    const SizedBox(height: 24),
+                    const SizedBox(height: 20),
                     if (step == 0)
-                      Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: categories
-                              .map((c) => ChoiceChip(
-                                  label: Text(label(c)),
-                                  selected: category == c,
-                                  onSelected: (_) =>
-                                      setState(() => category = c)))
-                              .toList()),
+                      LayoutBuilder(
+                          builder: (context, box) => Wrap(
+                              spacing: 12,
+                              runSpacing: 12,
+                              children: categories
+                                  .map((c) => SizedBox(
+                                      width: (box.maxWidth - 12) / 2,
+                                      child: CategoryCard(c,
+                                          selected: category == c,
+                                          onTap: () =>
+                                              setState(() => category = c))))
+                                  .toList())),
                     if (step == 1) ...[
                       OmoterraTextField('Quantity (${unitFor(category)})',
                           field('quantity_total'),
                           keyboard: const TextInputType.numberWithOptions(
                               decimal: true)),
                       for (final k in specKeys)
-                        OmoterraTextField(
-                            label(k) +
-                                (k.endsWith('date') ? ' (YYYY-MM-DD)' : ''),
-                            field(
-                                k,
-                                k.endsWith('date')
-                                    ? DateTime.now()
-                                        .toIso8601String()
-                                        .split('T')
-                                        .first
-                                    : k == 'live_or_dressed'
-                                        ? 'live'
-                                        : k == 'chilled_or_frozen'
-                                            ? 'chilled'
-                                            : ''))
+                        if (k.endsWith('date'))
+                          OmoterraDateField(
+                              label(k),
+                              field(
+                                  k,
+                                  DateTime.now()
+                                      .toIso8601String()
+                                      .split('T')
+                                      .first),
+                              pastAllowed: k == 'slaughter_date')
+                        else if (['live_or_dressed', 'chilled_or_frozen', 'sex']
+                            .contains(k))
+                          Padding(
+                              padding: const EdgeInsets.only(bottom: 16),
+                              child: DropdownButtonFormField<String>(
+                                  initialValue: field(
+                                          k,
+                                          k == 'live_or_dressed'
+                                              ? 'live'
+                                              : k == 'sex'
+                                                  ? 'mixed'
+                                                  : 'chilled')
+                                      .text,
+                                  decoration:
+                                      InputDecoration(labelText: label(k)),
+                                  items: (k == 'live_or_dressed'
+                                          ? ['live', 'dressed']
+                                          : k == 'sex'
+                                              ? ['male', 'female', 'mixed']
+                                              : ['chilled', 'frozen'])
+                                      .map((v) => DropdownMenuItem(
+                                          value: v, child: Text(label(v))))
+                                      .toList(),
+                                  onChanged: (value) => field(k).text = value!))
+                        else
+                          OmoterraTextField(label(k), field(k),
+                              keyboard:
+                                  ['avg_weight_kg', 'age_weeks'].contains(k)
+                                      ? const TextInputType.numberWithOptions(
+                                          decimal: true)
+                                      : TextInputType.text),
                     ],
                     if (step == 2) ...[
                       OmoterraTextField(
@@ -410,6 +515,8 @@ class _AddStockState extends ConsumerState<AddStockScreen> {
                           photos: photos,
                           onChanged: (value) => setState(() => photos = value)),
                     if (step == 4) ...[
+                      ProductImage(photos, category: category, height: 150),
+                      const SizedBox(height: 16),
                       MoneySummary({
                         'Category': label(category),
                         'Quantity':
@@ -576,4 +683,37 @@ class PayoutScreen extends StatelessWidget {
           ]);
         })
       ]));
+}
+
+/// Numbered progress dots across the Add Stock steps, as drawn.
+class _StepDots extends StatelessWidget {
+  final int current, total;
+  const _StepDots({required this.current, required this.total});
+  @override
+  Widget build(BuildContext context) => Row(children: [
+        for (var i = 0; i < total; i++) ...[
+          Container(
+              width: 26,
+              height: 26,
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                  color: i <= current ? OColors.forest : Colors.white,
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                      color: i <= current ? OColors.forest : OColors.border)),
+              child: i < current
+                  ? const Icon(Icons.check, size: 14, color: Colors.white)
+                  : Text('${i + 1}',
+                      style: TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          color:
+                              i <= current ? Colors.white : OColors.muted))),
+          if (i != total - 1)
+            Expanded(
+                child: Container(
+                    height: 2,
+                    color: i < current ? OColors.forest : OColors.border)),
+        ]
+      ]);
 }

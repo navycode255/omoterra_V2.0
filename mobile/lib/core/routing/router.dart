@@ -7,6 +7,8 @@ import '../../features/authentication/screens.dart';
 import '../../features/buyer/screens.dart';
 import '../../features/buyer/requests.dart';
 import '../../features/supplier/screens.dart';
+import '../../features/supplier/inventory_screens.dart';
+import '../../shared/widgets/supply_art.dart';
 import '../../features/account/screens.dart';
 import '../../shared/widgets/components.dart';
 
@@ -22,7 +24,8 @@ String? routeGuard(String path,
   }
   final supplierPath = path.startsWith('/supplier') ||
       path.startsWith('/stock') ||
-      path.startsWith('/payouts');
+      path.startsWith('/payouts') ||
+      path.startsWith('/sales');
   final commonPath = path.startsWith('/account');
   if (supplierPath && !roles.contains('supplier')) return '/buyer';
   if (!supplierPath && !commonPath && !roles.contains('buyer')) {
@@ -103,6 +106,9 @@ final routerProvider = Provider<GoRouter>((ref) {
         GoRoute(
             path: '/request', builder: (_, __) => const RequestSupplyScreen()),
         GoRoute(
+            path: '/request-submitted/:id',
+            builder: (_, s) => RequestSubmitted(s.pathParameters['id']!)),
+        GoRoute(
             path: '/requests/:id',
             builder: (_, s) => RequestDetail(s.pathParameters['id']!)),
         GoRoute(path: '/business', builder: (_, __) => const BusinessScreen()),
@@ -140,6 +146,24 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/addresses/new',
             builder: (_, s) => AddressesScreen(
                 create: true, edit: s.extra as Map<String, dynamic>?)),
+        GoRoute(
+            path: '/stock/:id/correct',
+            builder: (_, s) =>
+                StockChangeScreen(s.pathParameters['id']!, 'correct')),
+        GoRoute(
+            path: '/stock/:id/add',
+            builder: (_, s) =>
+                StockChangeScreen(s.pathParameters['id']!, 'add')),
+        GoRoute(
+            path: '/stock/:id/sell',
+            builder: (_, s) => RecordSaleScreen(s.pathParameters['id']!)),
+        GoRoute(
+            path: '/stock/:id/history',
+            builder: (_, s) => StockHistoryScreen(s.pathParameters['id']!)),
+        GoRoute(path: '/sales', builder: (_, __) => const SalesScreen()),
+        GoRoute(
+            path: '/sales/:id',
+            builder: (_, s) => SalesScreen(id: s.pathParameters['id'])),
         GoRoute(path: '/stock/new', builder: (_, __) => const AddStockScreen()),
         GoRoute(
             path: '/stock/:id',
@@ -172,6 +196,9 @@ class SessionScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final session = ref.watch(sessionProvider);
+    // While the stored session is being restored the designed splash stands in
+    // for a loading state; only a real failure replaces it with recovery UI.
+    if (!session.hasError) return const SplashScreen();
     return Scaffold(
         body: SafeArea(
             child: Padding(
@@ -190,7 +217,7 @@ class SessionScreen extends ConsumerWidget {
                             },
                             child: const Text('Sign in again'))
                       ])
-                    : const LoadingSkeleton())));
+                    : const SizedBox.shrink())));
   }
 }
 
@@ -210,17 +237,14 @@ class AppShell extends ConsumerWidget {
         ? ['/supplier', '/stock', '/supplier-orders', '/account']
         : ['/buyer', '/explore', '/orders', '/account'];
     return Scaffold(
-        appBar: AppBar(
-            title: const Text('omoterra',
-                style: TextStyle(fontWeight: FontWeight.w700)),
-            actions: [
-              Padding(
-                  padding: const EdgeInsets.only(right: 20),
-                  child: Center(
-                      child: Text(supplier ? 'SUPPLIER' : 'BUYER',
-                          style: const TextStyle(
-                              fontSize: 10, letterSpacing: 1.5))))
-            ]),
+        appBar: AppBar(title: const BrandMark(size: 23), actions: [
+          Padding(
+              padding: const EdgeInsets.only(right: 20),
+              child: Center(
+                  child: Text(supplier ? 'SUPPLIER' : 'BUYER',
+                      style:
+                          const TextStyle(fontSize: 10, letterSpacing: 1.5))))
+        ]),
         body: SafeArea(
             child: RefreshIndicator(
                 onRefresh: () async {

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:omoterra/core/theme/theme.dart';
 import 'package:omoterra/features/authentication/screens.dart';
@@ -11,16 +12,17 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
-    await tester.pumpWidget(MaterialApp(
-        theme: omoterraTheme(),
-        builder: (context, child) => MediaQuery(
-            data: MediaQuery.of(context)
-                .copyWith(textScaler: const TextScaler.linear(1.4)),
-            child: child!),
-        home: const WelcomeScreen()));
+    await tester.pumpWidget(ProviderScope(
+        child: MaterialApp(
+            theme: omoterraTheme(),
+            builder: (context, child) => MediaQuery(
+                data: MediaQuery.of(context)
+                    .copyWith(textScaler: const TextScaler.linear(1.4)),
+                child: child!),
+            home: const WelcomeScreen())));
+    await tester.pump();
     expect(tester.takeException(), isNull);
-    await tester.scrollUntilVisible(find.text('Get started'), 200);
-    expect(find.text('Get started'), findsOneWidget);
+    expect(find.text('Get Started'), findsOneWidget);
     expect(tester.takeException(), isNull);
   });
   testWidgets('payment failure uses a distinct cancelled tracker',

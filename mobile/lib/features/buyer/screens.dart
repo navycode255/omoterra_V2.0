@@ -4,103 +4,172 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/api/repository.dart';
 import '../../core/auth/session.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/theme/theme.dart';
 import '../../shared/models/domain.dart';
+import '../../shared/widgets/brand_image.dart';
 import '../../shared/widgets/components.dart';
+import '../../shared/widgets/data_form.dart';
 
 class BuyerHome extends ConsumerWidget {
   const BuyerHome({super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(sessionProvider).valueOrNull;
-    return ListView(padding: const EdgeInsets.all(20), children: [
-      Text('Hello, ${user?.name.split(' ').first ?? 'there'}',
-          style: const TextStyle(color: OColors.secondary)),
-      const SizedBox(height: 8),
-      Text('What do you\nneed today?',
-          style: Theme.of(context).textTheme.headlineLarge),
-      const SizedBox(height: 24),
+    final s = ref.s;
+    return ListView(padding: const EdgeInsets.fromLTRB(20, 8, 20, 24), children: [
+      Text(s.greeting(user?.name.split(' ').first ?? ''),
+          style: Theme.of(context).textTheme.headlineMedium),
+      const SizedBox(height: 6),
+      Text(s.whatToday, style: const TextStyle(color: OColors.secondary)),
+      const SizedBox(height: 18),
+      // Buy Supply is the visually dominant card; the rest support it.
       InkWell(
           onTap: () => context.go('/explore'),
-          borderRadius: BorderRadius.circular(16),
-          child: Container(
-              padding: const EdgeInsets.all(24),
-              decoration: BoxDecoration(
-                  color: OColors.forest,
-                  borderRadius: BorderRadius.circular(16)),
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Icon(Icons.agriculture_outlined,
-                        size: 36, color: Colors.white),
-                    const SizedBox(height: 20),
-                    const Text('Buy Supply',
-                        style: TextStyle(
-                            color: Colors.white,
-                            fontSize: 25,
-                            fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 8),
-                    const Text(
-                        'Fresh stock. Clear prices.\nCoordinated from farm to you.',
-                        style:
-                            TextStyle(color: Color(0xFFD6E5DA), height: 1.5)),
-                    const SizedBox(height: 20),
-                    Row(children: [
-                      const Text('Explore available supply',
-                          style: TextStyle(color: Colors.white)),
-                      const Spacer(),
-                      const Icon(Icons.arrow_forward, color: Colors.white)
-                    ])
-                  ]))),
+          borderRadius: BorderRadius.circular(18),
+          child: ClipRRect(
+              borderRadius: BorderRadius.circular(18),
+              child: Stack(children: [
+                const Positioned.fill(
+                    child: BrandImage('category_broilers',
+                        fallbackArt: 'broilers')),
+                Positioned.fill(
+                    child: DecoratedBox(
+                        decoration: BoxDecoration(
+                            gradient: LinearGradient(
+                                begin: Alignment.centerLeft,
+                                end: Alignment.centerRight,
+                                colors: [
+                              OColors.forest,
+                              OColors.forest.withValues(alpha: .72),
+                            ])))),
+                Padding(
+                    padding: const EdgeInsets.all(20),
+                    child: Row(children: [
+                      Expanded(
+                          child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                            Text(s.buySupplyCard,
+                                style: const TextStyle(
+                                    color: Colors.white,
+                                    fontSize: 22,
+                                    fontWeight: FontWeight.w700)),
+                            const SizedBox(height: 6),
+                            Text(s.buySupplyCardBody,
+                                style: const TextStyle(
+                                    color: Color(0xFFD6E5DA),
+                                    fontSize: 13,
+                                    height: 1.45)),
+                          ])),
+                      Container(
+                          width: 38,
+                          height: 38,
+                          decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: .18),
+                              shape: BoxShape.circle),
+                          child: const Icon(Icons.arrow_forward,
+                              color: Colors.white, size: 19)),
+                    ])),
+              ]))),
       const SizedBox(height: 12),
-      Row(children: [
+      Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Expanded(
-            child: _entry(context, 'Request Supply', 'Tell us what you need',
-                Icons.playlist_add, '/request')),
+            child: _entry(
+                context,
+                s.requestSupply,
+                s.requestSupplyBody,
+                Icons.assignment_outlined,
+                const Color(0xFFFBF1E6),
+                OColors.warning,
+                '/request')),
         const SizedBox(width: 12),
         Expanded(
-            child: _entry(context, 'Start a Business', 'Take your next step',
-                Icons.storefront_outlined, '/business'))
+            child: _entry(
+                context,
+                s.startBusiness,
+                s.startBusinessBody,
+                Icons.storefront_outlined,
+                const Color(0xFFF1EDF8),
+                const Color(0xFF6A4FA3),
+                '/business')),
       ]),
       const SizedBox(height: 12),
-      ListTile(
-          contentPadding: const EdgeInsets.symmetric(horizontal: 4),
-          title: const Text('My orders'),
-          trailing: const Icon(Icons.arrow_forward, size: 20),
-          onTap: () => context.go('/orders')),
-      const SectionHeader('Available today'),
+      _entryWide(context, s.myOrders, s.myOrdersBody, Icons.receipt_long_outlined,
+          '/orders'),
+      SectionHeader(s.availableToday,
+          action: s.viewAll, onTap: () => context.go('/explore')),
       const ListingFeed(),
-      const SectionHeader('Browse by category'),
-      Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: categories
-              .map((c) => ActionChip(
-                  label: Text(label(c)),
-                  onPressed: () => context.go('/explore?category=$c')))
-              .toList())
     ]);
   }
 
   Widget _entry(BuildContext context, String title, String subtitle,
-          IconData icon, String route) =>
+          IconData icon, Color tint, Color iconColor, String route) =>
       InkWell(
           onTap: () => context.push(route),
           borderRadius: BorderRadius.circular(16),
-          child: Surface(
-              color: OColors.pale,
+          child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: OColors.border)),
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(icon, color: OColors.forest),
+                    Container(
+                        width: 36,
+                        height: 36,
+                        decoration: BoxDecoration(
+                            color: tint,
+                            borderRadius: BorderRadius.circular(10)),
+                        child: Icon(icon, size: 19, color: iconColor)),
                     const SizedBox(height: 12),
                     Text(title,
-                        style: const TextStyle(fontWeight: FontWeight.w700)),
-                    const SizedBox(height: 6),
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w700, fontSize: 14)),
+                    const SizedBox(height: 4),
                     Text(subtitle,
                         style: const TextStyle(
-                            fontSize: 12, color: OColors.secondary))
+                            fontSize: 12,
+                            color: OColors.secondary,
+                            height: 1.35))
                   ])));
+
+  Widget _entryWide(BuildContext context, String title, String subtitle,
+          IconData icon, String route) =>
+      InkWell(
+          onTap: () => context.go(route),
+          borderRadius: BorderRadius.circular(16),
+          child: Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: OColors.border)),
+              child: Row(children: [
+                Container(
+                    width: 36,
+                    height: 36,
+                    decoration: BoxDecoration(
+                        color: OColors.soft,
+                        borderRadius: BorderRadius.circular(10)),
+                    child: Icon(icon, size: 19, color: OColors.forest)),
+                const SizedBox(width: 14),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text(title,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w700, fontSize: 14)),
+                      const SizedBox(height: 3),
+                      Text(subtitle,
+                          style: const TextStyle(
+                              fontSize: 12, color: OColors.secondary))
+                    ])),
+                const Icon(Icons.chevron_right, color: OColors.muted),
+              ])));
 }
 
 class ListingFeed extends ConsumerWidget {
@@ -224,47 +293,102 @@ class _ExploreState extends State<ExploreScreen> {
   }
 
   @override
-  Widget build(BuildContext context) =>
-      ListView(padding: const EdgeInsets.all(20), children: [
-        Text('Explore supply',
-            style: Theme.of(context).textTheme.headlineMedium),
-        const SizedBox(height: 20),
-        Row(children: [
-          Expanded(
-              child: TextField(
-                  decoration: const InputDecoration(
-                      hintText: 'Search livestock or meat',
-                      prefixIcon: Icon(Icons.search)),
-                  onChanged: (v) => setState(() => search = v))),
-          const SizedBox(width: 8),
-          IconButton(
-              tooltip: 'Filter supply',
-              onPressed: filters,
-              icon: const Icon(Icons.tune))
-        ]),
-        const SizedBox(height: 16),
-        SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-                children: ['', ...categories]
-                    .map((c) => Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                            label: Text(c.isEmpty ? 'All supply' : label(c)),
-                            selected: c == category,
-                            onSelected: (_) => setState(() => category = c))))
-                    .toList())),
-        const SizedBox(height: 20),
-        ListingFeed(
-            category: category,
-            search: search,
-            region: region,
-            readyBy: readyBy,
-            condition: condition,
-            minWeight: minWeight,
-            maxWeight: maxWeight,
-            maxPrice: maxPrice)
-      ]);
+  Widget build(BuildContext context) => Consumer(builder: (context, ref, _) {
+        final s = ref.s;
+        return ListView(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            children: [
+              Row(children: [
+                Expanded(
+                    child: Container(
+                        height: 46,
+                        decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(23),
+                            border: Border.all(color: OColors.border)),
+                        child: TextField(
+                            decoration: InputDecoration(
+                                hintText: s.searchHint,
+                                filled: false,
+                                border: InputBorder.none,
+                                enabledBorder: InputBorder.none,
+                                focusedBorder: InputBorder.none,
+                                isDense: true,
+                                contentPadding: const EdgeInsets.symmetric(
+                                    vertical: 13, horizontal: 4),
+                                prefixIcon: const Icon(Icons.search,
+                                    size: 20, color: OColors.muted),
+                                hintStyle: const TextStyle(
+                                    color: OColors.muted, fontSize: 14)),
+                            onChanged: (v) => setState(() => search = v)))),
+                const SizedBox(width: 10),
+                InkWell(
+                    onTap: filters,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                        width: 46,
+                        height: 46,
+                        decoration: BoxDecoration(
+                            color: Colors.white,
+                            borderRadius: BorderRadius.circular(12),
+                            border: Border.all(color: OColors.border)),
+                        child: const Icon(Icons.tune,
+                            size: 20, color: OColors.forest))),
+              ]),
+              const SizedBox(height: 16),
+              SizedBox(
+                  height: 36,
+                  child: ListView(
+                      scrollDirection: Axis.horizontal,
+                      padding: EdgeInsets.zero,
+                      children: ['', ...categories]
+                          .map((c) => Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: _FilterChip(
+                                  label: c.isEmpty ? s.all : label(c),
+                                  selected: c == category,
+                                  onTap: () => setState(() => category = c))))
+                          .toList())),
+              const SizedBox(height: 18),
+              ListingFeed(
+                  category: category,
+                  search: search,
+                  region: region,
+                  readyBy: readyBy,
+                  condition: condition,
+                  minWeight: minWeight,
+                  maxWeight: maxWeight,
+                  maxPrice: maxPrice)
+            ]);
+      });
+}
+
+class _FilterChip extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _FilterChip(
+      {required this.label, required this.selected, required this.onTap});
+  @override
+  Widget build(BuildContext context) => Semantics(
+      selected: selected,
+      button: true,
+      child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(18),
+          child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              alignment: Alignment.center,
+              decoration: BoxDecoration(
+                  color: selected ? OColors.forest : Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(
+                      color: selected ? OColors.forest : OColors.border)),
+              child: Text(label,
+                  style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: selected ? Colors.white : OColors.secondary)))));
 }
 
 class ListingDetail extends ConsumerStatefulWidget {
@@ -344,89 +468,279 @@ class _ListingDetailState extends ConsumerState<ListingDetail> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: const Text('Supply details')),
-      body: ListView(padding: const EdgeInsets.all(20), children: [
-        ResourceView('/listings/${widget.id}', builder: (data) {
+  Widget build(BuildContext context) {
+    final s = ref.s;
+    return Scaffold(
+        body: ResourceView('/listings/${widget.id}', builder: (data) {
           final listing =
               SupplyListing.fromJson(Map<String, dynamic>.from(data));
-          return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
+          final count = num.tryParse(quantity.text) ?? 0;
+          final total = count * num.parse(listing.price);
+          return Column(children: [
+            Expanded(
+                child: ListView(padding: EdgeInsets.zero, children: [
+              // Full-bleed hero with floating controls, as drawn.
+              Stack(children: [
                 Hero(
                     tag: listing.id,
-                    child: ProductImage(listing.photos, height: 240)),
-                const SizedBox(height: 24),
-                Text(label(listing.category),
-                    style: Theme.of(context).textTheme.headlineMedium),
-                const SizedBox(height: 8),
-                Text('${tsh(listing.price)} / ${listing.unitType}',
-                    style: const TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.w700,
-                        color: OColors.forest)),
-                Text(
-                    '${amount(listing.available)} ${listing.unitType}s available · ${listing.region}'),
-                const SectionHeader('Supply details'),
-                MoneySummary(
-                    listing.specs.map((k, v) => MapEntry(label(k), '$v'))),
-                const SizedBox(height: 16),
-                Surface(
-                    color: OColors.pale,
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                              '${listing.supplier?['public_alias'] ?? 'Omoterra supply partner'}',
-                              style:
-                                  const TextStyle(fontWeight: FontWeight.w700)),
-                          const SizedBox(height: 4),
-                          Text(listing.region),
-                          const SizedBox(height: 8),
-                          const Text('Omoterra Approved',
-                              style: TextStyle(color: OColors.positive)),
-                          const SizedBox(height: 8),
-                          const Text(
-                              'Omoterra coordinates quality, collection and delivery.')
-                        ])),
-                const SectionHeader('Choose your quantity'),
-                TextField(
-                    controller: quantity,
-                    enabled: hold == null && !busy,
-                    keyboardType:
-                        const TextInputType.numberWithOptions(decimal: true),
-                    decoration: InputDecoration(
-                        labelText: 'Quantity (${listing.unitType})'),
-                    onChanged: (_) => setState(() {}),
-                    onSubmitted: (_) => reserve()),
-                const SizedBox(height: 12),
-                Text(
-                    'Estimated total ${tsh((num.tryParse(quantity.text) ?? 0) * num.parse(listing.price))}',
-                    style: Theme.of(context).textTheme.titleLarge),
-                const Text(
-                    'Final pricing is confirmed by the server at checkout.',
-                    style: TextStyle(fontSize: 12, color: OColors.secondary)),
-                if (hold != null) ...[
-                  const SizedBox(height: 12),
-                  const Text('Stock reserved for 15 minutes.'),
-                  TextButton(
-                      onPressed: busy ? null : changeQuantity,
-                      child: const Text('Release & change quantity'))
-                ],
-                if (error != null) ErrorState(error!),
-                const SizedBox(height: 20),
-                if (hold == null)
-                  OmoterraButton('Confirm quantity & reserve',
-                      secondary: true, busy: busy, onPressed: () => reserve()),
-                const SizedBox(height: 12),
-                OmoterraButton('Buy Now',
-                    busy: busy, onPressed: () => reserve(checkout: true)),
-                TextButton(
-                    onPressed: () => context.push('/request'),
-                    child: const Text('Need more? Request Supply'))
-              ]);
-        })
+                    child: ProductImage(listing.photos,
+                        category: listing.category, height: 300)),
+                Positioned(
+                    top: MediaQuery.paddingOf(context).top + 8,
+                    left: 16,
+                    right: 16,
+                    child: Row(children: [
+                      _HeroButton(
+                          icon: Icons.arrow_back,
+                          onTap: () => Navigator.of(context).maybePop()),
+                      const Spacer(),
+                      const _HeroButton(icon: Icons.favorite_border),
+                    ])),
+              ]),
+              Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(label(listing.category),
+                            style: Theme.of(context).textTheme.headlineMedium),
+                        const SizedBox(height: 8),
+                        Text('${tsh(listing.price)} / ${listing.unitType}',
+                            style: const TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.w700,
+                                color: OColors.forest)),
+                        const SizedBox(height: 6),
+                        Row(children: [
+                          const Icon(Icons.check_circle,
+                              size: 15, color: OColors.positive),
+                          const SizedBox(width: 5),
+                          Text(s.omoterraApproved,
+                              style: const TextStyle(
+                                  fontSize: 12.5,
+                                  color: OColors.positive,
+                                  fontWeight: FontWeight.w600)),
+                        ]),
+                        const SizedBox(height: 8),
+                        Text(
+                            '${amount(listing.available)} ${listing.unitType} ${s.available} · ${listing.region}',
+                            style: const TextStyle(
+                                fontSize: 13, color: OColors.secondary)),
+                        const SizedBox(height: 18),
+                        _SupplierCard(
+                            alias: '${listing.supplier?['public_alias'] ?? 'Omoterra supply partner'}',
+                            region: listing.region,
+                            approved: s.omoterraApproved),
+                        const SizedBox(height: 20),
+                        Text(s.specifications,
+                            style: Theme.of(context).textTheme.titleMedium),
+                        const SizedBox(height: 10),
+                        _SpecTable(listing.specs),
+                        if (error != null) ErrorState(error!),
+                        if (hold != null) ...[
+                          const SizedBox(height: 12),
+                          Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(
+                                  color: OColors.soft,
+                                  borderRadius: BorderRadius.circular(12)),
+                              child: Row(children: [
+                                const Icon(Icons.lock_clock,
+                                    size: 17, color: OColors.forest),
+                                const SizedBox(width: 8),
+                                const Expanded(
+                                    child: Text('Stock reserved for 15 minutes.',
+                                        style: TextStyle(fontSize: 13))),
+                                TextButton(
+                                    onPressed: busy ? null : changeQuantity,
+                                    child: const Text('Change')),
+                              ])),
+                        ],
+                        const SizedBox(height: 8),
+                        Center(
+                            child: TextButton(
+                                onPressed: () => context.push('/request'),
+                                child: Text(s.needMore))),
+                        const SizedBox(height: 8),
+                      ])),
+            ])),
+            // Sticky quantity + Buy Now bar.
+            Container(
+                padding: EdgeInsets.fromLTRB(
+                    20, 14, 20, 14 + MediaQuery.paddingOf(context).bottom),
+                decoration: const BoxDecoration(
+                    color: Colors.white,
+                    border:
+                        Border(top: BorderSide(color: OColors.border))),
+                child: Row(children: [
+                  _Stepper(
+                      value: quantity.text,
+                      enabled: hold == null && !busy,
+                      onMinus: () => setState(() {
+                            final v = num.tryParse(quantity.text) ?? 1;
+                            quantity.text = (v > 1 ? v - 1 : 1).toString();
+                          }),
+                      onPlus: () => setState(() => quantity.text =
+                          ((num.tryParse(quantity.text) ?? 0) + 1).toString())),
+                  const SizedBox(width: 14),
+                  Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                        Text(tsh(total),
+                            style: const TextStyle(
+                                fontSize: 17, fontWeight: FontWeight.w700)),
+                        Text(s.orderTotal,
+                            style: const TextStyle(
+                                fontSize: 11, color: OColors.muted)),
+                      ])),
+                  const SizedBox(width: 10),
+                  SizedBox(
+                      width: 132,
+                      child: FilledButton(
+                          onPressed: busy ? null : () => reserve(checkout: true),
+                          child: Text(busy ? '…' : s.buyNow))),
+                ])),
+          ]);
+        }));
+  }
+}
+
+class _HeroButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  const _HeroButton({required this.icon, this.onTap});
+  @override
+  Widget build(BuildContext context) => Material(
+      color: Colors.white,
+      shape: const CircleBorder(),
+      elevation: 1,
+      child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onTap,
+          child: SizedBox(
+              width: 38,
+              height: 38,
+              child: Icon(icon, size: 19, color: OColors.ink))));
+}
+
+class _SupplierCard extends StatelessWidget {
+  final String alias, region, approved;
+  const _SupplierCard(
+      {required this.alias, required this.region, required this.approved});
+  @override
+  Widget build(BuildContext context) => Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+          color: OColors.pale,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: OColors.border)),
+      child: Row(children: [
+        Container(
+            width: 40,
+            height: 40,
+            decoration: const BoxDecoration(
+                color: OColors.soft, shape: BoxShape.circle),
+            child: const Icon(Icons.agriculture_outlined,
+                size: 21, color: OColors.forest)),
+        const SizedBox(width: 12),
+        Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+              Text(alias,
+                  style: const TextStyle(
+                      fontWeight: FontWeight.w700, fontSize: 14)),
+              const SizedBox(height: 3),
+              Text(region,
+                  style: const TextStyle(
+                      fontSize: 12, color: OColors.secondary)),
+            ])),
+        // Deliberately no contact control: buyers never reach suppliers direct.
+        Row(children: [
+          const Icon(Icons.verified, size: 15, color: OColors.positive),
+          const SizedBox(width: 4),
+          Text(approved,
+              style: const TextStyle(
+                  fontSize: 11,
+                  color: OColors.positive,
+                  fontWeight: FontWeight.w600)),
+        ]),
       ]));
+}
+
+class _SpecTable extends StatelessWidget {
+  final Map<String, dynamic> specs;
+  const _SpecTable(this.specs);
+  @override
+  Widget build(BuildContext context) => Container(
+      decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: OColors.border)),
+      child: Column(
+          children: specs.entries.toList().asMap().entries.map((row) {
+        final last = row.key == specs.length - 1;
+        return Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+            decoration: BoxDecoration(
+                border: last
+                    ? null
+                    : const Border(
+                        bottom: BorderSide(color: OColors.border))),
+            child: Row(children: [
+              Expanded(
+                  child: Text(label(row.value.key),
+                      style: const TextStyle(
+                          fontSize: 13, color: OColors.secondary))),
+              Text('${row.value.value}',
+                  style: const TextStyle(
+                      fontSize: 13, fontWeight: FontWeight.w600)),
+            ]));
+      }).toList()));
+}
+
+class _Stepper extends StatelessWidget {
+  final String value;
+  final bool enabled;
+  final VoidCallback onMinus, onPlus;
+  const _Stepper(
+      {required this.value,
+      required this.enabled,
+      required this.onMinus,
+      required this.onPlus});
+  @override
+  Widget build(BuildContext context) => Container(
+      decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(12),
+          border: Border.all(color: OColors.border)),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        _StepButton(
+            icon: Icons.remove, onTap: enabled ? onMinus : null),
+        SizedBox(
+            width: 34,
+            child: Text(value,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    fontSize: 15, fontWeight: FontWeight.w700))),
+        _StepButton(icon: Icons.add, onTap: enabled ? onPlus : null),
+      ]));
+}
+
+class _StepButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+  const _StepButton({required this.icon, this.onTap});
+  @override
+  Widget build(BuildContext context) => InkWell(
+      onTap: onTap,
+      child: SizedBox(
+          width: 36,
+          height: 44,
+          child: Icon(icon,
+              size: 17,
+              color: onTap == null ? OColors.muted : OColors.forest)));
 }
 
 class CheckoutScreen extends ConsumerStatefulWidget {
@@ -494,6 +808,9 @@ class _CheckoutState extends ConsumerState<CheckoutScreen> {
           final hold = Reservation.fromJson(Map<String, dynamic>.from(data));
           final remaining = hold.expiresAt.difference(DateTime.now());
           final expired = remaining.isNegative || hold.status != 'active';
+          // The server decides which methods this order may use.
+          final allowed = List<String>.from(
+              data['payment_methods'] as List? ?? const ['pay_on_delivery']);
           return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -555,52 +872,146 @@ class _CheckoutState extends ConsumerState<CheckoutScreen> {
                                     .add(const Duration(days: 365)));
                             if (chosen != null) setState(() => date = chosen);
                           }),
-                const SectionHeader('Payment method'),
-                const Surface(
-                    child: Row(children: [
-                  Icon(Icons.payments_outlined, color: OColors.forest),
-                  SizedBox(width: 12),
-                  Expanded(
-                      child: Text(
-                          'Pay on Delivery\nPayment is recorded by Omoterra.'))
-                ])),
+                SectionHeader(ref.s.paymentMethod),
+                // Both methods render as designed. Pay Now stays disabled until
+                // the backend actually lists it, so no buyer can select a method
+                // that cannot complete.
+                _PaymentOption(
+                    title: ref.s.payNow,
+                    subtitle: ref.s.payNowSoon,
+                    icon: Icons.smartphone_outlined,
+                    selected: false,
+                    enabled: allowed.contains('pay_now'),
+                    onTap: null),
+                const SizedBox(height: 10),
+                _PaymentOption(
+                    title: ref.s.payOnDelivery,
+                    subtitle: ref.s.payOnDeliveryBody,
+                    icon: Icons.payments_outlined,
+                    selected: true,
+                    enabled: true,
+                    onTap: () {}),
                 if (error != null) ErrorState(error!),
                 const SizedBox(height: 24),
-                OmoterraButton('Confirm order',
+                OmoterraButton(ref.s.confirmOrder,
                     busy: busy, onPressed: expired ? null : submit)
               ]);
         })
       ]));
 }
 
-class OrderConfirmation extends StatelessWidget {
+class _PaymentOption extends StatelessWidget {
+  final String title, subtitle;
+  final IconData icon;
+  final bool selected, enabled;
+  final VoidCallback? onTap;
+  const _PaymentOption(
+      {required this.title,
+      required this.subtitle,
+      required this.icon,
+      required this.selected,
+      required this.enabled,
+      this.onTap});
+  @override
+  Widget build(BuildContext context) => Opacity(
+      opacity: enabled ? 1 : .55,
+      child: InkWell(
+          onTap: enabled ? onTap : null,
+          borderRadius: BorderRadius.circular(14),
+          child: Container(
+              padding: const EdgeInsets.all(15),
+              decoration: BoxDecoration(
+                  color: selected ? OColors.soft : Colors.white,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(
+                      color: selected ? OColors.forest : OColors.border,
+                      width: selected ? 1.5 : 1)),
+              child: Row(children: [
+                Icon(icon,
+                    size: 21,
+                    color: enabled ? OColors.forest : OColors.muted),
+                const SizedBox(width: 13),
+                Expanded(
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                      Text(title,
+                          style: const TextStyle(
+                              fontWeight: FontWeight.w600, fontSize: 14)),
+                      const SizedBox(height: 2),
+                      Text(subtitle,
+                          style: const TextStyle(
+                              fontSize: 12, color: OColors.secondary)),
+                    ])),
+                Icon(
+                    selected
+                        ? Icons.radio_button_checked
+                        : Icons.radio_button_unchecked,
+                    size: 20,
+                    color: selected ? OColors.forest : OColors.border),
+              ]))));
+}
+
+class OrderConfirmation extends ConsumerWidget {
   final String id;
   const OrderConfirmation(this.id, {super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(
-          body: SafeArea(
-              child: ListView(padding: const EdgeInsets.all(24), children: [
-        const SizedBox(height: 64),
-        const Icon(Icons.check_circle_outline,
-            color: OColors.positive, size: 72),
-        const SizedBox(height: 24),
-        Text('Your order is confirmed',
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.headlineMedium),
-        const SizedBox(height: 12),
-        Text('Order #${id.substring(0, 8).toUpperCase()}',
-            textAlign: TextAlign.center),
-        const SizedBox(height: 16),
-        const Text(
-            'Omoterra will coordinate your supply and delivery. Follow its progress here.',
-            textAlign: TextAlign.center),
-        const SizedBox(height: 40),
-        OmoterraButton('Track order',
-            onPressed: () => context.go('/order/$id')),
-        const SizedBox(height: 12),
-        OmoterraButton('Back to Home',
-            secondary: true, onPressed: () => context.go('/buyer'))
-      ])));
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.s;
+    return Scaffold(
+        body: SafeArea(
+            child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 24, 24, 24),
+                child: Column(children: [
+                  const Spacer(),
+                  Container(
+                      width: 96,
+                      height: 96,
+                      decoration: const BoxDecoration(
+                          color: OColors.soft, shape: BoxShape.circle),
+                      child: Center(
+                          child: Container(
+                              width: 62,
+                              height: 62,
+                              decoration: const BoxDecoration(
+                                  color: OColors.forest,
+                                  shape: BoxShape.circle),
+                              child: const Icon(Icons.check,
+                                  color: Colors.white, size: 33)))),
+                  const SizedBox(height: 26),
+                  Text(s.orderConfirmed,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.headlineMedium),
+                  const SizedBox(height: 10),
+                  Text(s.orderConfirmedBody,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          color: OColors.secondary, height: 1.5)),
+                  const SizedBox(height: 26),
+                  Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.symmetric(vertical: 16),
+                      decoration: BoxDecoration(
+                          color: OColors.pale,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: OColors.border)),
+                      child: Column(children: [
+                        Text(s.orderNumber,
+                            style: const TextStyle(
+                                fontSize: 12, color: OColors.muted)),
+                        const SizedBox(height: 4),
+                        Text('OMT-${id.substring(0, 6).toUpperCase()}',
+                            style: const TextStyle(
+                                fontSize: 19, fontWeight: FontWeight.w700)),
+                      ])),
+                  const Spacer(),
+                  OmoterraButton(s.trackOrder,
+                      onPressed: () => context.go('/order/$id')),
+                  const SizedBox(height: 10),
+                  OmoterraButton(s.backHome,
+                      secondary: true, onPressed: () => context.go('/buyer')),
+                ]))));
+  }
 }
 
 class OrdersScreen extends StatefulWidget {
@@ -612,80 +1023,154 @@ class OrdersScreen extends StatefulWidget {
 class _OrdersState extends State<OrdersScreen> {
   bool past = false;
   @override
-  Widget build(BuildContext context) =>
-      ListView(padding: const EdgeInsets.all(20), children: [
-        Text('Your orders', style: Theme.of(context).textTheme.headlineMedium),
-        const SizedBox(height: 20),
-        SegmentedButton<bool>(segments: const [
-          ButtonSegment(value: false, label: Text('Active')),
-          ButtonSegment(value: true, label: Text('Past'))
-        ], selected: {
-          past
-        }, onSelectionChanged: (s) => setState(() => past = s.first)),
-        const SizedBox(height: 24),
-        ResourceView('/orders', builder: (rows) {
-          final orders = (rows as List)
-              .map((r) => BuyerOrder.fromJson(Map<String, dynamic>.from(r)))
-              .where(
-                  (o) => ['delivered', 'cancelled'].contains(o.status) == past)
-              .toList();
-          if (orders.isEmpty) {
-            return EmptyState('No orders yet',
-                'Browse today’s available supply or request what you need.',
-                action: Column(children: [
-                  OmoterraButton('Browse Supply',
-                      onPressed: () => context.go('/explore')),
-                  TextButton(
-                      onPressed: () => context.push('/request'),
-                      child: const Text('Request Supply'))
-                ]));
-          }
-          return Column(
-              children: orders
-                  .map((o) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12),
-                      child: InkWell(
-                          onTap: () => context.push('/order/${o.id}'),
-                          child: Surface(
-                              child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                Text(
-                                    'Order #${o.id.substring(0, 8).toUpperCase()}'),
-                                const SizedBox(height: 8),
-                                for (final item in o.items)
-                                  Text(
-                                      '${label(item['category'])} · ${amount(item['quantity'])} ${item['unit_type']}'),
-                                const SizedBox(height: 12),
-                                Text(tsh(o.total),
-                                    style:
-                                        Theme.of(context).textTheme.titleLarge),
-                                const SizedBox(height: 8),
-                                StatusText(o.status)
-                              ])))))
-                  .toList());
-        }),
-        const SectionHeader('Supply requests'),
-        ResourceView('/requests',
-            builder: (rows) => Column(children: [
-                  for (final r in rows)
-                    ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(
-                            '${label(r['category'])} · ${amount(r['quantity'])} ${r['unit_type']}'),
-                        subtitle: StatusText(r['status']),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: () => context.push('/requests/${r['id']}'))
-                ]))
-      ]);
+  Widget build(BuildContext context) => Consumer(builder: (context, ref, _) {
+        final s = ref.s;
+        return ListView(
+            padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+            children: [
+              // Segmented pills, as drawn.
+              Container(
+                  padding: const EdgeInsets.all(4),
+                  decoration: BoxDecoration(
+                      color: OColors.soft,
+                      borderRadius: BorderRadius.circular(12)),
+                  child: Row(children: [
+                    Expanded(
+                        child: _Segment(
+                            label: s.active,
+                            selected: !past,
+                            onTap: () => setState(() => past = false))),
+                    Expanded(
+                        child: _Segment(
+                            label: s.past,
+                            selected: past,
+                            onTap: () => setState(() => past = true))),
+                  ])),
+              const SizedBox(height: 18),
+              ResourceView('/orders', builder: (rows) {
+                final orders = (rows as List)
+                    .map((r) =>
+                        BuyerOrder.fromJson(Map<String, dynamic>.from(r)))
+                    .where((o) =>
+                        ['delivered', 'cancelled'].contains(o.status) == past)
+                    .toList();
+                if (orders.isEmpty) {
+                  return EmptyState(s.noOrdersTitle, s.noOrdersBody,
+                      action: Column(children: [
+                        OmoterraButton(s.buySupplyCard,
+                            onPressed: () => context.go('/explore')),
+                        TextButton(
+                            onPressed: () => context.push('/request'),
+                            child: Text(s.requestSupply))
+                      ]));
+                }
+                return Column(
+                    children: orders
+                        .map((o) => Padding(
+                            padding: const EdgeInsets.only(bottom: 12),
+                            child: _OrderCard(order: o, statusLabel: s)))
+                        .toList());
+              }),
+              SectionHeader(s.requestSupply),
+              ResourceView('/requests',
+                  builder: (rows) => Column(children: [
+                        for (final r in rows)
+                          ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                  '${label(r['category'])} · ${amount(r['quantity'])} ${r['unit_type']}'),
+                              subtitle: StatusText(r['status']),
+                              trailing: const Icon(Icons.chevron_right),
+                              onTap: () => context.push('/requests/${r['id']}'))
+                      ]))
+            ]);
+      });
 }
 
-class OrderDetail extends StatelessWidget {
+class _Segment extends StatelessWidget {
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
+  const _Segment(
+      {required this.label, required this.selected, required this.onTap});
+  @override
+  Widget build(BuildContext context) => InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(9),
+      child: Container(
+          padding: const EdgeInsets.symmetric(vertical: 9),
+          alignment: Alignment.center,
+          decoration: BoxDecoration(
+              color: selected ? OColors.forest : Colors.transparent,
+              borderRadius: BorderRadius.circular(9)),
+          child: Text(label,
+              style: TextStyle(
+                  fontSize: 13.5,
+                  fontWeight: FontWeight.w600,
+                  color: selected ? Colors.white : OColors.secondary))));
+}
+
+class _OrderCard extends StatelessWidget {
+  final BuyerOrder order;
+  final Strings statusLabel;
+  const _OrderCard({required this.order, required this.statusLabel});
+  @override
+  Widget build(BuildContext context) {
+    final item = order.items.isEmpty ? null : order.items.first;
+    return InkWell(
+        onTap: () => context.push('/order/${order.id}'),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: OColors.border)),
+            child: Row(children: [
+              SizedBox(
+                  width: 64,
+                  child: ProductImage(const [],
+                      category: '${item?['category'] ?? 'crate'}', height: 64)),
+              const SizedBox(width: 13),
+              Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    Text('OMT-${order.id.substring(0, 6).toUpperCase()}',
+                        style: const TextStyle(
+                            fontSize: 13.5, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 3),
+                    if (item != null)
+                      Text(
+                          '${label(item['category'])} × ${amount(item['quantity'])}',
+                          style: const TextStyle(
+                              fontSize: 12.5, color: OColors.secondary)),
+                    const SizedBox(height: 5),
+                    Text(tsh(order.total),
+                        style: const TextStyle(
+                            fontSize: 14, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 6),
+                    StatusText(order.status),
+                  ])),
+              const Icon(Icons.chevron_right, color: OColors.muted),
+            ])));
+  }
+}
+
+class OrderDetail extends ConsumerWidget {
   final String id;
   const OrderDetail(this.id, {super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: Text('Order #${id.substring(0, 8).toUpperCase()}')),
+  Widget build(BuildContext context, WidgetRef ref) => Scaffold(
+      appBar: AppBar(
+          title: Text('Order #${id.substring(0, 8).toUpperCase()}'),
+          actions: [
+            IconButton(
+                tooltip: 'Refresh order',
+                onPressed: () =>
+                    ref.invalidate(resourceProvider('/orders/$id')),
+                icon: const Icon(Icons.refresh))
+          ]),
       body: ListView(padding: const EdgeInsets.all(20), children: [
         ResourceView('/orders/$id', builder: (data) {
           final order = BuyerOrder.fromJson(Map<String, dynamic>.from(data));
@@ -721,6 +1206,36 @@ class OrderDetail extends StatelessWidget {
                   'Method': label(order.paymentMethod),
                   'Status': label(order.paymentStatus)
                 }),
+                if (order.status == 'confirmed') ...[
+                  const SizedBox(height: 16),
+                  TextButton(
+                      onPressed: () => omoterraSheet(
+                          context,
+                          Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Text('Cancel this order?',
+                                    style: TextStyle(
+                                        fontSize: 20,
+                                        fontWeight: FontWeight.w700)),
+                                const SizedBox(height: 12),
+                                const Text(
+                                    'Your reserved stock will be released. This is available before collection starts.'),
+                                const SizedBox(height: 20),
+                                DataForm(
+                                    path: '/orders/$id/cancel',
+                                    fields: const [],
+                                    button: 'Cancel order',
+                                    onSuccess: (_) {
+                                      ref.invalidate(
+                                          resourceProvider('/orders/$id'));
+                                      ref.invalidate(
+                                          resourceProvider('/orders'));
+                                      Navigator.pop(context);
+                                    })
+                              ])),
+                      child: const Text('Cancel order'))
+                ],
                 const SectionHeader('Activity'),
                 for (final event in order.activity)
                   ListTile(
