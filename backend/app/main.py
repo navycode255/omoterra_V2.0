@@ -730,3 +730,124 @@ def sales(listing_id: str | None = None, user=Depends(supplier), db=Depends(data
 @app.get(prefix + '/supplier/sales/{id}')
 def sale_detail(id: str, user=Depends(supplier), db=Depends(database)):
     return result(inv.sale_view(db, s.owned(db, m.StockSale, id, user.id, 'supplier_id')))
+
+
+# --- Operations dashboard read models -----------------------------------------
+# These endpoints serve the ops web dashboard. They are operator-only and may
+# expose both buyer and supplier internal identity, which no mobile contract does.
+
+def _today_range():
+    start = m.now().replace(hour=0, minute=0, second=0, microsecond=0)
+    return start, start + timedelta(days=1)
+
+
+@app.get(prefix + '/ops/summary', dependencies=[Depends(auth.ops)])
+def ops_summary(db=Depends(database)):
+    start, end = _today_range()
+    today = select(m.Order).where(m.Order.created_at >= start, m.Order.created_at < end)
+    counted = [o for o in db.scalars(today) if o.internal_status not in ('cancelled', 'payment_failed')]
+    sales = sum((o.total_amount for o in counted), Decimal('0'))
+    margin = Decimal('0')
+    for order in counted:
+        for item in db.scalars(select(m.OrderItem).where(m.OrderItem.order_id == order.id)):
+            margin += (item.unit_price - item.payout_snapshot) * item.quantity
+    listings = db.scalars(select(m.Listing)).all()
+    open_orders = db.scalars(select(m.Order).where(m.Order.internal_status.notin_(
+        ['delivered', 'completed', 'cancelled', 'payment_failed']))).all()
+    return result({
+        'orders_today': len(counted),
+        'sales_today': sales,
+        'gross_margin_today': margin,
+        'pending_settlements': sum((r.total_payable for r in db.scalars(
+            select(m.Settlement).where(m.Settlement.status == 'pending'))), Decimal('0')),
+        'attention': {
+            'listings_pending_review': sum(1 for r in listings if r.listing_status == 'pending_review'),
+            'listings_needing_confirmation': sum(1 for r in listings if r.listing_status == 'needs_confirmation'
+                or (r.listing_status == 'live' and r.confirmation_due_at <= m.now())),
+            'sourcing_unmatched': len(db.scalars(select(m.SourcingRequest).where(
+                m.SourcingRequest.status.in_(['submitted', 'sourcing']))).all()),
+            'orders_in_progress': len(open_orders),
+            'payments_pending': len(db.scalars(select(m.Payment).where(
+                m.Payment.status.in_(['pending', 'partial']))).all()),
+            'settlements_pending': len(db.scalars(select(m.Settlement).where(
+                m.Settlement.status == 'pending')).all()),
+        },
+    })
+
+
+@app.get(prefix + '/ops/payments', dependencies=[Depends(auth.ops)])
+def ops_payments(db=Depends(database)):
+    rows = []
+    for payment in db.scalars(select(m.Payment).order_by(m.Payment.created_at.desc()).limit(200)):
+        order = db.get(m.Order, payment.order_id)
+        buyer = db.get(m.User, order.buyer_id)
+        rows.append({'id': payment.id, 'order_id': order.id, 'buyer_id': buyer.id, 'buyer_name': buyer.name,
+            'amount': payment.amount, 'received_amount': payment.received_amount,
+            'balance': payment.amount - payment.received_amount, 'method': payment.method,
+            'status': payment.status, 'internal_status': order.internal_status,
+            'provider_transaction_id': payment.provider_transaction_id,
+            'paid_at': payment.paid_at, 'created_at': payment.created_at})
+    return result(rows)
+
+
+@app.get(prefix + '/ops/suppliers', dependencies=[Depends(auth.ops)])
+def ops_suppliers(db=Depends(database)):
+    rows = []
+    for profile in db.scalars(select(m.SupplierProfile)):
+        user = db.get(m.User, profile.user_id)
+        listings = db.scalars(select(m.Listing).where(m.Listing.supplier_id == profile.user_id)).all()
+        pending = [r for r in db.scalars(select(m.Settlement).where(
+            m.Settlement.supplier_id == profile.user_id, m.Settlement.status == 'pending'))]
+        rows.append({'id': user.id, 'phone': user.phone, 'region': user.region,
+            'public_alias': profile.public_alias, 'alias_approved': profile.alias_approved,
+            'legal_name': profile.legal_name, 'completed_supplies_count': profile.completed_supplies_count,
+            'live_listings': sum(1 for r in listings if r.listing_status == 'live'),
+            'pending_listings': sum(1 for r in listings if r.listing_status == 'pending_review'),
+            'pending_settlement_total': sum((r.total_payable for r in pending), Decimal('0'))})
+    return result(rows)
+
+
+@app.get(prefix + '/ops/suppliers/{id}', dependencies=[Depends(auth.ops)])
+def ops_supplier(id: str, db=Depends(database)):
+    profile = db.get(m.SupplierProfile, id)
+    user = db.get(m.User, id)
+    if not profile or not user:
+        s.fail('Supplier not found.', 404)
+    return result({'id': user.id, 'phone': user.phone, 'name': user.name, 'region': user.region,
+        'public_alias': profile.public_alias, 'alias_approved': profile.alias_approved,
+        'legal_name': profile.legal_name, 'internal_pickup_address': profile.internal_pickup_address,
+        'completed_supplies_count': profile.completed_supplies_count,
+        'listings': [{**s.supplier_listing(row), 'buyer_price_per_unit': row.buyer_price_per_unit,
+            'supplier_payout_price_per_unit': row.supplier_payout_price_per_unit}
+            for row in db.scalars(select(m.Listing).where(m.Listing.supplier_id == id).order_by(m.Listing.created_at.desc()))],
+        'settlements': [{**s.payout_view(row, True), 'order_item_id': row.order_item_id}
+            for row in db.scalars(select(m.Settlement).where(m.Settlement.supplier_id == id).order_by(m.Settlement.created_at.desc()))]})
+
+
+@app.get(prefix + '/ops/buyers', dependencies=[Depends(auth.ops)])
+def ops_buyers(db=Depends(database)):
+    rows = []
+    for user in db.scalars(select(m.User).order_by(m.User.created_at.desc()).limit(200)):
+        if 'buyer' not in user.roles:
+            continue
+        rows.append({'id': user.id, 'name': user.name, 'phone': user.phone, 'region': user.region,
+            'buyer_type': user.buyer_type,
+            'order_count': len(db.scalars(select(m.Order).where(m.Order.buyer_id == user.id)).all()),
+            'request_count': len(db.scalars(select(m.SourcingRequest).where(
+                m.SourcingRequest.buyer_id == user.id)).all())})
+    return result(rows)
+
+
+@app.get(prefix + '/ops/buyers/{id}', dependencies=[Depends(auth.ops)])
+def ops_buyer(id: str, db=Depends(database)):
+    user = db.get(m.User, id)
+    if not user or 'buyer' not in user.roles:
+        s.fail('Buyer not found.', 404)
+    return result({'id': user.id, 'name': user.name, 'phone': user.phone, 'region': user.region,
+        'buyer_type': user.buyer_type, 'created_at': user.created_at,
+        'addresses': [{'id': row.id, **{key: getattr(row, key) for key in c.AddressInput.model_fields}}
+            for row in db.scalars(select(m.Address).where(m.Address.user_id == id, m.Address.deleted.is_(False)))],
+        'orders': [{**s.buyer_order(db, row), 'internal_status': row.internal_status}
+            for row in db.scalars(select(m.Order).where(m.Order.buyer_id == id).order_by(m.Order.created_at.desc()))],
+        'requests': [{**s.buyer_request(row), 'quantity_secured': row.quantity_secured, 'admin_notes': row.admin_notes}
+            for row in db.scalars(select(m.SourcingRequest).where(m.SourcingRequest.buyer_id == id).order_by(m.SourcingRequest.created_at.desc()))]})
