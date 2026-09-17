@@ -1,0 +1,19 @@
+# Development operator workflow
+
+The API documentation at `/docs` is sufficient for exercising these endpoints during development. Every `/api/v1/ops/*` endpoint requires `X-Ops-Token`; mobile sessions cannot access them. Use a unique `Idempotency-Key` for each logical write that requires it and retain the same key and payload when retrying.
+
+1. Buyer and supplier each sign in using the mobile OTP flow. Development OTP is explicitly shown on screen. Supplier completes pickup details and submits stock.
+2. `GET /ops/listings` provides stock waiting for review. Inspect every specification, region and photo for contact details or identifying signs. View photos through `GET /ops/media/{id}`. Reject unsuitable stock with `PATCH /ops/listings/{id}/status`.
+3. Approve with `POST /ops/listings/{id}/approve`: provide an anonymous public alias and buyer price explicitly. Payout defaults to asking price only if omitted. The payout must not exceed asking price. No default buyer markup exists.
+4. Buyer reserves stock, selects a saved delivery address and creates one order. Checkout uses Pay on Delivery until a real payment provider is integrated.
+5. `GET /ops/orders` and `GET /ops/orders/{id}` expose the internal fulfilment state and contact information required for coordination. Those fields do not appear in either mobile role's contracts.
+6. Advance via `POST /ops/orders/{id}/progress`: reserved → pickup_scheduled → collected → quality_checked → in_transit → delivered → completed. When scheduling pickup, set `expected_collection_date` explicitly; it is never inferred from buyer delivery preferences. At quality_checked, record accepted `actual_quantity`, `rejected_quantity`, optional weight and collection notes. Accepted + rejected must equal the reservation. Upload collection evidence through `POST /ops/orders/{id}/photos`; these images are ops-only.
+7. Delivery releases the full original reservation, records accepted units as sold and creates exactly one settlement per order item/supplier. Rejected units return to available inventory; pause the listing if those units are unsuitable for resale. Buyer total is recalculated using accepted units and the immutable unit-price snapshot.
+8. After delivery, reconcile each receipt with `POST /ops/orders/{id}/reconcile`, specifying amount and reference. Each receipt is retained; the order is partial until receipts equal the accepted-delivery total. Overpayments and duplicate references are rejected. Completion requires paid status.
+9. `GET /ops/settlements` lists supplier amounts. `POST /ops/settlements/{id}/pay` records the exact amount, payment reference and time after the operator has actually paid the supplier. Recording this is not a money transfer.
+10. For sourcing, use `GET /ops/requests`, then `PATCH /ops/requests/{id}` to record progress manually. Once confirmed, reserve its exact category/quantity using `/ops/requests/{id}/reserve` and convert via `/ops/requests/{id}/convert` with the reservation, an address belonging to that buyer, date and payment method. Obtain addresses via `/ops/buyers/{id}/addresses`. V1 conversion supports a single listing; there is no allocation workspace.
+11. `GET /ops/business-opportunities` and `PATCH /ops/business-opportunities/{id}` support manual lead follow-up. Buyer identity remains attached to the authenticated account.
+
+Approved stock needs supplier reconfirmation every configured freshness interval (48h default). Buyer queries enforce this immediately without a scheduled job. Open checkout holds expire after 15 minutes by default; relevant reads/writes release the exact expired hold. Confirmed order holds remain reserved until delivery or cancellation.
+
+Cancellation and payment failure release only the affected order's holds. A payment already recorded as partial/paid requires separate refund handling before cancellation; automated refunds are not implemented. Do not use status changes as an accounting shortcut.

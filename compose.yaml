@@ -1,0 +1,26 @@
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: omoterra
+      POSTGRES_PASSWORD: omoterra
+      POSTGRES_DB: omoterra
+    ports: ['127.0.0.1:55432:5432']
+    volumes: ['omoterra_data:/var/lib/postgresql/data']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U omoterra']
+      interval: 3s
+      retries: 10
+  api:
+    build: ./backend
+    environment:
+      OMOTERRA_DATABASE_URL: postgresql+psycopg://omoterra:omoterra@db:5432/omoterra
+      OMOTERRA_OPS_TOKEN: ${OMOTERRA_OPS_TOKEN:?Set an operator token}
+    volumes: ['omoterra_media:/app/media']
+    ports: ['127.0.0.1:8000:8000']
+    depends_on:
+      db:
+        condition: service_healthy
+volumes:
+  omoterra_data:
+  omoterra_media:

@@ -1,0 +1,16 @@
+.env
+.venv/
+__pycache__/
+.pytest_cache/
+.dart_tool/
+build/
+*.iml
+android/local.properties
+
+backend/media/
+mobile/.idea/
+
+node_modules/
+.next/
+next-env.d.ts
+mobile/android/.gradle/
