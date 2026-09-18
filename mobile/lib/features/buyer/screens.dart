@@ -73,7 +73,10 @@ class BuyerHome extends ConsumerWidget {
                     ])),
               ]))),
       const SizedBox(height: 12),
-      Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      // Intrinsic height keeps the two cards equal without the unbounded
+      // height that CrossAxisAlignment.stretch forces inside a ListView.
+      IntrinsicHeight(
+          child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
         Expanded(
             child: _entry(
                 context,
@@ -93,7 +96,7 @@ class BuyerHome extends ConsumerWidget {
                 const Color(0xFFF1EDF8),
                 const Color(0xFF6A4FA3),
                 '/business')),
-      ]),
+      ])),
       const SizedBox(height: 12),
       _entryWide(context, s.myOrders, s.myOrdersBody, Icons.receipt_long_outlined,
           '/orders'),

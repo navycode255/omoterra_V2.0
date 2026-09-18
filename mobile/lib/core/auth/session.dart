@@ -10,6 +10,12 @@ final activeRoleProvider = StateProvider<String>((ref) => 'buyer');
 class SessionController extends AsyncNotifier<AppUser?> {
   @override
   Future<AppUser?> build() async {
+    // The offline design preview opens straight into the signed-in app; there
+    // is no server to hold a session against.
+    if (localPreview) {
+      return AppUser.fromJson(Map<String, dynamic>.from(
+          await ref.read(repositoryProvider).read('/me')));
+    }
     final token = await storage.read(key: 'session');
     if (token == null) return null;
     return AppUser.fromJson(Map<String, dynamic>.from(
