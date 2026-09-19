@@ -75,8 +75,9 @@ class WelcomeScreen extends ConsumerWidget {
           alignment: Alignment.topCenter,
           child: FractionallySizedBox(
               heightFactor: .78,
-              child: BrandImage('welcome',
-                  fallbackArt: 'cattle', alignment: Alignment(0, -.35)))),
+              // welcome.jpg is authored at this slot's aspect ratio, so the
+              // cover fit keeps every animal in frame without cropping.
+              child: BrandImage('welcome', fallbackArt: 'cattle'))),
       Align(
           alignment: Alignment.bottomCenter,
           child: SafeArea(
