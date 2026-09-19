@@ -364,6 +364,7 @@ class _AddStockState extends ConsumerState<AddStockScreen> {
             'approx_age',
             'ready_date'
           ],
+        'tray' => ['tray_size', 'egg_size', 'ready_date'],
         _ => ['cut_type', 'chilled_or_frozen', 'slaughter_date']
       };
   Future<void> submit() async {
@@ -464,28 +465,40 @@ class _AddStockState extends ConsumerState<AddStockScreen> {
                                       .split('T')
                                       .first),
                               pastAllowed: k == 'slaughter_date')
-                        else if (['live_or_dressed', 'chilled_or_frozen', 'sex']
-                            .contains(k))
+                        else if ([
+                          'live_or_dressed',
+                          'chilled_or_frozen',
+                          'sex',
+                          'tray_size',
+                          'egg_size'
+                        ].contains(k))
                           Padding(
                               padding: const EdgeInsets.only(bottom: 16),
                               child: DropdownButtonFormField<String>(
                                   initialValue: field(
                                           k,
-                                          k == 'live_or_dressed'
-                                              ? 'live'
-                                              : k == 'sex'
-                                                  ? 'mixed'
-                                                  : 'chilled')
+                                          switch (k) {
+                                            'live_or_dressed' => 'live',
+                                            'sex' => 'mixed',
+                                            'tray_size' => '30',
+                                            'egg_size' => 'medium',
+                                            _ => 'chilled',
+                                          })
                                       .text,
                                   decoration:
                                       InputDecoration(labelText: label(k)),
-                                  items: (k == 'live_or_dressed'
-                                          ? ['live', 'dressed']
-                                          : k == 'sex'
-                                              ? ['male', 'female', 'mixed']
-                                              : ['chilled', 'frozen'])
+                                  items: switch (k) {
+                                    'live_or_dressed' => ['live', 'dressed'],
+                                    'sex' => ['male', 'female', 'mixed'],
+                                    'tray_size' => ['12', '24', '30'],
+                                    'egg_size' => ['small', 'medium', 'large'],
+                                    _ => ['chilled', 'frozen'],
+                                  }
                                       .map((v) => DropdownMenuItem(
-                                          value: v, child: Text(label(v))))
+                                          value: v,
+                                          child: Text(k == 'tray_size'
+                                              ? '$v eggs'
+                                              : label(v))))
                                       .toList(),
                                   onChanged: (value) => field(k).text = value!))
                         else

@@ -182,6 +182,32 @@ def test_supplier_submission_to_buyer_approval_boundary(client, seeded):
     assert client.post('/api/v1/supplier/stock', headers=headers('supplier', 'another-stock-key'), json=data).status_code == 422
 
 
+def test_eggs_listing_uses_tray_specs_and_rejects_bad_tray_size(client, seeded):
+    data = {'category': 'eggs', 'unit_type': 'tray', 'region': 'Pwani', 'quantity_total': '40',
+            'farmer_asking_price_per_unit': '9000', 'photos': [],
+            'specs': {'tray_size': '30', 'egg_size': 'medium', 'ready_date': '2027-01-01'}}
+    response = client.post('/api/v1/supplier/stock', headers=headers('supplier'), json=data)
+    assert response.status_code == 200
+    id = response.json()['id']
+    approved = client.post(f'/api/v1/ops/listings/{id}/approve',
+        headers={'X-Ops-Token': 'test-operator-secret'},
+        json={'buyer_price_per_unit': '10000', 'public_alias': 'Egg Partner'})
+    assert approved.status_code == 200
+    result = client.get(f'/api/v1/listings/{id}', headers=headers()).json()
+    assert result['unit_type'] == 'tray'
+    assert result['quantity_available'] == '40.000'
+
+    # A fractional tray count is rejected, like birds and animals.
+    fractional = {**data, 'quantity_total': '40.5'}
+    assert client.post('/api/v1/supplier/stock', headers=headers('supplier', 'egg-key-2'),
+        json=fractional).status_code == 422
+
+    # Only 12/24/30-egg trays are accepted.
+    bad_size = {**data, 'specs': {**data['specs'], 'tray_size': '20'}}
+    assert client.post('/api/v1/supplier/stock', headers=headers('supplier', 'egg-key-3'),
+        json=bad_size).status_code == 422
+
+
 def test_stale_checkout_view_releases_hold_and_zeroes_availability(client, sessions, seeded):
     from decimal import Decimal
     id = reserve(sessions, seeded)

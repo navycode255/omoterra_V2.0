@@ -4,11 +4,11 @@ from decimal import Decimal
 from typing import Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-Category = Literal['broilers', 'local_chicken', 'goats', 'cattle', 'chicken_meat', 'beef', 'goat_meat']
-Unit = Literal['bird', 'animal', 'kg']
+Category = Literal['broilers', 'local_chicken', 'goats', 'cattle', 'chicken_meat', 'beef', 'goat_meat', 'eggs']
+Unit = Literal['bird', 'animal', 'kg', 'tray']
 Money = Annotated[Decimal, Field(gt=0, max_digits=14, decimal_places=2)]
 Quantity = Annotated[Decimal, Field(gt=0, max_digits=14, decimal_places=3)]
-UNITS = {'broilers': 'bird', 'local_chicken': 'bird', 'goats': 'animal', 'cattle': 'animal', 'chicken_meat': 'kg', 'beef': 'kg', 'goat_meat': 'kg'}
+UNITS = {'broilers': 'bird', 'local_chicken': 'bird', 'goats': 'animal', 'cattle': 'animal', 'chicken_meat': 'kg', 'beef': 'kg', 'goat_meat': 'kg', 'eggs': 'tray'}
 
 
 class Input(BaseModel):
@@ -67,12 +67,13 @@ class ListingInput(Input):
     def category_specs(self):
         if self.unit_type != UNITS[self.category]:
             raise ValueError('Unit does not match category')
-        if self.unit_type != 'kg' and self.quantity_total % 1:
-            raise ValueError('Birds and animals require whole quantities')
+        if self.unit_type not in ('kg',) and self.quantity_total % 1:
+            raise ValueError('Birds, animals and trays require whole quantities')
         fields = {
             'bird': {'avg_weight_kg', 'breed_type', 'age_weeks', 'live_or_dressed', 'ready_date'},
             'animal': {'weight_range', 'breed', 'sex', 'approx_age', 'ready_date'},
             'kg': {'cut_type', 'chilled_or_frozen', 'slaughter_date'},
+            'tray': {'tray_size', 'egg_size', 'ready_date'},
         }[self.unit_type]
         if set(self.specs) != fields or any(not str(v).strip() for v in self.specs.values()):
             raise ValueError(f'Required specification fields: {", ".join(sorted(fields))}')
@@ -94,6 +95,14 @@ class ListingInput(Input):
             raise ValueError('Choose live or dressed')
         if self.unit_type == 'kg' and self.specs['chilled_or_frozen'] not in ['chilled', 'frozen']:
             raise ValueError('Choose chilled or frozen')
+        if self.unit_type == 'tray':
+            try:
+                if int(self.specs['tray_size']) not in (30, 24, 12):
+                    raise ValueError('Choose a tray size of 12, 24 or 30 eggs')
+            except (TypeError, ValueError):
+                raise ValueError('Choose a tray size of 12, 24 or 30 eggs')
+            if self.specs['egg_size'] not in ['small', 'medium', 'large']:
+                raise ValueError('Choose an egg size')
         date.fromisoformat(str(self.specs['slaughter_date' if self.unit_type == 'kg' else 'ready_date']))
         if any(not re.fullmatch(r'/media/[a-f0-9-]{36}', photo) for photo in self.photos):
             raise ValueError('Use photos uploaded through Omoterra')
@@ -216,3 +225,7 @@ class SaleInput(Input):
         if value > date.today():
             raise ValueError('A sale date cannot be in the future')
         return value
+
+
+class SaleReversalInput(Input):
+    reason: str = Field(min_length=5, max_length=500)

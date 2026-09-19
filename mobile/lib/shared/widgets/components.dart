@@ -22,13 +22,16 @@ const categories = [
   'cattle',
   'chicken_meat',
   'beef',
-  'goat_meat'
+  'goat_meat',
+  'eggs',
 ];
 String unitFor(String c) => ['broilers', 'local_chicken'].contains(c)
     ? 'bird'
     : ['goats', 'cattle'].contains(c)
         ? 'animal'
-        : 'kg';
+        : c == 'eggs'
+            ? 'tray'
+            : 'kg';
 
 class OmoterraButton extends StatelessWidget {
   final String text;
@@ -182,10 +185,15 @@ class ResourceView extends ConsumerWidget {
 }
 
 /// Maps a listing category onto a photography slot in assets/images/.
+///
+/// beef uses category_cow.jpg directly. chicken_meat and goat_meat have no
+/// dedicated cut photography yet, so they borrow the closest live-animal
+/// photo rather than falling back to the plain vector icon; swap in
+/// category_chicken_meat.jpg / category_goat_meat.jpg when photos exist.
 String _slot(String category) => const {
-      'chicken_meat': 'meat',
-      'beef': 'meat',
-      'goat_meat': 'meat',
+      'beef': 'cow',
+      'chicken_meat': 'broilers',
+      'goat_meat': 'goats',
     }[category] ??
     category;
 
