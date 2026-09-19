@@ -117,6 +117,25 @@ class SessionController extends AsyncNotifier<AppUser?> {
     state = AsyncData(AppUser.fromJson(Map<String, dynamic>.from(response)));
   }
 
+  /// Switches the active role, enabling the capability first if the user
+  /// doesn't have it yet. Shared by the Account screen and the top nav's
+  /// role switcher so there is one implementation of "become a buyer" /
+  /// "become a supplier", not two.
+  Future<void> switchRole(String role) async {
+    final user = state.value;
+    if (user == null) return;
+    if (!user.roles.contains(role)) {
+      await profile({
+        'name': user.name,
+        'region': user.region,
+        'language': user.language,
+        'roles': {...user.roles, role}.toList(),
+        'buyer_type': role == 'buyer' ? user.buyerType ?? 'personal' : user.buyerType
+      });
+    }
+    ref.read(activeRoleProvider.notifier).state = role;
+  }
+
   Future<void> logout() async {
     try {
       await ref.read(repositoryProvider).write('/auth/logout', {});

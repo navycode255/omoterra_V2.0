@@ -21,18 +21,7 @@ class _AccountState extends ConsumerState<AccountScreen> {
       error = null;
     });
     try {
-      final user = ref.read(sessionProvider).value!;
-      if (!user.roles.contains(role)) {
-        await ref.read(sessionProvider.notifier).profile({
-          'name': user.name,
-          'region': user.region,
-          'language': user.language,
-          'roles': {...user.roles, role}.toList(),
-          'buyer_type':
-              role == 'buyer' ? user.buyerType ?? 'personal' : user.buyerType
-        });
-      }
-      ref.read(activeRoleProvider.notifier).state = role;
+      await ref.read(sessionProvider.notifier).switchRole(role);
       if (mounted) context.go(role == 'buyer' ? '/buyer' : '/supplier');
     } catch (e) {
       if (mounted) setState(() => error = e);

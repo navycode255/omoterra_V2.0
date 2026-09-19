@@ -247,34 +247,13 @@ class AppShell extends ConsumerWidget {
                 bottom: false,
                 child: Padding(
                     padding: const EdgeInsets.fromLTRB(20, 8, 16, 8),
+                    // The logo hugs the left edge on its own (not Expanded,
+                    // which would center it in the leftover space); the role
+                    // switcher sits at the right with whatever room remains.
                     child: Row(children: [
-                      const Expanded(child: BrandMark(size: 21)),
-                      // Role switching lives on Account; this is a shortcut
-                      // there, not a second implementation of the switch.
-                      InkWell(
-                          onTap: () => context.push('/account'),
-                          borderRadius: BorderRadius.circular(20),
-                          child: Container(
-                              padding: const EdgeInsets.fromLTRB(
-                                  10, 8, 8, 8),
-                              decoration: BoxDecoration(
-                                  color: OColors.soft,
-                                  borderRadius: BorderRadius.circular(20)),
-                              child: Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    const Icon(Icons.person,
-                                        size: 15, color: OColors.forest),
-                                    const SizedBox(width: 5),
-                                    Text(supplier ? 'SUPPLIER' : 'BUYER',
-                                        style: const TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w700,
-                                            letterSpacing: .8,
-                                            color: OColors.forest)),
-                                    const Icon(Icons.keyboard_arrow_down,
-                                        size: 16, color: OColors.forest),
-                                  ]))),
+                      const BrandMark(size: 21),
+                      const Spacer(),
+                      _RoleSwitcher(supplier: supplier),
                     ])))),
         body: SafeArea(
             top: false,
@@ -302,4 +281,60 @@ class AppShell extends ConsumerWidget {
                   icon: Icon(Icons.person_outline), label: 'Account')
             ])));
   }
+}
+
+/// The pill in the top nav that switches between Buyer and Supplier right
+/// there, instead of going via Account. Account still has its own switch
+/// too — this is a second, faster place to do the same thing, not a
+/// replacement for it. The shell's chrome (tabs, colours) is keyed off the
+/// route rather than the active-role provider alone, so picking a role here
+/// also lands on that role's home tab — the same one tap away, just without
+/// a detour through Account first.
+class _RoleSwitcher extends ConsumerWidget {
+  final bool supplier;
+  const _RoleSwitcher({required this.supplier});
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => PopupMenuButton<String>(
+      tooltip: 'Switch role',
+      offset: const Offset(0, 44),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      onSelected: (role) async {
+        await ref.read(sessionProvider.notifier).switchRole(role);
+        if (context.mounted) {
+          context.go(role == 'buyer' ? '/buyer' : '/supplier');
+        }
+      },
+      itemBuilder: (context) => [
+            _roleItem('buyer', 'Buyer', !supplier),
+            _roleItem('supplier', 'Supplier', supplier),
+          ],
+      child: Container(
+          padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+          decoration: BoxDecoration(
+              color: OColors.soft, borderRadius: BorderRadius.circular(20)),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.person, size: 15, color: OColors.forest),
+            const SizedBox(width: 5),
+            Text(supplier ? 'SUPPLIER' : 'BUYER',
+                style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: .8,
+                    color: OColors.forest)),
+            const Icon(Icons.keyboard_arrow_down,
+                size: 16, color: OColors.forest),
+          ])));
+
+  PopupMenuItem<String> _roleItem(String role, String label, bool active) =>
+      PopupMenuItem(
+          value: role,
+          child: Row(children: [
+            Icon(active ? Icons.check_circle : Icons.circle_outlined,
+                size: 18,
+                color: active ? OColors.forest : OColors.muted),
+            const SizedBox(width: 10),
+            Text(label,
+                style: TextStyle(
+                    fontWeight: active ? FontWeight.w700 : FontWeight.w500)),
+          ]));
 }
