@@ -1,7 +1,9 @@
+from __future__ import annotations
+
 from datetime import date
 import re
 from decimal import Decimal
-from typing import Annotated, Literal
+from typing import Annotated, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 Category = Literal['broilers', 'local_chicken', 'goats', 'cattle', 'chicken_meat', 'beef', 'goat_meat', 'eggs']
@@ -29,7 +31,7 @@ class Profile(Input):
     region: str = Field(min_length=2, max_length=80)
     language: Literal['en', 'sw'] = 'en'
     roles: list[Literal['buyer', 'supplier']] = Field(min_length=1, max_length=2)
-    buyer_type: Literal['personal', 'restaurant', 'butchery', 'hotel', 'retailer', 'caterer', 'other'] | None = None
+    buyer_type: Optional[Literal['personal', 'restaurant', 'butchery', 'hotel', 'retailer', 'caterer', 'other']] = None
 
     @model_validator(mode='after')
     def buyer_details(self):
@@ -46,7 +48,7 @@ class AddressInput(Input):
     region: str = Field(min_length=2, max_length=80)
     district_area: str = Field(min_length=2, max_length=100)
     address_text: str = Field(min_length=3, max_length=500)
-    coordinates: str | None = Field(default=None, max_length=80)
+    coordinates: Optional[str] = Field(default=None, max_length=80)
 
 
 class SupplierInput(Input):
@@ -129,13 +131,13 @@ class Checkout(Input):
 
 
 class StockUpdate(Input):
-    quantity_total: Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)] | None = None
+    quantity_total: Optional[Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)]] = None
     action: Literal['update', 'pause', 'confirm']
 
 
 class Approval(Input):
     buyer_price_per_unit: Money
-    supplier_payout_price_per_unit: Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=2)] | None = None
+    supplier_payout_price_per_unit: Optional[Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=2)]] = None
     public_alias: str = Field(pattern=r'^[A-Za-z][A-Za-z -]{2,49}$')
 
 
@@ -148,7 +150,7 @@ class SourcingInput(Input):
     needed_by_date: date
     delivery_area: str = Field(min_length=2, max_length=150)
     notes: str = Field(default='', max_length=1000)
-    reference_photo: str | None = None
+    reference_photo: Optional[str] = None
 
     @model_validator(mode='after')
     def valid_request(self):
@@ -171,11 +173,11 @@ class BusinessInput(Input):
 
 
 class Progress(Input):
-    expected_collection_date: date | None = None
+    expected_collection_date: Optional[date] = None
     internal_status: Literal['supply_confirmed', 'pickup_scheduled', 'collected', 'quality_checked', 'in_transit', 'delivered', 'completed', 'cancelled', 'payment_failed']
-    actual_quantity: Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)] | None = None
-    rejected_quantity: Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)] | None = None
-    actual_weight: Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)] | None = None
+    actual_quantity: Optional[Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)]] = None
+    rejected_quantity: Optional[Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)]] = None
+    actual_weight: Optional[Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)]] = None
     collection_notes: str = Field(default='', max_length=1000)
 
 
@@ -216,7 +218,7 @@ class StockAddition(Input):
 class SaleInput(Input):
     quantity: Quantity
     sold_on: date
-    unit_price: Money | None = None
+    unit_price: Optional[Money] = None
     note: str = Field(default='', max_length=500)
 
     @field_validator('sold_on')

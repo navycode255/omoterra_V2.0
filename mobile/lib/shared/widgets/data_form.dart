@@ -29,7 +29,8 @@ class DataForm extends ConsumerStatefulWidget {
       required this.fields,
       required this.path,
       required this.onSuccess,
-      this.reviewTitle, this.reviewCopy,
+      this.reviewTitle,
+      this.reviewCopy,
       this.method = 'POST',
       this.button = 'Submit',
       this.fixed = const {},
@@ -68,7 +69,26 @@ class _DataFormState extends ConsumerState<DataForm> {
   Future<void> submit() async {
     if (!form.currentState!.validate()) return;
     if (widget.reviewTitle != null) {
-      final approved = await omoterraSheet<bool>(context, Column(crossAxisAlignment: CrossAxisAlignment.start, children: [Text(widget.reviewTitle!, style: Theme.of(context).textTheme.titleLarge), const SizedBox(height: 12), Text(widget.reviewCopy ?? ''), const SizedBox(height: 16), MoneySummary({for (final f in widget.fields) if (controllers[f.key]!.text.isNotEmpty) f.title: controllers[f.key]!.text}), const SizedBox(height: 24), OmoterraButton(widget.button, onPressed: () => Navigator.pop(context, true)), TextButton(onPressed: () => Navigator.pop(context, false), child: const Text('Go back'))]));
+      final approved = await omoterraSheet<bool>(
+          context,
+          Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            Text(widget.reviewTitle!,
+                style: Theme.of(context).textTheme.titleLarge),
+            const SizedBox(height: 12),
+            Text(widget.reviewCopy ?? ''),
+            const SizedBox(height: 16),
+            MoneySummary({
+              for (final f in widget.fields)
+                if (controllers[f.key]!.text.isNotEmpty)
+                  f.title: controllers[f.key]!.text
+            }),
+            const SizedBox(height: 24),
+            OmoterraButton(widget.button,
+                onPressed: () => Navigator.pop(context, true)),
+            TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Go back'))
+          ]));
       if (approved != true || !mounted) return;
     }
     setState(() {
@@ -115,7 +135,8 @@ class _DataFormState extends ConsumerState<DataForm> {
                         ? null
                         : (v) => setState(() => selections[field.key] = v!)))
           else if (field.date || field.key.endsWith('_date'))
-            OmoterraDateField(field.title, controllers[field.key]!, pastAllowed: field.key == 'sold_on')
+            OmoterraDateField(field.title, controllers[field.key]!,
+                pastAllowed: field.key == 'sold_on')
           else
             OmoterraTextField(
                 field.key == 'quantity' && selections.containsKey('category')

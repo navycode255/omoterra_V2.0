@@ -186,11 +186,14 @@ class ResourceView extends ConsumerWidget {
 
 /// Maps a listing category onto a photography slot in assets/images/.
 ///
-/// beef uses category_cow.jpg directly. chicken_meat and goat_meat have no
-/// dedicated cut photography yet, so they borrow the closest live-animal
-/// photo rather than falling back to the plain vector icon; swap in
-/// category_chicken_meat.jpg / category_goat_meat.jpg when photos exist.
+/// cattle and beef both use category_cow.jpg: the live animal and its meat
+/// are the same source animal, and no separate carcass/cut photo exists yet.
+/// chicken_meat and goat_meat have no dedicated cut photography either, so
+/// they borrow the closest live-animal photo rather than falling back to the
+/// plain vector icon; swap in category_chicken_meat.jpg /
+/// category_goat_meat.jpg when photos exist.
 String _slot(String category) => const {
+      'cattle': 'cow',
       'beef': 'cow',
       'chicken_meat': 'broilers',
       'goat_meat': 'goats',
@@ -261,12 +264,39 @@ class ListingCard extends StatelessWidget {
                   border: Border.all(color: OColors.border)),
               child:
                   Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                SizedBox(
-                    width: 92,
-                    child: Hero(
-                        tag: listing.id,
-                        child: ProductImage(listing.photos,
-                            category: listing.category, height: 92))),
+                Stack(children: [
+                  SizedBox(
+                      width: 92,
+                      child: Hero(
+                          tag: listing.id,
+                          child: ClipRRect(
+                              borderRadius: BorderRadius.circular(10),
+                              child: ProductImage(listing.photos,
+                                  category: listing.category, height: 92)))),
+                  Positioned(
+                      top: 6,
+                      left: 6,
+                      child: Container(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 7, vertical: 3),
+                          decoration: BoxDecoration(
+                              color: Colors.white.withValues(alpha: .92),
+                              borderRadius: BorderRadius.circular(9)),
+                          child: Row(mainAxisSize: MainAxisSize.min, children: [
+                            Container(
+                                width: 6,
+                                height: 6,
+                                decoration: const BoxDecoration(
+                                    color: OColors.positive,
+                                    shape: BoxShape.circle)),
+                            const SizedBox(width: 4),
+                            const Text('In stock',
+                                style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.w700,
+                                    color: OColors.positive)),
+                          ]))),
+                ]),
                 const SizedBox(width: 14),
                 Expanded(
                     child: Column(
@@ -285,14 +315,27 @@ class ListingCard extends StatelessWidget {
                       Text(
                           '${listing.specs['avg_weight_kg'] != null ? '${listing.specs['avg_weight_kg']} kg · ' : ''}${amount(listing.available)} available',
                           style: Theme.of(context).textTheme.bodySmall),
-                      Text(listing.region,
-                          style: Theme.of(context).textTheme.bodySmall),
-                      const SizedBox(height: 8),
-                      Text('${tsh(listing.price)} / ${listing.unitType}',
-                          style: const TextStyle(
-                              fontSize: 16,
-                              fontWeight: FontWeight.w700,
-                              color: OColors.forest)),
+                      Row(children: [
+                        const Icon(Icons.location_on_outlined,
+                            size: 12, color: OColors.muted),
+                        const SizedBox(width: 2),
+                        Text(listing.region,
+                            style: Theme.of(context).textTheme.bodySmall),
+                      ]),
+                      const SizedBox(height: 10),
+                      // The whole card is already tappable (see the InkWell
+                      // above), so the price stands alone here with the full
+                      // width to itself instead of sharing the row with a
+                      // redundant View button.
+                      FittedBox(
+                          fit: BoxFit.scaleDown,
+                          alignment: Alignment.centerLeft,
+                          child: Text('${tsh(listing.price)} / ${listing.unitType}',
+                              maxLines: 1,
+                              style: const TextStyle(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w700,
+                                  color: OColors.forest))),
                     ])),
               ]))));
 }
@@ -444,8 +487,8 @@ class _DateFieldState extends State<OmoterraDateField> {
           }));
 }
 
-/// iOS-style chevron back button. Used instead of Material's arrow so the
-/// onboarding screens match the design.
+/// iOS-style chevron back button. Used instead of Material's arrow so every
+/// screen in the app — not just onboarding — shares the same back affordance.
 class BackChevron extends StatelessWidget {
   final VoidCallback? onPressed;
   const BackChevron({super.key, this.onPressed});
@@ -461,6 +504,42 @@ class BackChevron extends StatelessWidget {
               height: 48,
               child: Icon(Icons.arrow_back_ios_new,
                   size: 20, color: OColors.ink))));
+}
+
+/// Drop-in replacement for [AppBar] used across the app so every screen with
+/// a back arrow gets the same [BackChevron] instead of Material's default
+/// arrow. Pass `leading` explicitly only to override or suppress it (e.g. a
+/// root screen with nothing to pop back to).
+class OmoterraAppBar extends StatelessWidget implements PreferredSizeWidget {
+  final Widget? title;
+  final Widget? leading;
+  final List<Widget>? actions;
+  final bool centerTitle;
+  final Color? backgroundColor;
+  final double elevation;
+  const OmoterraAppBar(
+      {super.key,
+      this.title,
+      this.leading,
+      this.actions,
+      this.centerTitle = false,
+      this.backgroundColor,
+      this.elevation = 0});
+  @override
+  Size get preferredSize => const Size.fromHeight(kToolbarHeight);
+  @override
+  Widget build(BuildContext context) => AppBar(
+      title: title,
+      centerTitle: centerTitle,
+      backgroundColor: backgroundColor,
+      elevation: elevation,
+      actions: actions,
+      leading: leading ??
+          (ModalRoute.of(context)?.canPop ?? false
+              ? const Padding(
+                  padding: EdgeInsets.only(left: 12), child: BackChevron())
+              : null),
+      leadingWidth: leading == null ? 60 : null);
 }
 
 /// Lets the system back gesture leave the app from a root screen. Without it

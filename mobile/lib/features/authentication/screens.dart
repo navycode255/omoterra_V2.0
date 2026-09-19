@@ -204,10 +204,7 @@ class _PhoneState extends ConsumerState<PhoneScreen> {
   Widget build(BuildContext context) {
     final s = ref.s;
     return Scaffold(
-        appBar: AppBar(
-            leading: const Padding(
-                padding: EdgeInsets.only(left: 12), child: BackChevron()),
-            leadingWidth: 60),
+        appBar: const OmoterraAppBar(),
         body: SafeArea(
             child: Column(children: [
           Expanded(
@@ -545,10 +542,7 @@ class _OtpState extends ConsumerState<OtpScreen> {
   Widget build(BuildContext context) {
     final s = ref.s;
     return Scaffold(
-        appBar: AppBar(
-            leading: const Padding(
-                padding: EdgeInsets.only(left: 12), child: BackChevron()),
-            leadingWidth: 60),
+        appBar: const OmoterraAppBar(),
         body: SafeArea(
             child: Column(children: [
           Expanded(
@@ -732,13 +726,14 @@ class _SetupState extends ConsumerState<SetupScreen> {
   Widget build(BuildContext context) {
     final s = ref.s;
     return Scaffold(
-        appBar: AppBar(
+        appBar: OmoterraAppBar(
             leading: step == 0
                 ? null
-                : IconButton(
-                    icon: const Icon(Icons.arrow_back),
-                    onPressed: () => setState(
-                        () => step = step == 2 && !buy ? 0 : step - 1))),
+                : Padding(
+                    padding: const EdgeInsets.only(left: 12),
+                    child: BackChevron(
+                        onPressed: () => setState(
+                            () => step = step == 2 && !buy ? 0 : step - 1)))),
         body: Form(
             key: form,
             child: SafeArea(

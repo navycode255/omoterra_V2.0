@@ -92,6 +92,22 @@ class BrandMark extends StatelessWidget {
       ]);
 }
 
+/// A faint, oversized copy of the brand leaf used as a decorative watermark
+/// on cards — the same shape as the logo mark, kept visually consistent with
+/// it rather than introducing a second leaf motif.
+class LeafWatermark extends StatelessWidget {
+  final double size;
+  final double opacity;
+  const LeafWatermark({super.key, this.size = 90, this.opacity = .5});
+  @override
+  Widget build(BuildContext context) => IgnorePointer(
+      child: Opacity(
+          opacity: opacity,
+          child: CustomPaint(
+              size: Size(size, size),
+              painter: _LeafPainter(OColors.soft))));
+}
+
 class _LeafPainter extends CustomPainter {
   final Color color;
   _LeafPainter([this.color = OColors.forest]);

@@ -13,8 +13,20 @@ Widget harness(Widget child) => ProviderScope(
 void main() {
   testWidgets('onboarding uses the iOS-style chevron, not the Material arrow',
       (tester) async {
-    await tester.pumpWidget(harness(const PhoneScreen()));
+    // PhoneScreen is always reached by pushing on top of onboarding, so it
+    // always has something to pop back to; a bare `home:` mount (nothing to
+    // pop) would be an unrealistic setup and hide the chevron on purpose.
+    await tester.pumpWidget(harness(Builder(
+        builder: (context) => Scaffold(
+            body: Center(
+                child: ElevatedButton(
+                    onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                            builder: (_) => const PhoneScreen())),
+                    child: const Text('open')))))));
     await tester.pump();
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
 
     expect(find.byType(BackChevron), findsOneWidget);
     expect(find.byIcon(Icons.arrow_back_ios_new), findsOneWidget);
@@ -39,6 +51,31 @@ void main() {
     await tester.tap(find.byType(BackChevron));
     await tester.pumpAndSettle();
     expect(find.byType(PhoneScreen), findsNothing);
+  });
+
+  testWidgets(
+      'OmoterraAppBar shows the chevron once pushed, and hides it at the root',
+      (tester) async {
+    await tester.pumpWidget(harness(const Scaffold(
+        appBar: OmoterraAppBar(title: Text('Root')),
+        body: SizedBox())));
+    await tester.pump();
+    expect(find.byType(BackChevron), findsNothing);
+
+    await tester.pumpWidget(harness(Builder(
+        builder: (context) => Scaffold(
+            body: Center(
+                child: ElevatedButton(
+                    onPressed: () => Navigator.of(context).push(
+                        MaterialPageRoute<void>(
+                            builder: (_) => const Scaffold(
+                                appBar: OmoterraAppBar(title: Text('Pushed')),
+                                body: SizedBox()))),
+                    child: const Text('open')))))));
+    await tester.pump();
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.byType(BackChevron), findsOneWidget);
   });
 
   testWidgets('a root screen lets the system back gesture leave the app',

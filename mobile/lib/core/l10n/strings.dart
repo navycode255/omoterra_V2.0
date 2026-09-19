@@ -73,8 +73,10 @@ class Strings {
   String get whatToday =>
       _t('What do you need today?', 'Unahitaji nini leo?');
   String get buySupplyCard => _t('Buy Supply', 'Nunua Bidhaa');
-  String get buySupplyCardBody => _t('Browse available livestock and meat',
-      'Angalia mifugo na nyama zilizopo');
+  String get buySupplyCardBody => _t(
+      'Browse available livestock and meat from trusted suppliers.',
+      'Angalia mifugo na nyama zilizopo kutoka kwa wasambazaji waaminifu.');
+  String get exploreNow => _t('Explore Now', 'Tazama Sasa');
   String get requestSupply => _t('Request Supply', 'Omba Bidhaa');
   String get requestSupplyBody =>
       _t('Tell us what you need.', 'Tuambie unachohitaji.');

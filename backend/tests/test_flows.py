@@ -2,7 +2,22 @@ from datetime import timedelta
 from sqlalchemy import select
 from app import models as m
 from app.auth import otp_hash
+from app.config import settings
 from test_commerce import headers, reserve, checkout_data
+
+
+def test_otp_code_is_hidden_once_a_real_sms_provider_is_set(client):
+    # Even on the live deployment, the OTP code must never appear in the API
+    # response once sms_provider stops being 'development' — that would leak
+    # the code to anyone who can see the network response.
+    original = settings().sms_provider
+    settings().sms_provider = 'twilio'
+    try:
+        start = client.post('/api/v1/auth/otp', json={'phone': '+255711111112'})
+        assert start.status_code == 200
+        assert 'development_code' not in start.json()
+    finally:
+        settings().sms_provider = original
 
 
 def test_otp_failed_attempts_persist_and_code_single_use(client, sessions):

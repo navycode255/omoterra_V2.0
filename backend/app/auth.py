@@ -56,8 +56,13 @@ def start_otp(db, phone):
     challenge.code_hash = otp_hash(challenge.id, code)
     db.add(challenge)
     db.flush()
-    # Development code is returned only in explicitly development-only runtime.
-    return {'challenge_id': challenge.id, 'otp_length': settings().otp_length, 'resend_after_seconds': settings().otp_resend_seconds, 'development_code': code}
+    response = {'challenge_id': challenge.id, 'otp_length': settings().otp_length, 'resend_after_seconds': settings().otp_resend_seconds}
+    # The code is only ever put in the response while no real SMS provider is
+    # wired up (see Settings.validate_runtime) — never on a real deployment
+    # sending real texts, even one otherwise marked 'live'.
+    if settings().sms_provider == 'development':
+        response['development_code'] = code
+    return response
 
 
 def verify_otp(db, challenge_id, code):

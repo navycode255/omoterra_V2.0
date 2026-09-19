@@ -11,8 +11,8 @@ void main() {
 
   test('preview serves a signed-in account and browsable supply', () async {
     expect((await repo.read('/me'))['name'], 'Preview Account');
-    expect((await repo.listings({})).length, 4);
-    expect((await repo.read('/listings') as List).length, 4);
+    expect((await repo.listings({})).length, 5);
+    expect((await repo.read('/listings') as List).length, 5);
     expect((await repo.read('/supplier/stock') as List).length, 2);
     expect((await repo.read('/addresses') as List).length, 1);
     expect(await repo.read('/orders'), isEmpty);

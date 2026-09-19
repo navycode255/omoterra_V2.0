@@ -105,7 +105,7 @@ class ProfileScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(sessionProvider).value!;
     return Scaffold(
-        appBar: AppBar(title: const Text('Profile & language')),
+        appBar: OmoterraAppBar(title: const Text('Profile & language')),
         body: ListView(padding: const EdgeInsets.all(20), children: [
           DataForm(
               path: '/me',
@@ -144,8 +144,8 @@ class AddressesScreen extends ConsumerWidget {
   const AddressesScreen({super.key, this.create = false, this.edit});
   @override
   Widget build(BuildContext context, WidgetRef ref) => Scaffold(
-      appBar:
-          AppBar(title: Text(create ? 'Delivery address' : 'Saved addresses')),
+      appBar: OmoterraAppBar(
+          title: Text(create ? 'Delivery address' : 'Saved addresses')),
       body: ListView(
           padding: const EdgeInsets.all(20),
           children: create
@@ -235,7 +235,7 @@ class AccountInfoScreen extends StatelessWidget {
   const AccountInfoScreen(this.page, {super.key});
   @override
   Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: Text(label(page))),
+      appBar: OmoterraAppBar(title: Text(label(page))),
       body: ListView(padding: const EdgeInsets.all(20), children: [
         ResourceView('/config', builder: (config) {
           final text = page == 'support'

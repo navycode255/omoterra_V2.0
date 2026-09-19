@@ -103,7 +103,7 @@ class StockChangeScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final correction = action == 'correct';
     return Scaffold(
-        appBar: AppBar(
+        appBar: OmoterraAppBar(
             title:
                 Text(correction ? 'Correct stock count' : 'Add to this stock')),
         body: ListView(padding: const EdgeInsets.all(20), children: [
@@ -173,7 +173,7 @@ class RecordSaleScreen extends ConsumerWidget {
   const RecordSaleScreen(this.id, {super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) => Scaffold(
-      appBar: AppBar(title: const Text('Record a sale')),
+      appBar: OmoterraAppBar(title: const Text('Record a sale')),
       body: ListView(padding: const EdgeInsets.all(20), children: [
         ResourceView('/supplier/stock/$id',
             builder: (row) =>
@@ -260,7 +260,7 @@ class _HistoryState extends State<StockHistoryScreen> {
   String filter = 'all';
   @override
   Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: const Text('Stock history')),
+      appBar: OmoterraAppBar(title: const Text('Stock history')),
       body: ListView(padding: const EdgeInsets.all(20), children: [
         const Text('A record of every movement',
             style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)),
@@ -352,7 +352,7 @@ class _SalesState extends ConsumerState<SalesScreen> {
   String filter = 'all';
   @override
   Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(
+      appBar: OmoterraAppBar(
           title: Text(widget.id == null ? 'Sales records' : 'Sale details')),
       body: ListView(padding: const EdgeInsets.all(20), children: [
         if (widget.id == null) ...[

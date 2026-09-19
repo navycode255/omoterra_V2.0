@@ -238,7 +238,7 @@ class StockDetail extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) => Scaffold(
-      appBar: AppBar(title: const Text('Stock details'), actions: [
+      appBar: OmoterraAppBar(title: const Text('Stock details'), actions: [
         IconButton(
             tooltip: 'Refresh stock',
             onPressed: () => refreshStock(ref, id),
@@ -392,7 +392,7 @@ class _AddStockState extends ConsumerState<AddStockScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: const Text('Add Stock')),
+      appBar: OmoterraAppBar(title: const Text('Add Stock')),
       body: ListView(padding: const EdgeInsets.all(20), children: [
         ResourceView('/supplier/profile', builder: (profile) {
           if (profile == null) {
@@ -637,7 +637,7 @@ class SupplierOrders extends StatelessWidget {
         ]);
       })
     ]);
-    return id == null ? body : Scaffold(appBar: AppBar(), body: body);
+    return id == null ? body : Scaffold(appBar: OmoterraAppBar(), body: body);
   }
 }
 
@@ -646,8 +646,8 @@ class PayoutScreen extends StatelessWidget {
   const PayoutScreen({super.key, this.id});
   @override
   Widget build(BuildContext context) => Scaffold(
-      appBar:
-          AppBar(title: Text(id == null ? 'Your payouts' : 'Payout details')),
+      appBar: OmoterraAppBar(
+          title: Text(id == null ? 'Your payouts' : 'Payout details')),
       body: ListView(padding: const EdgeInsets.all(20), children: [
         ResourceView(id == null ? '/supplier/payouts' : '/supplier/payouts/$id',
             builder: (data) {

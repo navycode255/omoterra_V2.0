@@ -141,13 +141,30 @@ class LocalRepository implements OmoterraRepository {
           'ready_date': 'This week'
         }),
     const SupplyListing(
-        id: 'local-beef',
-        category: 'beef',
-        unitType: 'kg',
+        id: 'local-cattle',
+        category: 'cattle',
+        unitType: 'animal',
         region: 'Pwani',
-        price: '14000',
-        available: '150',
-        specs: {'cut_type': 'Mixed cuts', 'chilled_or_frozen': 'chilled'}),
+        price: '1500000',
+        available: '6',
+        specs: {
+          'weight_range': '250–320 kg',
+          'breed': 'Boran cross',
+          'sex': 'male',
+          'ready_date': 'This week'
+        }),
+    const SupplyListing(
+        id: 'local-eggs',
+        category: 'eggs',
+        unitType: 'tray',
+        region: 'Dar es Salaam',
+        price: '9500',
+        available: '40',
+        specs: {
+          'tray_size': '30',
+          'egg_size': 'medium',
+          'ready_date': 'Today'
+        }),
   ];
 
   static const _supplier = {

@@ -19,7 +19,7 @@ class _RequestSupplyState extends State<RequestSupplyScreen> {
   List<String> photos = [];
   @override
   Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: const Text('Request Supply')),
+      appBar: OmoterraAppBar(title: const Text('Request Supply')),
       body: ListView(padding: const EdgeInsets.all(20), children: [
         Text('The supply you need.\nSourced by Omoterra.',
             style: Theme.of(context).textTheme.headlineMedium),
@@ -75,7 +75,7 @@ class RequestDetail extends StatelessWidget {
   const RequestDetail(this.id, {super.key});
   @override
   Widget build(BuildContext context) => Scaffold(
-      appBar: AppBar(title: const Text('Supply request')),
+      appBar: OmoterraAppBar(title: const Text('Supply request')),
       body: ListView(padding: const EdgeInsets.all(20), children: [
         ResourceView('/requests/$id',
             builder: (data) =>
@@ -160,8 +160,8 @@ class BusinessScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final entry = businesses[type];
     return Scaffold(
-        appBar:
-            AppBar(title: Text(entry == null ? 'Start a Business' : entry[0])),
+        appBar: OmoterraAppBar(
+            title: Text(entry == null ? 'Start a Business' : entry[0])),
         body: ListView(
             padding: const EdgeInsets.all(20),
             children: entry == null

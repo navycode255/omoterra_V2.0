@@ -11,6 +11,7 @@ import '../../features/supplier/inventory_screens.dart';
 import '../../shared/widgets/supply_art.dart';
 import '../../features/account/screens.dart';
 import '../../shared/widgets/components.dart';
+import '../theme/theme.dart';
 
 String? routeGuard(String path,
     {required bool signedIn,
@@ -122,7 +123,7 @@ final routerProvider = Provider<GoRouter>((ref) {
         GoRoute(
             path: '/business-submitted',
             builder: (context, _) => Scaffold(
-                appBar: AppBar(),
+                appBar: const OmoterraAppBar(),
                 body: Padding(
                     padding: const EdgeInsets.all(20),
                     child: EmptyState('Request received',
@@ -177,7 +178,7 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (_, s) => PayoutScreen(id: s.pathParameters['id'])),
       ],
       errorBuilder: (context, _) => Scaffold(
-          appBar: AppBar(),
+          appBar: const OmoterraAppBar(),
           body: Padding(
               padding: const EdgeInsets.all(20),
               child: EmptyState(
@@ -240,15 +241,43 @@ class AppShell extends ConsumerWidget {
     // back gesture should leave the app rather than be swallowed.
     return ExitOnBack(
         child: Scaffold(
-        appBar: AppBar(title: const BrandMark(size: 23), actions: [
-          Padding(
-              padding: const EdgeInsets.only(right: 20),
-              child: Center(
-                  child: Text(supplier ? 'SUPPLIER' : 'BUYER',
-                      style:
-                          const TextStyle(fontSize: 10, letterSpacing: 1.5))))
-        ]),
+        appBar: PreferredSize(
+            preferredSize: const Size.fromHeight(64),
+            child: SafeArea(
+                bottom: false,
+                child: Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 8, 16, 8),
+                    child: Row(children: [
+                      const Expanded(child: BrandMark(size: 21)),
+                      // Role switching lives on Account; this is a shortcut
+                      // there, not a second implementation of the switch.
+                      InkWell(
+                          onTap: () => context.push('/account'),
+                          borderRadius: BorderRadius.circular(20),
+                          child: Container(
+                              padding: const EdgeInsets.fromLTRB(
+                                  10, 8, 8, 8),
+                              decoration: BoxDecoration(
+                                  color: OColors.soft,
+                                  borderRadius: BorderRadius.circular(20)),
+                              child: Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const Icon(Icons.person,
+                                        size: 15, color: OColors.forest),
+                                    const SizedBox(width: 5),
+                                    Text(supplier ? 'SUPPLIER' : 'BUYER',
+                                        style: const TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w700,
+                                            letterSpacing: .8,
+                                            color: OColors.forest)),
+                                    const Icon(Icons.keyboard_arrow_down,
+                                        size: 16, color: OColors.forest),
+                                  ]))),
+                    ])))),
         body: SafeArea(
+            top: false,
             child: RefreshIndicator(
                 onRefresh: () async {
                   ref.invalidate(resourceProvider);
