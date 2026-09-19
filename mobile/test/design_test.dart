@@ -51,7 +51,9 @@ void main() {
       'phone': '+255746484666',
     })));
     await tester.pump();
-    expect(find.byType(TextField), findsNWidgets(6));
+    // Six boxes filled from the in-app keypad, not the OS keyboard.
+    expect(find.byType(TextField), findsNothing);
+    expect(find.byType(NumberPad), findsOneWidget);
     expect(find.textContaining('00:45'), findsOneWidget);
   });
 
