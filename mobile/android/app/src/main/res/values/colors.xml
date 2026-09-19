@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Matches OColors.background so the native launch screen and the
+         Flutter splash are the same surface. -->
+    <color name="omoterra_background">#FAFBF9</color>
+</resources>

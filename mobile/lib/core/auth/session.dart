@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/widgets.dart';
 import '../../shared/models/domain.dart';
@@ -8,16 +10,14 @@ final sessionProvider =
 final activeRoleProvider = StateProvider<String>((ref) => 'buyer');
 
 class SessionController extends AsyncNotifier<AppUser?> {
-  /// The splash is shown while this resolves. Restoring a session is usually
-  /// instantaneous, which would flash the brand past too quickly to read, so
-  /// the first resolution is held to this floor. Real work runs concurrently,
-  /// so a slow restore is never delayed by it.
+  /// The splash stays up until startup work is done, so its duration follows
+  /// what actually has to load rather than a fixed timer. The floor below only
+  /// stops it flashing past when everything resolves instantly.
   ///
-  /// The floor is counted from Flutter's first frame, not from app start:
-  /// Android's own launch screen covers everything before that, and on a debug
-  /// build the engine can take several seconds to boot, which would otherwise
-  /// consume the whole window before anything is drawn.
-  static const _splashFloor = Duration(milliseconds: 1600);
+  /// It is counted from Flutter's first frame, not app start: Android's own
+  /// launch screen covers everything before that, so a timer started earlier
+  /// would elapse before anything of ours was drawn.
+  static const _splashFloor = Duration(milliseconds: 600);
   static bool _shown = false;
 
   /// Disabled in tests, where a pending timer would outlive the widget tree
@@ -26,11 +26,19 @@ class SessionController extends AsyncNotifier<AppUser?> {
 
   @override
   Future<AppUser?> build() async {
-    final hold = holdSplash && !_shown;
+    final first = holdSplash && !_shown;
     _shown = true;
-    final floor = hold ? _floorFromFirstFrame() : Future<void>.value();
+    if (!first) return _restore();
+
+    // Everything the first screens need is loaded here, while the splash is
+    // on screen, so the user never watches images or config pop in later.
+    final warmup = Future.wait([
+      _floorFromFirstFrame(),
+      _precacheArtwork(),
+      _warmConfig(),
+    ]);
     final user = await _restore();
-    await floor;
+    await warmup;
     return user;
   }
 
@@ -39,6 +47,44 @@ class SessionController extends AsyncNotifier<AppUser?> {
     // measured from when the splash is actually on screen.
     await WidgetsBinding.instance.endOfFrame;
     await Future<void>.delayed(_splashFloor);
+  }
+
+  /// Decodes the photographs the welcome and home screens open with. Without
+  /// this they decode on first paint and visibly fade in.
+  Future<void> _precacheArtwork() async {
+    const assets = [
+      'assets/images/welcome.jpg',
+      'assets/images/category_broilers.jpg',
+      'assets/images/logo.png',
+    ];
+    await Future.wait(assets.map(_decode));
+  }
+
+  /// Resolves one asset into the image cache. A missing file is not fatal:
+  /// BrandImage falls back to vector artwork, so startup continues.
+  Future<void> _decode(String asset) {
+    final completer = Completer<void>();
+    final stream =
+        AssetImage(asset).resolve(ImageConfiguration.empty);
+    late final ImageStreamListener listener;
+    void done() {
+      if (!completer.isCompleted) completer.complete();
+      stream.removeListener(listener);
+    }
+
+    listener = ImageStreamListener((_, __) => done(),
+        onError: (_, __) => done());
+    stream.addListener(listener);
+    return completer.future;
+  }
+
+  /// Server-driven configuration such as the enabled payment methods. A
+  /// failure here must not block startup; the screens that need it fetch it
+  /// again and surface their own errors.
+  Future<void> _warmConfig() async {
+    try {
+      await ref.read(repositoryProvider).read('/config');
+    } catch (_) {}
   }
 
   Future<AppUser?> _restore() async {
