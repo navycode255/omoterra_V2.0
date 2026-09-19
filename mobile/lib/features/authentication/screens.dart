@@ -70,7 +70,8 @@ class WelcomeScreen extends ConsumerWidget {
     // The photograph fills the screen and the content panel floats over its
     // lower half, its background fading up into the image so the two meet as
     // haze rather than at a cut line.
-    return Scaffold(
+    return ExitOnBack(
+        child: Scaffold(
         body: Stack(fit: StackFit.expand, children: [
       // The photograph runs well past the panel's top edge so the panel's
       // gradient dissolves over the image itself rather than over bare
@@ -115,13 +116,13 @@ class WelcomeScreen extends ConsumerWidget {
                                     color: OColors.secondary, height: 1.5)),
                             const SizedBox(height: 26),
                             OmoterraButton(s.getStarted,
-                                onPressed: () => context.go('/phone')),
+                                onPressed: () => context.push('/phone')),
                             const SizedBox(height: 10),
                             OmoterraButton(s.haveAccount,
                                 secondary: true,
-                                onPressed: () => context.go('/phone')),
+                                onPressed: () => context.push('/phone')),
                           ]))))),
-    ]));
+    ])));
   }
 }
 
@@ -197,7 +198,10 @@ class _PhoneState extends ConsumerState<PhoneScreen> {
   Widget build(BuildContext context) {
     final s = ref.s;
     return Scaffold(
-        appBar: AppBar(),
+        appBar: AppBar(
+            leading: const Padding(
+                padding: EdgeInsets.only(left: 12), child: BackChevron()),
+            leadingWidth: 60),
         body: SafeArea(
             child: Column(children: [
           Expanded(
@@ -525,7 +529,10 @@ class _OtpState extends ConsumerState<OtpScreen> {
   Widget build(BuildContext context) {
     final s = ref.s;
     return Scaffold(
-        appBar: AppBar(),
+        appBar: AppBar(
+            leading: const Padding(
+                padding: EdgeInsets.only(left: 12), child: BackChevron()),
+            leadingWidth: 60),
         body: SafeArea(
             child: Padding(
                 padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),

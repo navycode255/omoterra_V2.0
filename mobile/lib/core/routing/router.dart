@@ -236,7 +236,10 @@ class AppShell extends ConsumerWidget {
     final routes = supplier
         ? ['/supplier', '/stock', '/supplier-orders', '/account']
         : ['/buyer', '/explore', '/orders', '/account'];
-    return Scaffold(
+    // The tabbed screens are the root of the signed-in app, so the system
+    // back gesture should leave the app rather than be swallowed.
+    return ExitOnBack(
+        child: Scaffold(
         appBar: AppBar(title: const BrandMark(size: 23), actions: [
           Padding(
               padding: const EdgeInsets.only(right: 20),
@@ -268,6 +271,6 @@ class AppShell extends ConsumerWidget {
                   icon: Icon(Icons.receipt_long_outlined), label: 'Orders'),
               const NavigationDestination(
                   icon: Icon(Icons.person_outline), label: 'Account')
-            ]));
+            ])));
   }
 }

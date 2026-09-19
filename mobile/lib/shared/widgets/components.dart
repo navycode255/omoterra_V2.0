@@ -435,3 +435,36 @@ class _DateFieldState extends State<OmoterraDateField> {
             }
           }));
 }
+
+/// iOS-style chevron back button. Used instead of Material's arrow so the
+/// onboarding screens match the design.
+class BackChevron extends StatelessWidget {
+  final VoidCallback? onPressed;
+  const BackChevron({super.key, this.onPressed});
+  @override
+  Widget build(BuildContext context) => Semantics(
+      button: true,
+      label: MaterialLocalizations.of(context).backButtonTooltip,
+      child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onPressed ?? () => Navigator.of(context).maybePop(),
+          child: const SizedBox(
+              width: 48,
+              height: 48,
+              child: Icon(Icons.arrow_back_ios_new,
+                  size: 20, color: OColors.ink))));
+}
+
+/// Lets the system back gesture leave the app from a root screen. Without it
+/// a route with nothing to pop simply swallows the gesture and the app can
+/// never be backed out of.
+class ExitOnBack extends StatelessWidget {
+  final Widget child;
+  const ExitOnBack({super.key, required this.child});
+  @override
+  Widget build(BuildContext context) => PopScope(
+      // Nothing above this route, so let the platform handle the pop and
+      // move the app to the background.
+      canPop: true,
+      child: child);
+}
