@@ -21,6 +21,9 @@ class BrandImage extends StatelessWidget {
   final String name;
   final String fallbackArt;
   final BoxFit fit;
+
+  /// Which part of the photograph survives a cover crop.
+  final Alignment alignment;
   final double? height;
   final double? width;
   final Widget? overlay;
@@ -30,6 +33,7 @@ class BrandImage extends StatelessWidget {
     super.key,
     required this.fallbackArt,
     this.fit = BoxFit.cover,
+    this.alignment = Alignment.center,
     this.height,
     this.width,
     this.overlay,
@@ -40,6 +44,7 @@ class BrandImage extends StatelessWidget {
     final image = Image.asset(
       'assets/images/$name.jpg',
       fit: fit,
+      alignment: alignment,
       height: height,
       width: width,
       // A missing asset is the expected state until photography is supplied.

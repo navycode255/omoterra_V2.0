@@ -63,38 +63,59 @@ class WelcomeScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final s = ref.s;
+    // The photograph fills the screen and the content panel floats over its
+    // lower half, its background fading up into the image so the two meet as
+    // haze rather than at a cut line.
     return Scaffold(
-        body: Column(children: [
-      const Expanded(
-          flex: 5, child: BrandImage('welcome', fallbackArt: 'cattle')),
-      Expanded(
-          flex: 4,
+        body: Stack(fit: StackFit.expand, children: [
+      // The photograph runs well past the panel's top edge so the panel's
+      // gradient dissolves over the image itself rather than over bare
+      // background, which would still read as a cut.
+      const Align(
+          alignment: Alignment.topCenter,
+          child: FractionallySizedBox(
+              heightFactor: .78,
+              child: BrandImage('welcome',
+                  fallbackArt: 'cattle', alignment: Alignment(0, -.35)))),
+      Align(
+          alignment: Alignment.bottomCenter,
           child: SafeArea(
               top: false,
-              // Scrolls rather than overflowing on small screens or at large
-              // text scales, where the fixed split cannot fit.
               child: SingleChildScrollView(
-                  child: Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 26, 24, 20),
-                      child: Column(children: [
-                        Text(s.welcomeTitle,
-                            textAlign: TextAlign.center,
-                            style: Theme.of(context).textTheme.headlineMedium),
-                        const SizedBox(height: 10),
-                        Text(s.welcomeBody,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                                color: OColors.secondary, height: 1.5)),
-                        const SizedBox(height: 18),
-                        const _PageDots(count: 3, active: 0),
-                        const SizedBox(height: 18),
-                        OmoterraButton(s.getStarted,
-                            onPressed: () => context.go('/phone')),
-                        const SizedBox(height: 10),
-                        OmoterraButton(s.haveAccount,
-                            secondary: true,
-                            onPressed: () => context.go('/phone')),
-                      ])))))
+                  child: Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.fromLTRB(24, 150, 24, 20),
+                      decoration: BoxDecoration(
+                          gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              stops: const [0, .18, .40, 1],
+                              colors: [
+                                OColors.background.withValues(alpha: 0),
+                                OColors.background.withValues(alpha: .70),
+                                OColors.background,
+                                OColors.background,
+                              ])),
+                      child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(s.welcomeTitle,
+                                textAlign: TextAlign.center,
+                                style:
+                                    Theme.of(context).textTheme.headlineMedium),
+                            const SizedBox(height: 10),
+                            Text(s.welcomeBody,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                    color: OColors.secondary, height: 1.5)),
+                            const SizedBox(height: 26),
+                            OmoterraButton(s.getStarted,
+                                onPressed: () => context.go('/phone')),
+                            const SizedBox(height: 10),
+                            OmoterraButton(s.haveAccount,
+                                secondary: true,
+                                onPressed: () => context.go('/phone')),
+                          ]))))),
     ]));
   }
 }
@@ -712,22 +733,3 @@ class _ChoiceRow extends StatelessWidget {
           ])));
 }
 
-/// Carousel dots on the welcome screen. The first is active; the remaining
-/// pages are Phase 2, so they are indicators only, not swipeable yet.
-class _PageDots extends StatelessWidget {
-  final int count, active;
-  const _PageDots({required this.count, required this.active});
-  @override
-  Widget build(BuildContext context) => Row(
-      mainAxisAlignment: MainAxisAlignment.center,
-      children: [
-        for (var i = 0; i < count; i++)
-          Container(
-              width: i == active ? 18 : 7,
-              height: 7,
-              margin: const EdgeInsets.symmetric(horizontal: 3),
-              decoration: BoxDecoration(
-                  color: i == active ? OColors.forest : OColors.border,
-                  borderRadius: BorderRadius.circular(4))),
-      ]);
-}
