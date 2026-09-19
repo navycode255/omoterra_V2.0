@@ -56,15 +56,28 @@ class FarmScene extends StatelessWidget {
                       ])))));
 }
 
+/// The Omoterra logo. Renders the supplied artwork from
+/// assets/images/logo.png, falling back to the drawn wordmark if it is
+/// missing so no screen is ever left blank.
 class BrandMark extends StatelessWidget {
+  /// Cap height of the wordmark, matching the previous drawn mark's sizing.
   final double size;
 
-  /// Reverses the mark to white for use over photography.
+  /// Reverses the drawn fallback to white for use over photography. The
+  /// supplied logo is full colour and is not recoloured.
   final bool onDark;
   const BrandMark({super.key, this.size = 25, this.onDark = false});
+
   @override
-  Widget build(BuildContext context) =>
-      Row(mainAxisSize: MainAxisSize.min, children: [
+  Widget build(BuildContext context) => Semantics(
+      label: 'Omoterra',
+      image: true,
+      child: Image.asset('assets/images/logo.png',
+          height: size * 1.45,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stack) => _drawn()));
+
+  Widget _drawn() => Row(mainAxisSize: MainAxisSize.min, children: [
         CustomPaint(
             size: Size(size, size),
             painter: _LeafPainter(onDark ? Colors.white : OColors.forest)),

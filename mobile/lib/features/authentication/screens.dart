@@ -31,13 +31,17 @@ class SplashScreen extends ConsumerWidget {
           child: SizedBox.expand()),
       SafeArea(
           child: Column(children: [
-            const SizedBox(height: 56),
-            const BrandMark(size: 34),
-            const SizedBox(height: 10),
+            const SizedBox(height: 64),
+            // The supplied logo carries its own tagline, so the headline sits
+            // below it rather than repeating the brand line.
+            const Padding(
+                padding: EdgeInsets.symmetric(horizontal: 40),
+                child: BrandMark(size: 46)),
+            const SizedBox(height: 18),
             Text(s.splashHeadline,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                    fontSize: 25,
+                    fontSize: 24,
                     height: 1.25,
                     fontWeight: FontWeight.w700,
                     color: OColors.forest)),
