@@ -10,6 +10,10 @@ const apiUrl = String.fromEnvironment('API_BASE_URL');
 /// Offline design preview, enabled with --dart-define=LOCAL_PREVIEW=true.
 /// Reads are fixtures and every transactional write fails closed.
 const localPreview = bool.fromEnvironment('LOCAL_PREVIEW');
+
+/// With LOCAL_PREVIEW, start at the phone screen rather than signed in, so the
+/// onboarding flow itself can be walked through offline.
+const previewOnboarding = bool.fromEnvironment('PREVIEW_ONBOARDING');
 String newKey() => const Uuid().v4();
 
 class ApiFailure implements Exception {
@@ -283,10 +287,26 @@ class LocalRepository implements OmoterraRepository {
   @override
   Future<dynamic> write(String path, Map<String, dynamic> data,
       {String method = 'POST', String? key}) async {
-    // Onboarding is allowed to "succeed" because it only edits the local
-    // preview account and moves nothing of value.
+    // Sign-in and onboarding are allowed to "succeed" offline: they move
+    // nothing of value, and without them no screen can be reached at all.
+    // Anything that touches stock, money or an order still fails closed.
     if (path == '/me') return read('/me');
     if (path == '/auth/logout') return null;
+    if (path == '/auth/otp') {
+      return {
+        'challenge_id': 'preview-challenge',
+        'otp_length': 6,
+        'resend_after_seconds': 60,
+        // Shown on screen in development, exactly as the real backend does.
+        'development_code': '123456',
+      };
+    }
+    if (path == '/auth/verify') {
+      return {
+        'access_token': 'preview-token',
+        'user': await read('/me'),
+      };
+    }
     throw const ApiFailure(_unavailable);
   }
 }

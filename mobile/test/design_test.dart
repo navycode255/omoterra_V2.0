@@ -29,11 +29,13 @@ void main() {
     expect(find.text('Tayari nina akaunti'), findsOneWidget);
   });
 
-  testWidgets('phone entry shows the inline +255 prefix', (tester) async {
+  testWidgets('phone entry shows the +255 prefix and a masked example',
+      (tester) async {
     await tester.pumpWidget(harness(const PhoneScreen()));
     await tester.pump();
     expect(find.text('+255'), findsOneWidget);
-    expect(find.text('746 484 666'), findsOneWidget);
+    // The placeholder must not look like a real subscriber number.
+    expect(find.text('712 *** ***'), findsOneWidget);
   });
 
   testWidgets('otp screen renders one box per digit', (tester) async {

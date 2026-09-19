@@ -88,9 +88,11 @@ class SessionController extends AsyncNotifier<AppUser?> {
   }
 
   Future<AppUser?> _restore() async {
-    // The offline design preview opens straight into the signed-in app; there
-    // is no server to hold a session against.
-    if (localPreview) {
+    // The offline design preview opens straight into the signed-in app so the
+    // whole product can be browsed without a backend. Build with
+    // --dart-define=PREVIEW_ONBOARDING=true to land on the phone screen
+    // instead and walk the sign-up flow.
+    if (localPreview && !previewOnboarding) {
       return AppUser.fromJson(Map<String, dynamic>.from(
           await ref.read(repositoryProvider).read('/me')));
     }

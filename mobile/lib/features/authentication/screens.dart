@@ -144,10 +144,8 @@ class _PhoneState extends ConsumerState<PhoneScreen> {
 
   Future<void> submit() async {
     final digits = phone.text.replaceAll(RegExp(r'\D'), '');
-    if (digits.length < 9) {
-      setState(() => error = ref.read(stringsProvider).isSwahili
-          ? 'Weka namba sahihi ya simu.'
-          : 'Enter a valid phone number.');
+    if (digits.length != 9) {
+      setState(() => error = ref.read(stringsProvider).phoneTooShort);
       return;
     }
     setState(() {
@@ -171,89 +169,268 @@ class _PhoneState extends ConsumerState<PhoneScreen> {
     }
   }
 
+  /// Tanzanian subscriber numbers are nine digits and never start with zero:
+  /// the leading zero of the local form is replaced by the +255 prefix, which
+  /// the field already shows.
+  void _append(String digit) {
+    final digits = phone.text.replaceAll(RegExp(r'\D'), '');
+    if (digits.length >= 9) return;
+    if (digits.isEmpty && digit == '0') {
+      setState(() => error = ref.read(stringsProvider).leadingZero);
+      return;
+    }
+    setState(() {
+      phone.text = digits + digit;
+      error = null;
+    });
+  }
+
+  void _backspace() {
+    if (phone.text.isEmpty) return;
+    setState(() {
+      phone.text = phone.text.substring(0, phone.text.length - 1);
+      error = null;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final s = ref.s;
     return Scaffold(
         appBar: AppBar(),
         body: SafeArea(
-            child: Padding(
-                padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
-                child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      Text(s.phoneTitle,
-                          textAlign: TextAlign.center,
-                          style: Theme.of(context).textTheme.headlineMedium),
-                      const SizedBox(height: 10),
-                      Text(s.phoneBody,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(color: OColors.secondary)),
-                      const SizedBox(height: 32),
-                      _PhoneField(controller: phone, label: s.phoneLabel),
-                      if (error != null) ErrorState(error!),
-                      const SizedBox(height: 20),
-                      OmoterraButton(s.continueLabel,
-                          busy: busy, onPressed: submit),
-                      const SizedBox(height: 16),
-                      Text(s.terms,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                              fontSize: 12, color: OColors.muted, height: 1.5)),
-                      const Spacer(),
-                    ]))));
+            child: Column(children: [
+          Expanded(
+              child: SingleChildScrollView(
+                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 12),
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        Text(s.phoneTitle,
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.headlineMedium),
+                        const SizedBox(height: 10),
+                        Text(s.phoneBody,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(color: OColors.secondary)),
+                        const SizedBox(height: 28),
+                        _PhoneField(value: phone.text, hint: s.phoneHint),
+                        if (error != null) ErrorState(error!),
+                        const SizedBox(height: 20),
+                        OmoterraButton(s.continueLabel,
+                            busy: busy, onPressed: submit),
+                        const SizedBox(height: 14),
+                        Text(s.terms,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                fontSize: 12,
+                                color: OColors.muted,
+                                height: 1.5)),
+                      ]))),
+          NumberPad(onDigit: _append, onBackspace: _backspace),
+        ])));
   }
 }
 
-/// Country prefix sits inside the field, as drawn, so the number reads as one
-/// control rather than two.
+/// Displays the number entered on the in-app keypad. It is not a TextField:
+/// tapping it must never raise the system keyboard, since the pad below is the
+/// only input. The value is announced so screen readers still read it back.
 class _PhoneField extends StatelessWidget {
-  final TextEditingController controller;
-  final String label;
-  const _PhoneField({required this.controller, required this.label});
+  final String value;
+  final String hint;
+  const _PhoneField({required this.value, required this.hint});
+
+  /// 746484666 -> 746 484 666
+  String get _grouped {
+    final digits = value.replaceAll(RegExp(r'\D'), '');
+    final parts = <String>[];
+    for (var i = 0; i < digits.length; i += 3) {
+      parts.add(digits.substring(i, (i + 3).clamp(0, digits.length)));
+    }
+    return parts.join(' ');
+  }
+
   @override
-  Widget build(BuildContext context) => Container(
-      decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: OColors.border)),
+  Widget build(BuildContext context) => Semantics(
+      label: 'Phone number',
+      value: value.isEmpty ? 'empty' : _grouped.split('').join(' '),
+      textField: true,
+      container: true,
+      explicitChildNodes: false,
+      excludeSemantics: true,
       child: Row(children: [
-        Padding(
-            padding: const EdgeInsets.fromLTRB(16, 0, 10, 0),
-            child: Row(children: [
-              Container(
-                  width: 22,
-                  height: 15,
-                  decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(2),
-                      color: OColors.forest)),
+        Container(
+            height: 54,
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(14),
+                border: Border.all(color: OColors.border)),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              const _TanzanianFlag(),
               const SizedBox(width: 8),
               const Text('+255',
                   style: TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+              const SizedBox(width: 2),
+              // Tanzania is the only supported country in V1, so the chevron
+              // is an affordance for later rather than an active control.
+              Icon(Icons.keyboard_arrow_down,
+                  size: 18, color: OColors.muted.withValues(alpha: .9)),
             ])),
-        Container(width: 1, height: 26, color: OColors.border),
+        const SizedBox(width: 10),
         Expanded(
-            child: TextField(
-                controller: controller,
-                keyboardType: TextInputType.phone,
-                autofocus: true,
-                inputFormatters: [
-                  FilteringTextInputFormatter.digitsOnly,
-                  LengthLimitingTextInputFormatter(12),
-                ],
-                style: const TextStyle(fontSize: 16, letterSpacing: .4),
-                decoration: InputDecoration(
-                    hintText: '746 484 666',
-                    filled: false,
-                    border: InputBorder.none,
-                    enabledBorder: InputBorder.none,
-                    focusedBorder: InputBorder.none,
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 14, vertical: 17),
-                    labelText: null,
-                    hintStyle: const TextStyle(color: OColors.muted)),
-                textInputAction: TextInputAction.done))
+            child: Container(
+                height: 54,
+                alignment: Alignment.centerLeft,
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(color: OColors.border)),
+                child: Text(value.isEmpty ? hint : _grouped,
+                    style: TextStyle(
+                        fontSize: 17,
+                        letterSpacing: .6,
+                        fontWeight:
+                            value.isEmpty ? FontWeight.w400 : FontWeight.w600,
+                        color: value.isEmpty ? OColors.muted : OColors.ink)))),
       ]));
+}
+
+/// The Tanzanian flag, drawn rather than shipped as an image so it stays sharp
+/// at any size.
+class _TanzanianFlag extends StatelessWidget {
+  const _TanzanianFlag();
+  @override
+  Widget build(BuildContext context) => ClipRRect(
+      borderRadius: BorderRadius.circular(3),
+      child: SizedBox(
+          width: 24,
+          height: 17,
+          child: CustomPaint(painter: _FlagPainter())));
+}
+
+class _FlagPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final w = size.width, h = size.height;
+    // Green upper hoist triangle, blue lower fly triangle, black diagonal
+    // band edged in yellow.
+    canvas.drawPath(
+        Path()
+          ..moveTo(0, 0)
+          ..lineTo(w, 0)
+          ..lineTo(0, h)
+          ..close(),
+        Paint()..color = const Color(0xFF1EB53A));
+    canvas.drawPath(
+        Path()
+          ..moveTo(w, 0)
+          ..lineTo(w, h)
+          ..lineTo(0, h)
+          ..close(),
+        Paint()..color = const Color(0xFF00A3DD));
+    canvas.drawPath(
+        Path()
+          ..moveTo(w, 0)
+          ..lineTo(0, h)
+          ..lineTo(0, h * .78)
+          ..lineTo(w * .78, 0)
+          ..close(),
+        Paint()..color = const Color(0xFFFCD116));
+    canvas.drawPath(
+        Path()
+          ..moveTo(w, 0)
+          ..lineTo(w, h * .22)
+          ..lineTo(w * .22, h)
+          ..lineTo(0, h)
+          ..close(),
+        Paint()..color = const Color(0xFFFCD116));
+    canvas.drawPath(
+        Path()
+          ..moveTo(w, 0)
+          ..lineTo(w, h * .16)
+          ..lineTo(w * .16, h)
+          ..lineTo(0, h)
+          ..close(),
+        Paint()..color = Colors.black);
+  }
+
+  @override
+  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// In-app numeric keypad. Replaces the system keyboard so the screen matches
+/// the design, and keeps every key a real focusable button with a spoken
+/// label so the flow stays usable with a screen reader or switch access.
+class NumberPad extends StatelessWidget {
+  final ValueChanged<String> onDigit;
+  final VoidCallback onBackspace;
+  const NumberPad({super.key, required this.onDigit, required this.onBackspace});
+
+  @override
+  Widget build(BuildContext context) => Container(
+      color: const Color(0xFFF2F4F2),
+      padding: EdgeInsets.fromLTRB(
+          6, 8, 6, 8 + MediaQuery.paddingOf(context).bottom),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        for (final row in const [
+          ['1', '2', '3'],
+          ['4', '5', '6'],
+          ['7', '8', '9'],
+          ['', '0', 'back'],
+        ])
+          Row(
+              children: row
+                  .map((key) => Expanded(
+                      child: _Key(
+                          value: key,
+                          onDigit: onDigit,
+                          onBackspace: onBackspace)))
+                  .toList()),
+      ]));
+}
+
+class _Key extends StatelessWidget {
+  final String value;
+  final ValueChanged<String> onDigit;
+  final VoidCallback onBackspace;
+  const _Key(
+      {required this.value,
+      required this.onDigit,
+      required this.onBackspace});
+
+  @override
+  Widget build(BuildContext context) {
+    if (value.isEmpty) return const SizedBox(height: 56);
+    final backspace = value == 'back';
+    return Padding(
+        padding: const EdgeInsets.all(4),
+        child: Semantics(
+            button: true,
+            label: backspace ? 'Delete' : value,
+            excludeSemantics: true,
+            child: Material(
+                color: backspace ? Colors.transparent : Colors.white,
+                borderRadius: BorderRadius.circular(9),
+                child: InkWell(
+                    borderRadius: BorderRadius.circular(9),
+                    onTap: () {
+                      HapticFeedback.selectionClick();
+                      backspace ? onBackspace() : onDigit(value);
+                    },
+                    child: SizedBox(
+                        height: 48,
+                        child: Center(
+                            child: backspace
+                                ? const Icon(Icons.backspace_outlined,
+                                    size: 21, color: OColors.ink)
+                                : Text(value,
+                                    style: const TextStyle(
+                                        fontSize: 24,
+                                        fontWeight: FontWeight.w500,
+                                        color: OColors.ink))))))));
+  }
 }
 
 class OtpScreen extends ConsumerStatefulWidget {

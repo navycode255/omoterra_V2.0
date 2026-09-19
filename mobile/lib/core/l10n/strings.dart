@@ -28,6 +28,13 @@ class Strings {
   String get phoneBody => _t("We'll send you a verification code",
       'Tutakutumia msimbo wa uthibitisho');
   String get phoneLabel => _t('Phone number', 'Namba ya simu');
+  String get phoneHint => '712 *** ***';
+  String get leadingZero => _t(
+      'Drop the leading 0 — +255 already covers it.',
+      'Ondoa 0 ya mwanzo — +255 tayari inaihusisha.');
+  String get phoneTooShort => _t(
+      'Enter all 9 digits of your number.',
+      'Weka tarakimu zote 9 za namba yako.');
   String get continueLabel => _t('Continue', 'Endelea');
   String get terms => _t('By continuing you agree to our\nTerms and Privacy Policy',
       'Kwa kuendelea unakubali\nMasharti na Sera ya Faragha');
