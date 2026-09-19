@@ -22,8 +22,9 @@ class Strings {
       'Fresh livestock and farm produce. Direct from trusted suppliers.',
       'Mifugo na mazao mapya. Moja kwa moja kutoka kwa wasambazaji wanaoaminika.');
   String get getStarted => _t('Get Started', 'Anza Sasa');
-  String get haveAccount =>
-      _t('I already have an account', 'Tayari nina akaunti');
+  /// Reassures returning users that the single button covers them too.
+  String get signInHint => _t('New or returning — just use your phone number.',
+      'Mgeni au unarudi — tumia namba yako ya simu.');
   String get phoneTitle => _t('Enter your\nphone number', 'Weka namba\nyako ya simu');
   String get phoneBody => _t("We'll send you a verification code",
       'Tutakutumia msimbo wa uthibitisho');

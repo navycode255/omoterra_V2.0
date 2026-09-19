@@ -115,12 +115,18 @@ class WelcomeScreen extends ConsumerWidget {
                                 style: const TextStyle(
                                     color: OColors.secondary, height: 1.5)),
                             const SizedBox(height: 26),
+                            // One button, because there is one auth path: the
+                            // OTP creates the account if the number is new and
+                            // signs in if it already exists. A separate
+                            // "I already have an account" would lead to the
+                            // very same screen.
                             OmoterraButton(s.getStarted,
                                 onPressed: () => context.push('/phone')),
-                            const SizedBox(height: 10),
-                            OmoterraButton(s.haveAccount,
-                                secondary: true,
-                                onPressed: () => context.push('/phone')),
+                            const SizedBox(height: 12),
+                            Text(s.signInHint,
+                                textAlign: TextAlign.center,
+                                style: const TextStyle(
+                                    fontSize: 13, color: OColors.secondary)),
                           ]))))),
     ])));
   }

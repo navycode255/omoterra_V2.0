@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:omoterra/core/l10n/strings.dart';
 import 'package:omoterra/core/theme/theme.dart';
 import 'package:omoterra/features/authentication/screens.dart';
+import 'package:omoterra/shared/widgets/components.dart';
 
 /// Renders a screen with a chosen account language so the designed copy and
 /// its Swahili translation can both be asserted.
@@ -17,7 +18,11 @@ void main() {
     await tester.pump();
     expect(find.text('Welcome to Omoterra'), findsOneWidget);
     expect(find.text('Get Started'), findsOneWidget);
-    expect(find.text('I already have an account'), findsOneWidget);
+    // A single entry point: the OTP both creates and restores an account, so
+    // a second "I already have an account" button would go to the same place.
+    expect(find.text('I already have an account'), findsNothing);
+    expect(find.textContaining('New or returning'), findsOneWidget);
+    expect(find.byType(OmoterraButton), findsOneWidget);
   });
 
   testWidgets('welcome renders in Swahili when the account prefers it',
@@ -26,7 +31,7 @@ void main() {
     await tester.pump();
     expect(find.text('Karibu Omoterra'), findsOneWidget);
     expect(find.text('Anza Sasa'), findsOneWidget);
-    expect(find.text('Tayari nina akaunti'), findsOneWidget);
+    expect(find.textContaining('Mgeni au unarudi'), findsOneWidget);
   });
 
   testWidgets('phone entry shows the +255 prefix and a masked example',
