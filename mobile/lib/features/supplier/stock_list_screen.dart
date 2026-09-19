@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
+import '../../core/theme/theme.dart';
 import '../../shared/widgets/components.dart';
 
 class StockList extends StatelessWidget {
@@ -21,22 +23,62 @@ class StockList extends StatelessWidget {
           for (final row in list)
             Padding(
                 padding: const EdgeInsets.only(bottom: 12),
-                child: InkWell(
-                    onTap: () => context.push('/stock/${row['id']}'),
-                    child: Surface(
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                          Text(label(row['category']),
-                              style: Theme.of(context).textTheme.titleLarge),
-                          const SizedBox(height: 8),
-                          Text(
-                              '${amount(row['quantity_available'])} ${row['unit_type']} available · ${amount(row['quantity_reserved'])} reserved'),
-                          const SizedBox(height: 8),
-                          StatusText(row['listing_status'])
-                        ]))))
+                child: _StockCard(row))
         ]);
       });
+}
+
+class _StockCard extends ConsumerWidget {
+  final Map<String, dynamic> row;
+  const _StockCard(this.row);
+  @override
+  Widget build(BuildContext context, WidgetRef ref) => InkWell(
+      onTap: () => context.push('/stock/${row['id']}'),
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: OColors.border)),
+          child: Row(children: [
+            SizedBox(
+                width: 56,
+                child: ProductImage(List<String>.from(row['photos'] ?? []),
+                    category: row['category'], height: 56)),
+            const SizedBox(width: 13),
+            Expanded(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  Text(label(row['category']),
+                      style: const TextStyle(
+                          fontSize: 15, fontWeight: FontWeight.w700)),
+                  const SizedBox(height: 4),
+                  Text(
+                      '${amount(row['quantity_available'])} available · ${amount(row['quantity_reserved'])} reserved',
+                      style: const TextStyle(
+                          fontSize: 12.5, color: OColors.secondary)),
+                  const SizedBox(height: 6),
+                  StatusText(row['listing_status']),
+                ])),
+            PopupMenuButton<String>(
+                icon: const Icon(Icons.more_horiz, color: OColors.muted),
+                shape:
+                    RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                onSelected: (route) => context.push(route),
+                itemBuilder: (context) => [
+                      PopupMenuItem(
+                          value: '/stock/${row['id']}',
+                          child: const Text('View details')),
+                      PopupMenuItem(
+                          value: '/stock/${row['id']}/correct',
+                          child: const Text('Correct stock count')),
+                      PopupMenuItem(
+                          value: '/stock/${row['id']}/add',
+                          child: const Text('Add stock received')),
+                    ]),
+          ])));
 }
 
 class StockScreen extends StatefulWidget {

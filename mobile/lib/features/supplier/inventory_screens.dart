@@ -30,6 +30,17 @@ void refreshStock(WidgetRef ref, String id) {
   ref.invalidate(listingsProvider);
 }
 
+/// One representative category per unit type, used only to pick a small icon
+/// for that row — a unit type can span several categories (e.g. 'bird'
+/// covers both broilers and local chicken), so this is a visual stand-in,
+/// not a categorisation.
+const _unitIcon = {
+  'bird': 'broilers',
+  'animal': 'cattle',
+  'kg': 'goat_meat',
+  'tray': 'eggs',
+};
+
 class StockBalances extends StatelessWidget {
   final List<dynamic> rows;
 
@@ -39,59 +50,88 @@ class StockBalances extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final units = rows.map((r) => r['unit_type'] as String).toSet();
+    final columns = [
+      (Icons.inventory_2_outlined, labels?.availableStat ?? 'Available',
+          'quantity_available'),
+      (Icons.schedule, labels?.reservedStat ?? 'Reserved',
+          'quantity_reserved'),
+      (Icons.bar_chart, labels?.soldStat ?? 'Sold', 'quantity_sold'),
+    ];
     return Container(
-        padding: const EdgeInsets.all(18),
+        padding: const EdgeInsets.symmetric(vertical: 20, horizontal: 8),
         decoration: BoxDecoration(
             color: Colors.white,
             borderRadius: BorderRadius.circular(16),
             border: Border.all(color: OColors.border)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            for (final title in [
-              labels?.availableStat ?? 'Available',
-              labels?.reservedStat ?? 'Reserved',
-              labels?.soldStat ?? 'Sold'
-            ])
+            // Space for the leading category icon each data row carries,
+            // so the header labels line up over their numbers below.
+            const SizedBox(width: 48),
+            for (final entry in columns)
               Expanded(
-                  child: Text(title,
-                      style: const TextStyle(
-                          fontSize: 12, color: OColors.secondary)))
+                  child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      child: Row(children: [
+                        Icon(entry.$1, size: 13, color: OColors.secondary),
+                        const SizedBox(width: 3),
+                        Flexible(
+                            child: Text(entry.$2,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                    fontSize: 11.5,
+                                    color: OColors.secondary))),
+                      ])))
           ]),
           if (units.isEmpty)
             const Padding(
-                padding: EdgeInsets.only(top: 12),
+                padding: EdgeInsets.only(top: 12, left: 10),
                 child: Text('Your stock balances will appear here.')),
           for (final unit in units)
             Padding(
-                padding: const EdgeInsets.only(top: 12),
-                child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      for (final key in [
-                        'quantity_available',
-                        'quantity_reserved',
-                        'quantity_sold'
-                      ])
-                        Expanded(
-                            child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                              Text(
-                                  amount(rows
-                                      .where((r) => r['unit_type'] == unit)
-                                      .fold<num>(
-                                          0,
-                                          (sum, r) =>
-                                              sum + num.parse('${r[key]}'))),
-                                  style: const TextStyle(
-                                      fontSize: 23,
-                                      fontWeight: FontWeight.w700,
-                                      color: OColors.forest)),
-                              Text(unit == 'kg' ? 'kg' : '${unit}s',
-                                  style: const TextStyle(
-                                      fontSize: 11, color: OColors.secondary)),
-                            ])),
-                    ])),
+                padding: const EdgeInsets.only(top: 16),
+                child: IntrinsicHeight(
+                    child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          SizedBox(
+                              width: 48,
+                              child: Center(
+                                  child: SupplyArt(
+                                      _unitIcon[unit] ?? 'crate', size: 34))),
+                          for (var i = 0; i < columns.length; i++) ...[
+                            // A divider between columns — not before the
+                            // first or after the last — so the three figures
+                            // read as separate cells rather than crowding
+                            // together.
+                            if (i > 0)
+                              const VerticalDivider(
+                                  width: 1, color: OColors.border),
+                            Expanded(
+                                child: Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 12),
+                                    child: Column(
+                                        crossAxisAlignment:
+                                            CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                              amount(rows
+                                                  .where((r) =>
+                                                      r['unit_type'] == unit)
+                                                  .fold<num>(
+                                                      0,
+                                                      (sum, r) =>
+                                                          sum +
+                                                          num.parse(
+                                                              '${r[columns[i].$3]}'))),
+                                              style: const TextStyle(
+                                                  fontSize: 22,
+                                                  fontWeight: FontWeight.w700,
+                                                  color: OColors.forest)),
+                                        ]))),
+                          ],
+                        ]))),
         ]));
   }
 }

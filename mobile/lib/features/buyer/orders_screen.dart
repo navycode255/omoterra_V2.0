@@ -127,18 +127,6 @@ class _OrdersState extends State<OrdersScreen> {
                             child: _OrderCard(order: o, statusLabel: s)))
                         .toList());
               }),
-              SectionHeader(s.requestSupply),
-              ResourceView('/requests',
-                  builder: (rows) => Column(children: [
-                        for (final r in rows)
-                          ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(
-                                  '${label(r['category'])} · ${amount(r['quantity'])} ${r['unit_type']}'),
-                              subtitle: StatusText(r['status']),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () => context.push('/requests/${r['id']}'))
-                      ]))
             ]);
       });
 }

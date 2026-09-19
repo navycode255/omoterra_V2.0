@@ -37,16 +37,28 @@ class OmoterraButton extends StatelessWidget {
   final String text;
   final VoidCallback? onPressed;
   final bool busy, secondary;
+  final IconData? icon;
   const OmoterraButton(this.text,
-      {super.key, this.onPressed, this.busy = false, this.secondary = false});
+      {super.key,
+      this.onPressed,
+      this.busy = false,
+      this.secondary = false,
+      this.icon});
   @override
-  Widget build(BuildContext context) => secondary
-      ? OutlinedButton(
-          onPressed: busy ? null : onPressed,
-          child: Text(busy ? 'Please wait…' : text))
-      : FilledButton(
-          onPressed: busy ? null : onPressed,
-          child: Text(busy ? 'Please wait…' : text));
+  Widget build(BuildContext context) {
+    final label = Text(busy ? 'Please wait…' : text);
+    if (icon == null) {
+      return secondary
+          ? OutlinedButton(onPressed: busy ? null : onPressed, child: label)
+          : FilledButton(onPressed: busy ? null : onPressed, child: label);
+    }
+    final iconWidget = Icon(icon, size: 19);
+    return secondary
+        ? OutlinedButton.icon(
+            onPressed: busy ? null : onPressed, icon: iconWidget, label: label)
+        : FilledButton.icon(
+            onPressed: busy ? null : onPressed, icon: iconWidget, label: label);
+  }
 }
 
 class OmoterraTextField extends StatelessWidget {
@@ -109,9 +121,11 @@ class StatusText extends StatelessWidget {
           fontSize: 12,
           color: ['cancelled', 'failed', 'rejected'].contains(status)
               ? OColors.error
-              : status == 'needs_confirmation'
+              : ['needs_confirmation', 'pending_review'].contains(status)
                   ? OColors.warning
-                  : OColors.secondary));
+                  : status == 'live'
+                      ? OColors.positive
+                      : OColors.secondary));
 }
 
 class ErrorState extends StatelessWidget {
