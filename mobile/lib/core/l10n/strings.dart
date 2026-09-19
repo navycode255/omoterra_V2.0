@@ -12,8 +12,11 @@ class Strings {
   String _t(String en, String sw) => isSwahili ? sw : en;
 
   // Onboarding ------------------------------------------------------------
-  String get splashTagline => _t('Fresh supply. Reliable sourcing.',
-      'Bidhaa mpya. Ununuzi wa kuaminika.');
+  String get splashHeadline =>
+      _t('Farm supply\nmade simple.', 'Bidhaa za shambani\nkwa urahisi.');
+  String get splashTagline => _t(
+      'Fresh supply. Better business.\nA stronger tomorrow.',
+      'Bidhaa bora. Biashara bora.\nKesho yenye nguvu zaidi.');
   String get welcomeTitle => _t('Welcome to Omoterra', 'Karibu Omoterra');
   String get welcomeBody => _t(
       'Fresh livestock and farm produce. Direct from trusted suppliers.',

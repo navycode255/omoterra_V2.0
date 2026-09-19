@@ -19,26 +19,40 @@ class SplashScreen extends ConsumerWidget {
     return Scaffold(
         body: Stack(fit: StackFit.expand, children: [
       const BrandImage('splash', fallbackArt: 'cattle', fit: BoxFit.cover),
-      const PhotoScrim(opacity: .55),
+      // The photograph carries a bright sky at the top and foliage at the
+      // bottom, so the wordmark sits over the sky in dark ink and only the
+      // lower tagline needs a scrim.
+      const DecoratedBox(
+          decoration: BoxDecoration(
+              gradient: LinearGradient(
+                  begin: Alignment.center,
+                  end: Alignment.bottomCenter,
+                  colors: [Color(0x00000000), Color(0x80000000)])),
+          child: SizedBox.expand()),
       SafeArea(
-          child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
+          child: Column(children: [
+            const SizedBox(height: 56),
+            const BrandMark(size: 34),
+            const SizedBox(height: 10),
+            Text(s.splashHeadline,
+                textAlign: TextAlign.center,
+                style: const TextStyle(
+                    fontSize: 25,
+                    height: 1.25,
+                    fontWeight: FontWeight.w700,
+                    color: OColors.forest)),
             const Spacer(),
-            const BrandMark(size: 38, onDark: true),
-            const SizedBox(height: 14),
             Text(s.splashTagline,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
-                    color: Colors.white, fontSize: 15, height: 1.5)),
-            const Spacer(),
-            const Padding(
-                padding: EdgeInsets.only(bottom: 40),
-                child: SizedBox(
-                    width: 22,
-                    height: 22,
-                    child: CircularProgressIndicator(
-                        strokeWidth: 2, color: Colors.white)))
+                    color: Colors.white, fontSize: 14, height: 1.5)),
+            const SizedBox(height: 22),
+            const SizedBox(
+                width: 22,
+                height: 22,
+                child: CircularProgressIndicator(
+                    strokeWidth: 2, color: Colors.white)),
+            const SizedBox(height: 40),
           ]))
     ]));
   }
@@ -51,18 +65,8 @@ class WelcomeScreen extends ConsumerWidget {
     final s = ref.s;
     return Scaffold(
         body: Column(children: [
-      Expanded(
-          flex: 5,
-          child: Stack(fit: StackFit.expand, children: [
-            const BrandImage('welcome', fallbackArt: 'cattle'),
-            const PhotoScrim(opacity: .28),
-            SafeArea(
-                child: Align(
-                    alignment: Alignment.topCenter,
-                    child: Padding(
-                        padding: const EdgeInsets.only(top: 28),
-                        child: const BrandMark(size: 30, onDark: true))))
-          ])),
+      const Expanded(
+          flex: 5, child: BrandImage('welcome', fallbackArt: 'cattle')),
       Expanded(
           flex: 4,
           child: SafeArea(
@@ -71,7 +75,7 @@ class WelcomeScreen extends ConsumerWidget {
               // text scales, where the fixed split cannot fit.
               child: SingleChildScrollView(
                   child: Padding(
-                      padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+                      padding: const EdgeInsets.fromLTRB(24, 26, 24, 20),
                       child: Column(children: [
                         Text(s.welcomeTitle,
                             textAlign: TextAlign.center,
@@ -81,7 +85,9 @@ class WelcomeScreen extends ConsumerWidget {
                             textAlign: TextAlign.center,
                             style: const TextStyle(
                                 color: OColors.secondary, height: 1.5)),
-                        const SizedBox(height: 24),
+                        const SizedBox(height: 18),
+                        const _PageDots(count: 3, active: 0),
+                        const SizedBox(height: 18),
                         OmoterraButton(s.getStarted,
                             onPressed: () => context.go('/phone')),
                         const SizedBox(height: 10),
@@ -704,4 +710,24 @@ class _ChoiceRow extends StatelessWidget {
                 size: 21,
                 color: selected ? OColors.forest : OColors.border),
           ])));
+}
+
+/// Carousel dots on the welcome screen. The first is active; the remaining
+/// pages are Phase 2, so they are indicators only, not swipeable yet.
+class _PageDots extends StatelessWidget {
+  final int count, active;
+  const _PageDots({required this.count, required this.active});
+  @override
+  Widget build(BuildContext context) => Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        for (var i = 0; i < count; i++)
+          Container(
+              width: i == active ? 18 : 7,
+              height: 7,
+              margin: const EdgeInsets.symmetric(horizontal: 3),
+              decoration: BoxDecoration(
+                  color: i == active ? OColors.forest : OColors.border,
+                  borderRadius: BorderRadius.circular(4))),
+      ]);
 }

@@ -16,7 +16,7 @@ import 'supply_art.dart';
 ///                       goat_meat_business, restaurant_grill
 ///
 /// Any common format works as long as the extension is .jpg; see
-/// assets/images/README.md.
+/// docs/photography.md for the full slot list and sizing.
 class BrandImage extends StatelessWidget {
   final String name;
   final String fallbackArt;
