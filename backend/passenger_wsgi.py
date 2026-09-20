@@ -5,9 +5,11 @@ virtualenv, does not guarantee the working directory, and on some hosts
 injects its own environment variables — so each of those is handled
 explicitly below rather than left to chance.
 
-If this file raises, Apache serves a bare 500 and the reason only appears in
-the host's error log, so the import of the app itself is wrapped to turn a
-startup failure into a readable response instead of a silent one.
+If this file raises, Apache serves a bare 500 with no explanation. The app
+import is wrapped so the reason is written to stderr, which Passenger routes
+to the account's error log, while the browser gets only a generic message:
+this endpoint is public, so it must not disclose paths, configuration or
+tracebacks that can carry connection strings.
 """
 import glob
 import os
@@ -61,11 +63,12 @@ else:
     load_dotenv(os.path.join(APP_DIR, '.env'), override=True)
 
 
-def _diagnostic_app(message):
-    """Serve the startup failure instead of a bare Apache 500.
+def _failed_app(message):
+    """Return a WSGI app that reports a startup failure generically.
 
-    Without this the only record is the host's error log, which is awkward to
-    reach from a phone or a browser tab.
+    The message is deliberately free of paths, configuration and traceback
+    text: this responds on a public URL, and startup tracebacks routinely
+    carry the database URL, which embeds its password.
     """
     body = message.encode()
 
@@ -86,12 +89,21 @@ try:
 except Exception:  # noqa: BLE001 - report any startup failure, not just imports
     import traceback
 
-    application = _diagnostic_app(
-        'Omoterra failed to start.\n\n'
-        f'python: {sys.version}\n'
-        f'executable: {sys.executable}\n'
-        f'app dir: {APP_DIR}\n'
-        f'cwd: {os.getcwd()}\n'
-        f'.env present: {os.path.exists(os.path.join(APP_DIR, ".env"))}\n'
-        f'site-packages found: {list(_candidate_site_packages()) or "NONE"}\n\n'
-        f'{traceback.format_exc()}')
+    # Diagnostics go to stderr, which Passenger writes to the account's error
+    # log — readable by the deployer, not by the public. The browser gets a
+    # generic message so a failed start cannot disclose credentials.
+    print('Omoterra failed to start.', file=sys.stderr)
+    print(f'python: {sys.version}', file=sys.stderr)
+    print(f'executable: {sys.executable}', file=sys.stderr)
+    print(f'app dir: {APP_DIR}', file=sys.stderr)
+    print(f'cwd: {os.getcwd()}', file=sys.stderr)
+    print(f'.env present: {os.path.exists(os.path.join(APP_DIR, ".env"))}',
+          file=sys.stderr)
+    print(f'site-packages: {list(_candidate_site_packages()) or "NONE"}',
+          file=sys.stderr)
+    traceback.print_exc(file=sys.stderr)
+    sys.stderr.flush()
+
+    application = _failed_app(
+        'Omoterra is not available. The application failed to start; '
+        'the reason has been written to the server error log.\n')
