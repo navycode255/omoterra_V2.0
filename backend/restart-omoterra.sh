@@ -9,6 +9,21 @@ LOG_FILE="$APP_DIR/logs/app.log"
 cd "$APP_DIR" || exit 1
 mkdir -p "$APP_DIR/logs" "$APP_DIR/media"
 
+# Without .env the app starts on development defaults — localhost database,
+# placeholder OTP secret, empty ops token — and still answers /health, so a
+# missing file looks like a working deployment. Refuse rather than serve a
+# server that is silently pointed at the wrong database.
+# app/config.py reads .env from beside the app or from the account home one
+# level up, so both count as configured.
+if [ ! -f "$APP_DIR/.env" ] && [ ! -f "$(dirname "$APP_DIR")/.env" ] \
+        && [ -z "${OMOTERRA_DATABASE_URL:-}" ]; then
+    echo "Refusing to start: no .env at $APP_DIR/.env or" >&2
+    echo "$(dirname "$APP_DIR")/.env, and OMOTERRA_DATABASE_URL is not set," >&2
+    echo "so the app would run on development defaults against a localhost" >&2
+    echo "database. Create one with: cp .env.example .env && nano .env" >&2
+    exit 1
+fi
+
 # Stop the recorded process, if it is still running.
 if [ -f "$PID_FILE" ]; then
     pid="$(cat "$PID_FILE")"

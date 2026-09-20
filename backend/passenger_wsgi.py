@@ -55,12 +55,33 @@ os.chdir(APP_DIR)
 # is already present in the process environment. Some panels inject empty or
 # stale OMOTERRA_* values, which would then quietly win over the file — so
 # the file is loaded first with override=True to settle the precedence.
+# Both locations app/config.py searches, nearest first: beside the app, then
+# the account home one level up. The sibling automob-api deployment keeps its
+# file at ~/.env, so the parent is a real location here, not a guess.
+_ENV_FILES = (os.path.join(APP_DIR, '.env'),
+              os.path.join(os.path.dirname(APP_DIR), '.env'))
+_ENV_FOUND = [path for path in _ENV_FILES if os.path.exists(path)]
+
 try:
     from dotenv import load_dotenv
 except ImportError:  # python-dotenv missing: fall back to pydantic-settings.
     pass
 else:
-    load_dotenv(os.path.join(APP_DIR, '.env'), override=True)
+    # Loaded furthest-first so the file nearest the app wins on conflicts,
+    # matching the order config.py resolves them in.
+    for _env_file in reversed(_ENV_FOUND):
+        load_dotenv(_env_file, override=True)
+
+# With no .env anywhere the app silently falls back to development defaults:
+# a localhost database, a placeholder OTP secret and an empty ops token. That
+# starts and serves 200, so a missing file looks like a healthy deployment
+# while pointing at the wrong database. Say so loudly in the log.
+if not _ENV_FOUND and not os.environ.get('OMOTERRA_DATABASE_URL'):
+    print('WARNING: no .env found at ' + ' or '.join(_ENV_FILES) +
+          ', and no OMOTERRA_DATABASE_URL in the environment. The app will '
+          'start with development defaults and will NOT be using your '
+          'production database.', file=sys.stderr)
+    sys.stderr.flush()
 
 
 def _failed_app(message):
