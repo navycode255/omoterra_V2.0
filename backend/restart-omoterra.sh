@@ -63,6 +63,22 @@ fi
 for _ in $(seq 1 10); do
     if curl -fsS -m 2 "http://127.0.0.1:$PORT/health" >/dev/null 2>&1; then
         echo "Omoterra API started with PID: $pid on port $PORT (health OK)"
+        # A present .env does not prove the app read it. /config reports the
+        # environment it actually resolved, so a config that silently fell
+        # back to development defaults is caught here rather than in
+        # production.
+        env_name=$(curl -fsS -m 2 "http://127.0.0.1:$PORT/api/v1/config" \
+            2>/dev/null | sed -n 's/.*"environment":"\([a-z]*\)".*/\1/p')
+        if [ "$env_name" = "development" ]; then
+            echo "" >&2
+            echo "WARNING: the app reports environment=development." >&2
+            echo "It is using built-in defaults (localhost database," >&2
+            echo "placeholder OTP secret), not your production config." >&2
+            echo "Check that .env is readable and sets" >&2
+            echo "OMOTERRA_ENVIRONMENT=live and OMOTERRA_DATABASE_URL." >&2
+        elif [ -n "$env_name" ]; then
+            echo "Environment: $env_name"
+        fi
         exit 0
     fi
     sleep 1
