@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -39,8 +41,8 @@ class _BuyerHomeState extends ConsumerState<BuyerHome> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                 Expanded(
-                    child: _entry(context, s.requestSupply,
-                        s.requestSupplyBody, Icons.assignment_outlined, '/request')),
+                    child: _entry(context, s.requestSupply, s.requestSupplyBody,
+                        Icons.assignment_outlined, '/request')),
                 const SizedBox(width: 12),
                 Expanded(
                     child: _entry(context, s.startBusiness, s.startBusinessBody,
@@ -109,76 +111,61 @@ class _BuyerHomeState extends ConsumerState<BuyerHome> {
                                       height: 1.35))
                             ])),
                   ]))));
-
 }
 
-/// The Buy Supply card: a real photo, a diagonal forest scrim, the "Quality
-/// From Our Farmers" mark baked into dashboard_banner.jpg, a pill button and
-/// carousel dots. There is only one banner in V1, so the dots are a static
-/// design element rather than a working carousel.
-class _BuySupplyBanner extends ConsumerWidget {
+/// The Buy Supply card: rotating full-width photography with a single call to
+/// action overlaid on the open lower-left area of each image.
+class _BuySupplyBanner extends ConsumerStatefulWidget {
   const _BuySupplyBanner();
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
-    final s = ref.s;
+  ConsumerState<_BuySupplyBanner> createState() => _BuySupplyBannerState();
+}
+
+class _BuySupplyBannerState extends ConsumerState<_BuySupplyBanner> {
+  static const _slides = [
+        ('chicken_banner', 'png', 'broilers'),
+    ('goats_banner', 'png', 'goats'),
+    ('logistics_banner', 'png', 'cattle'),
+  ];
+  Timer? _rotationTimer;
+  int _activeSlide = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _rotationTimer = Timer.periodic(const Duration(seconds: 5), (_) {
+      if (!mounted) return;
+      setState(() => _activeSlide = (_activeSlide + 1) % _slides.length);
+    });
+  }
+
+  @override
+  void dispose() {
+    _rotationTimer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final slide = _slides[_activeSlide];
     return InkWell(
         onTap: () => context.go('/explore'),
         borderRadius: BorderRadius.circular(18),
         child: ClipRRect(
             borderRadius: BorderRadius.circular(18),
             child: AspectRatio(
-                aspectRatio: 16 / 9,
+                aspectRatio: 8 / 3,
                 child: Stack(children: [
-                  const Positioned.fill(
-                      child: BrandImage('dashboard_banner',
-                          fallbackArt: 'broilers')),
                   Positioned.fill(
-                      child: DecoratedBox(
-                          decoration: BoxDecoration(
-                              gradient: LinearGradient(
-                                  begin: Alignment.centerLeft,
-                                  end: Alignment.centerRight,
-                                  stops: const [0, .55, 1],
-                                  colors: [
-                                OColors.forest,
-                                OColors.forest.withValues(alpha: .82),
-                                OColors.forest.withValues(alpha: .25),
-                              ])))),
-                  Padding(
-                      padding: const EdgeInsets.fromLTRB(20, 18, 20, 14),
-                      child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(s.buySupplyCard,
-                                style: const TextStyle(
-                                    color: Colors.white,
-                                    fontSize: 26,
-                                    fontWeight: FontWeight.w700)),
-                            const SizedBox(height: 6),
-                            SizedBox(
-                                width: 190,
-                                child: Text(s.buySupplyCardBody,
-                                    style: const TextStyle(
-                                        color: Color(0xFFD6E5DA),
-                                        fontSize: 13,
-                                        height: 1.4))),
-                            const Spacer(),
-                            InkWell(
-                                onTap: () => context.go('/explore'),
-                                borderRadius: BorderRadius.circular(24),
-                                child: Container(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 18, vertical: 11),
-                                    decoration: BoxDecoration(
-                                        color: Colors.white,
-                                        borderRadius:
-                                            BorderRadius.circular(24)),
-                                    child: Text(s.exploreNow,
-                                        style: const TextStyle(
-                                            color: OColors.forest,
-                                            fontWeight: FontWeight.w700,
-                                            fontSize: 13.5)))),
-                          ])),
+                      child: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 500),
+                          child: BrandImage(slide.$1,
+                              key: ValueKey(slide.$1),
+                              extension: slide.$2,
+                              fallbackArt: slide.$3))),
+                  // Each slide's artwork carries its own headline and call
+                  // to action, so nothing is overlaid but the dots.
                   Positioned(
                       bottom: 12,
                       left: 0,
@@ -186,15 +173,15 @@ class _BuySupplyBanner extends ConsumerWidget {
                       child: Row(
                           mainAxisAlignment: MainAxisAlignment.center,
                           children: [
-                            for (var i = 0; i < 3; i++)
+                            for (var i = 0; i < _slides.length; i++)
                               Container(
-                                  width: i == 0 ? 16 : 6,
+                                  width: i == _activeSlide ? 16 : 6,
                                   height: 6,
                                   margin:
                                       const EdgeInsets.symmetric(horizontal: 2),
                                   decoration: BoxDecoration(
-                                      color: Colors.white
-                                          .withValues(alpha: i == 0 ? 1 : .5),
+                                      color: Colors.white.withValues(
+                                          alpha: i == _activeSlide ? 1 : .5),
                                       borderRadius: BorderRadius.circular(3))),
                           ])),
                 ]))));
