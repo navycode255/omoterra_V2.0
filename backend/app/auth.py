@@ -55,7 +55,13 @@ def start_otp(db, phone):
     challenge = m.OtpChallenge(id=m.identifier(), phone=phone, code_hash='', expires_at=m.now() + timedelta(seconds=settings().otp_ttl_seconds))
     challenge.code_hash = otp_hash(challenge.id, code)
     db.add(challenge)
-    db.flush()
+    # Commit before the challenge_id leaves this function. A flush alone
+    # keeps the row invisible to other transactions until the request-scoped
+    # transaction closes, which happens *after* the response is serialised —
+    # so a client that verifies immediately (the app auto-submits on the last
+    # digit) could present an id no other connection can see yet and be told
+    # its brand-new code had expired.
+    db.commit()
     response = {'challenge_id': challenge.id, 'otp_length': settings().otp_length, 'resend_after_seconds': settings().otp_resend_seconds}
     # The code is only ever put in the response while no real SMS provider is
     # wired up (see Settings.validate_runtime) — never on a real deployment

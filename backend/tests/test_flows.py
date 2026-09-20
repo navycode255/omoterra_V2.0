@@ -20,6 +20,30 @@ def test_otp_code_is_hidden_once_a_real_sms_provider_is_set(client):
         settings().sms_provider = original
 
 
+def test_start_otp_commits_before_returning_the_challenge_id(sessions):
+    # start_otp must COMMIT, not just flush. The request-scoped transaction
+    # otherwise closes only after the response is serialised, so a client that
+    # verifies immediately (the app auto-submits on the final digit) presents
+    # a challenge_id no other connection can see yet, and is told a
+    # seconds-old code has expired. Measured at ~5% of immediate verifies
+    # against a live server before the commit was added.
+    #
+    # The `client` fixture shares one session across the request and the
+    # assertion, so it cannot observe cross-connection visibility. This drives
+    # start_otp directly and checks the session has no pending writes left,
+    # which is exactly what distinguishes a commit from a flush.
+    from app.auth import start_otp
+
+    with sessions() as db:
+        start_otp(db, '+255711111113')
+        # A flush leaves the transaction open (row still invisible to other
+        # connections); a commit closes it. db.new/db.dirty are cleared by
+        # either, so they cannot tell the two apart.
+        assert not db.in_transaction(), (
+            'start_otp left its transaction open: the challenge is not yet '
+            'visible to the verify request that follows it')
+
+
 def test_otp_failed_attempts_persist_and_code_single_use(client, sessions):
     start = client.post('/api/v1/auth/otp', json={'phone': '+255711111111'})
     assert start.status_code == 200
