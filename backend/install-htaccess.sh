@@ -34,10 +34,26 @@ if [ -f "$TARGET" ]; then
 fi
 
 cat > "$TARGET" <<HTACCESS
+# Deny application files first, before anything is proxied or served. On
+# this host the document root IS the application directory, so without
+# these rules Apache hands out source, logs and the dependency lock to
+# anyone who asks. Ordering matters: these must precede the rewrite.
+<FilesMatch "\\.(py|pyc|env|lock|sh|log|pid|broken|example|md)\$">
+    Require all denied
+</FilesMatch>
+
+# Dot-files (.env, .env.backup, .git/...) in any form.
+<FilesMatch "^\\.">
+    Require all denied
+</FilesMatch>
+
+RedirectMatch 404 ^/(app|migrations|tests|logs|media|\\.venv|\\.git)(/|\$)
+
 RewriteEngine On
 
-# Hand every path to the ASGI app, including /health and /api/v1/*.
-RewriteCond %{REQUEST_URI} !^/\.well-known/
+# Hand every remaining path to the ASGI app, including /health and
+# /api/v1/*.
+RewriteCond %{REQUEST_URI} !^/\\.well-known/
 RewriteRule ^(.*)\$ http://127.0.0.1:$PORT/\$1 [P,QSA,L]
 
 <IfModule mod_proxy.c>
@@ -45,11 +61,7 @@ RewriteRule ^(.*)\$ http://127.0.0.1:$PORT/\$1 [P,QSA,L]
     RequestHeader set X-Forwarded-Proto "https" env=HTTPS
 </IfModule>
 
-# Never serve application files, in case the document root is ever pointed
-# at the application directory.
-<FilesMatch "\.(py|env|lock|sh|log|pid)\$">
-    Require all denied
-</FilesMatch>
+Options -Indexes
 HTACCESS
 
 if [ ! -s "$TARGET" ]; then
