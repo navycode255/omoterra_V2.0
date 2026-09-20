@@ -71,8 +71,7 @@ void main() {
     expect(find.byType(VerticalDivider), findsWidgets);
   });
 
-  testWidgets(
-      'the bottom nav has a raised center button and no fifth labelled tab',
+  testWidgets('the bottom nav is four plain tabs with Orders in its own slot',
       (tester) async {
     await tester.pumpWidget(ProviderScope(
         overrides: [repositoryProvider.overrideWithValue(LocalRepository())],
@@ -83,16 +82,15 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(tester.takeException(), isNull);
 
-    // Four labelled tabs — the center button carries no label of its own,
-    // matching the reference design.
     expect(find.text('Home'), findsOneWidget);
     expect(find.text('Stock'), findsOneWidget);
-    expect(find.text('Reports'), findsOneWidget);
+    expect(find.text('Orders'), findsOneWidget);
     expect(find.text('Account'), findsOneWidget);
-    expect(find.text('Orders'), findsNothing);
-    // The center button itself, carrying the green-icon mark (or its
-    // fallback icon if the asset can't decode under test).
-    expect(find.byWidgetPredicate((w) => w is Material && w.shape is CircleBorder),
-        findsOneWidget);
+    // No raised circular centre button any more — the four tabs sit in a
+    // plain rounded bar.
+    expect(
+        find.byWidgetPredicate(
+            (w) => w is Material && w.shape is CircleBorder),
+        findsNothing);
   });
 }

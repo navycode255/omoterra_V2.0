@@ -46,9 +46,6 @@ class _BuyerHomeState extends ConsumerState<BuyerHome> {
                     child: _entry(context, s.startBusiness, s.startBusinessBody,
                         Icons.storefront_outlined, '/business')),
               ])),
-          const SizedBox(height: 12),
-          _entryWide(context, s.myOrders, s.myOrdersBody,
-              Icons.receipt_long_outlined, '/orders'),
           SectionHeader(s.availableToday,
               action: s.viewAll, onTap: () => context.go('/explore')),
           SizedBox(
@@ -113,54 +110,6 @@ class _BuyerHomeState extends ConsumerState<BuyerHome> {
                             ])),
                   ]))));
 
-  Widget _entryWide(BuildContext context, String title, String subtitle,
-          IconData icon, String route) =>
-      InkWell(
-          onTap: () => context.go(route),
-          borderRadius: BorderRadius.circular(16),
-          child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Container(
-                  decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: OColors.border)),
-                  child: Stack(children: [
-                    const Positioned(
-                        right: -18,
-                        bottom: -22,
-                        child: LeafWatermark(size: 76)),
-                    Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Row(children: [
-                          Container(
-                              width: 36,
-                              height: 36,
-                              decoration: BoxDecoration(
-                                  color: OColors.soft,
-                                  borderRadius: BorderRadius.circular(10)),
-                              child: Icon(icon,
-                                  size: 19, color: OColors.forest)),
-                          const SizedBox(width: 14),
-                          Expanded(
-                              child: Column(
-                                  crossAxisAlignment:
-                                      CrossAxisAlignment.start,
-                                  children: [
-                                Text(title,
-                                    style: const TextStyle(
-                                        fontWeight: FontWeight.w700,
-                                        fontSize: 14)),
-                                const SizedBox(height: 3),
-                                Text(subtitle,
-                                    style: const TextStyle(
-                                        fontSize: 12,
-                                        color: OColors.secondary))
-                              ])),
-                          const Icon(Icons.chevron_right,
-                              color: OColors.muted),
-                        ])),
-                  ]))));
 }
 
 /// The Buy Supply card: a real photo, a diagonal forest scrim, the "Quality

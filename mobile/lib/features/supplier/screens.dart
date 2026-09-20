@@ -5,7 +5,6 @@ library;
 
 export 'add_stock_screen.dart';
 export 'payout_screen.dart';
-export 'reports_screen.dart';
 export 'stock_detail_screen.dart';
 export 'stock_list_screen.dart';
 export 'supplier_home_screen.dart';

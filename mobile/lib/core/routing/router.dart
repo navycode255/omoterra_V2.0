@@ -26,8 +26,7 @@ String? routeGuard(String path,
   final supplierPath = path.startsWith('/supplier') ||
       path.startsWith('/stock') ||
       path.startsWith('/payouts') ||
-      path.startsWith('/sales') ||
-      path.startsWith('/reports');
+      path.startsWith('/sales');
   final commonPath = path.startsWith('/account');
   if (supplierPath && !roles.contains('supplier')) return '/buyer';
   if (!supplierPath && !commonPath && !roles.contains('buyer')) {
@@ -110,7 +109,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         GoRoute(
             path: '/request-submitted/:id',
             builder: (_, s) => RequestSubmitted(s.pathParameters['id']!)),
-        GoRoute(path: '/requests', builder: (_, __) => const RequestsScreen()),
         GoRoute(
             path: '/requests/:id',
             builder: (_, s) => RequestDetail(s.pathParameters['id']!)),
@@ -167,7 +165,6 @@ final routerProvider = Provider<GoRouter>((ref) {
         GoRoute(
             path: '/sales/:id',
             builder: (_, s) => SalesScreen(id: s.pathParameters['id'])),
-        GoRoute(path: '/reports', builder: (_, __) => const ReportsScreen()),
         GoRoute(path: '/stock/new', builder: (_, __) => const AddStockScreen()),
         GoRoute(
             path: '/stock/:id',
@@ -237,13 +234,9 @@ class AppShell extends ConsumerWidget {
         (path == '/account' &&
             (ref.watch(activeRoleProvider) == 'supplier' ||
                 user?.roles.contains('buyer') == false));
-    // Orders moved off the tab row onto the nav's center button (both
-    // roles); the fourth tab is role-specific: Reports for a supplier,
-    // Requests for a buyer.
     final routes = supplier
-        ? ['/supplier', '/stock', '/reports', '/account']
-        : ['/buyer', '/explore', '/requests', '/account'];
-    final ordersRoute = supplier ? '/supplier-orders' : '/orders';
+        ? ['/supplier', '/stock', '/supplier-orders', '/account']
+        : ['/buyer', '/explore', '/orders', '/account'];
     // Supplier Home carries its own full-bleed banner photo behind the nav,
     // so only that one screen extends the body behind the app bar. Every
     // other tab — buyer and supplier alike — keeps the plain nav bar. The
@@ -280,19 +273,14 @@ class AppShell extends ConsumerWidget {
         bottomNavigationBar: _BottomNav(
             selected: routes.indexOf(path).clamp(0, 3),
             onSelect: (i) => context.go(routes[i]),
-            onCenterTap: () => context.go(ordersRoute),
             items: [
               const _NavItem(Icons.home_outlined, Icons.home, 'Home'),
               _NavItem(
                   supplier ? Icons.inventory_2_outlined : Icons.search,
                   supplier ? Icons.inventory_2 : Icons.search,
                   supplier ? 'Stock' : 'Explore'),
-              _NavItem(
-                  supplier
-                      ? Icons.bar_chart_outlined
-                      : Icons.assignment_outlined,
-                  supplier ? Icons.bar_chart : Icons.assignment,
-                  supplier ? 'Reports' : 'Requests'),
+              const _NavItem(Icons.receipt_long_outlined, Icons.receipt_long,
+                  'Orders'),
               const _NavItem(
                   Icons.person_outline, Icons.person, 'Account'),
             ])));
@@ -305,112 +293,33 @@ class _NavItem {
   const _NavItem(this.icon, this.selectedIcon, this.label);
 }
 
-/// Draws the pill's outline with a scalloped notch dipping down at the top
-/// centre, so the raised centre button nests into a cutout rather than just
-/// floating above a flat edge.
-class _NotchedPillClipper extends CustomClipper<Path> {
-  final double notchWidth, notchDepth, radius;
-  const _NotchedPillClipper(
-      {required this.notchWidth, required this.notchDepth, required this.radius});
-
-  @override
-  Path getClip(Size size) {
-    final w = size.width, h = size.height;
-    final midX = w / 2;
-    final notchLeft = midX - notchWidth / 2;
-    final notchRight = midX + notchWidth / 2;
-    // The bar's own flat top sits notchDepth below the top of this
-    // (taller) clip area, so the notch has room to curve upward into it.
-    final top = notchDepth;
-    return Path()
-      ..moveTo(0, top + radius)
-      ..quadraticBezierTo(0, top, radius, top)
-      ..lineTo(notchLeft - radius, top)
-      // Curve down into the notch, across its bottom, then back up —
-      // a smooth scallop rather than a sharp cutout.
-      ..quadraticBezierTo(notchLeft, top, notchLeft, top + radius * .6)
-      ..cubicTo(notchLeft, top + notchDepth, midX - notchWidth * .18,
-          top + notchDepth, midX, top + notchDepth)
-      ..cubicTo(midX + notchWidth * .18, top + notchDepth, notchRight,
-          top + notchDepth, notchRight, top + radius * .6)
-      ..quadraticBezierTo(notchRight, top, notchRight + radius, top)
-      ..lineTo(w - radius, top)
-      ..quadraticBezierTo(w, top, w, top + radius)
-      ..lineTo(w, h - radius)
-      ..quadraticBezierTo(w, h, w - radius, h)
-      ..lineTo(radius, h)
-      ..quadraticBezierTo(0, h, 0, h - radius)
-      ..close();
-  }
-
-  @override
-  bool shouldReclip(covariant _NotchedPillClipper oldClipper) =>
-      oldClipper.notchWidth != notchWidth ||
-      oldClipper.notchDepth != notchDepth ||
-      oldClipper.radius != radius;
-}
-
-/// The floating bottom nav: a rounded white pill holding the four tabs, with
-/// a raised circular button straddling its top edge in the middle. That
-/// button is not a fifth tab — it always opens Orders (buyer or supplier)
-/// and never shows as "selected", the same way the reference design has it.
+/// The floating bottom nav: a rounded white bar holding the four tabs,
+/// lifted off the screen edge so it reads as its own surface.
 class _BottomNav extends StatelessWidget {
   final int selected;
   final List<_NavItem> items;
   final ValueChanged<int> onSelect;
-  final VoidCallback onCenterTap;
   const _BottomNav(
-      {required this.selected,
-      required this.items,
-      required this.onSelect,
-      required this.onCenterTap});
+      {required this.selected, required this.items, required this.onSelect});
 
   @override
   Widget build(BuildContext context) {
-    const barHeight = 64.0;
-    const centerSize = 64.0;
-    // How far the notch dips below the pill's flat top edge, and how wide
-    // the scalloped cutout is either side of the button.
-    const notchDepth = 20.0;
-    const notchWidth = 92.0;
     final bottomInset = MediaQuery.paddingOf(context).bottom;
     return Padding(
         padding: EdgeInsets.fromLTRB(16, 0, 16, bottomInset > 0 ? 8 : 16),
-        child: SizedBox(
-            height: barHeight + centerSize / 2,
-            child: Stack(clipBehavior: Clip.none, alignment: Alignment.bottomCenter, children: [
-              Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  height: barHeight + notchDepth,
-                  child: PhysicalShape(
-                      clipper: const _NotchedPillClipper(
-                          notchWidth: notchWidth,
-                          notchDepth: notchDepth,
-                          radius: 28),
-                      color: Colors.white,
-                      elevation: 8,
-                      shadowColor: Colors.black.withValues(alpha: .18),
-                      child: Padding(
-                          // The clipped shape is notchDepth taller than the
-                          // bar's own content, so the tab row still sits at
-                          // the bar's normal height rather than shifted up.
-                          padding: const EdgeInsets.only(top: notchDepth),
-                          child: Row(children: [
-                            _tab(0),
-                            _tab(1),
-                            // Space for the raised center button to sit
-                            // over, without a real destination of its own
-                            // here.
-                            const SizedBox(width: notchWidth),
-                            _tab(2),
-                            _tab(3),
-                          ])))),
-              Positioned(
-                  top: 0,
-                  child: _CenterButton(size: centerSize, onTap: onCenterTap)),
-            ])));
+        child: Container(
+            height: 64,
+            decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(28),
+                boxShadow: [
+                  BoxShadow(
+                      color: Colors.black.withValues(alpha: .08),
+                      blurRadius: 18,
+                      offset: const Offset(0, 6)),
+                ]),
+            child: Row(
+                children: [_tab(0), _tab(1), _tab(2), _tab(3)])));
   }
 
   Widget _tab(int i) {
@@ -439,36 +348,6 @@ class _BottomNav extends StatelessWidget {
                                   active ? OColors.forest : OColors.muted)),
                     ]))));
   }
-}
-
-class _CenterButton extends StatelessWidget {
-  final double size;
-  final VoidCallback onTap;
-  const _CenterButton({required this.size, required this.onTap});
-  @override
-  Widget build(BuildContext context) => Semantics(
-      button: true,
-      label: 'Orders',
-      child: SizedBox(
-          width: size,
-          height: size,
-          child: Material(
-              color: OColors.forest,
-              shape: const CircleBorder(),
-              elevation: 4,
-              child: InkWell(
-                  customBorder: const CircleBorder(),
-                  onTap: onTap,
-                  child: Padding(
-                      padding: const EdgeInsets.all(15),
-                      // The green circle is drawn here (Material's colour
-                      // above); this is the white version of the mark so it
-                      // reads against that green, not the coloured one used
-                      // elsewhere on its own light background.
-                      child: Image.asset('assets/icons/white-icon.png',
-                          errorBuilder: (context, error, stack) =>
-                              const Icon(Icons.receipt_long,
-                                  color: Colors.white)))))));
 }
 
 /// The pill in the top nav that switches between Buyer and Supplier right
