@@ -98,6 +98,28 @@ If `virtualenv` is not available, install it for your account first with
 `python -m pip install --user virtualenv`. Python 3.10 or newer is preferred,
 but the compatibility lock file supports this server's Python 3.9 runtime.
 
+## Never put application files in the document root
+
+Apache parses `.htaccess` as configuration, one line at a time. If a Python
+file is ever copied or saved over it, the first line is not a valid
+directive and Apache answers **every** request on the subdomain with 500 —
+before any application runs. The give-away is that unrelated paths such as
+`/.git/config` also return 500 instead of 404, and that restarting the app
+changes nothing.
+
+If the subdomain suddenly returns 500 everywhere, check this first:
+
+```bash
+head -3 ~/public_html/omoterra/.htaccess
+```
+
+It must contain Apache directives. If it contains Python, delete or replace
+it.
+
+Keep the application directory (`~/omoterra_backend`) outside the document
+root so `.env`, `*.py` and `*.log` can never be served or mistaken for
+configuration.
+
 ## 4. Create the environment file
 
 From the cPanel Terminal:
