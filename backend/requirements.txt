@@ -3,6 +3,12 @@ uvicorn[standard]>=0.30,<1
 sqlalchemy>=2.0,<3
 psycopg[binary]>=3.2,<4
 pydantic-settings>=2.5,<3
+
+# Required by passenger_wsgi.py for the cPanel/Passenger deployment:
+# a2wsgi adapts the ASGI app to WSGI, python-dotenv settles .env precedence
+# over panel-injected environment variables.
+a2wsgi>=1.10,<2
+python-dotenv>=1.1,<2
 pytest>=8,<10
 httpx>=0.27,<1
 
