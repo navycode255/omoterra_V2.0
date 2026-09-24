@@ -18,3 +18,6 @@ mobile/android/.gradle/
 .local/
 .neon
 .env.local
+
+# Local Netlify build output
+.netlify/

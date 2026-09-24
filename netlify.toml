@@ -5,3 +5,8 @@
 
 [build.environment]
   NODE_VERSION = "22"
+
+# The Next.js runtime turns the .next build into Netlify functions and routes.
+# Without it Netlify publishes .next as plain static files and every page 404s.
+[[plugins]]
+  package = "@netlify/plugin-nextjs"
