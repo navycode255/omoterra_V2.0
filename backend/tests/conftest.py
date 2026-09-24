@@ -47,7 +47,7 @@ def seeded(sessions):
         other = m.User(phone='+255712345679', roles=['buyer'], name='Other Buyer', region='Dar')
         supplier = m.User(phone='+255712345680', roles=['supplier'], name='Private Supplier', region='Pwani')
         db.add_all([buyer, other, supplier]); db.flush()
-        db.add(m.SupplierProfile(user_id=supplier.id, legal_name='Secret legal name', internal_pickup_address='Secret farm address', public_alias='Green Pastures', alias_approved=True))
+        db.add(m.SupplierProfile(user_id=supplier.id, legal_name='Secret legal name', internal_pickup_address='Secret farm address', public_alias='Green Pastures', alias_approved=True, status='approved', categories=['broilers'], district='Kibaha', production_profile={'broilers': {'capacity': '2000', 'unit': 'bird', 'frequency': 'every 6 weeks'}}, production_frequency='every 6 weeks'))
         listing = m.Listing(supplier_id=supplier.id, category='broilers', unit_type='bird', specs={'avg_weight_kg': '2', 'breed_type': 'Broiler', 'age_weeks': '6', 'live_or_dressed': 'live', 'ready_date': '2027-01-01'}, region='Pwani', quantity_total=10, farmer_asking_price_per_unit=10000, supplier_payout_price_per_unit=9000, buyer_price_per_unit=12000, listing_status='live', last_confirmed_at=m.now(), confirmation_due_at=m.now() + timedelta(hours=48), approved_at=m.now())
         address = m.Address(user_id=buyer.id, label='Home', recipient_name='Private Buyer', phone=buyer.phone, region='Dar', district_area='Kinondoni', address_text='Secret buyer address')
         db.add_all([listing, address]); db.flush()

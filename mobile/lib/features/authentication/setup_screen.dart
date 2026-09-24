@@ -16,7 +16,7 @@ class _SetupState extends ConsumerState<SetupScreen> {
   final name = TextEditingController(), region = TextEditingController();
   final form = GlobalKey<FormState>();
   bool buy = true, sell = false, busy = false;
-  String buyerType = 'personal', language = 'en';
+  String buyerType = 'personal';
   int step = 0;
   Object? error;
 
@@ -37,11 +37,14 @@ class _SetupState extends ConsumerState<SetupScreen> {
       await ref.read(sessionProvider.notifier).profile({
         'name': name.text.trim(),
         'region': region.text.trim(),
-        'language': language,
+        'language': ref.read(selectedLanguageProvider),
         'roles': [if (buy) 'buyer', if (sell) 'supplier'],
         'buyer_type': buy ? buyerType : null
       });
       ref.read(activeRoleProvider.notifier).state = buy ? 'buyer' : 'supplier';
+      await ref
+          .read(sessionProvider.notifier)
+          .switchRole(buy ? 'buyer' : 'supplier');
       if (mounted) context.go(buy ? '/buyer' : '/supplier');
     } catch (e) {
       if (mounted) setState(() => error = e);
@@ -79,79 +82,61 @@ class _SetupState extends ConsumerState<SetupScreen> {
                     padding: const EdgeInsets.fromLTRB(24, 0, 24, 20),
                     child: Column(children: [
                       Expanded(
-                          child: ListView(
-                              padding: EdgeInsets.zero,
-                              children: [
-                            if (step == 0) ...[
-                              Text(s.roleTitle,
-                                  textAlign: TextAlign.center,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .headlineMedium),
-                              const SizedBox(height: 10),
-                              Text(s.roleBody,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                      color: OColors.secondary, height: 1.5)),
-                              const SizedBox(height: 28),
-                              _RoleCard(
-                                  icon: Icons.shopping_cart_outlined,
-                                  title: s.buySupply,
-                                  body: s.buySupplyBody,
-                                  selected: buy,
-                                  onTap: () => setState(() => buy = !buy)),
-                              const SizedBox(height: 12),
-                              _RoleCard(
-                                  icon: Icons.eco_outlined,
-                                  title: s.sellSupply,
-                                  body: s.sellSupplyBody,
-                                  selected: sell,
-                                  onTap: () => setState(() => sell = !sell)),
-                            ],
-                            if (step == 1) ...[
-                              Text(s.buyerTypeTitle,
-                                  textAlign: TextAlign.center,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .headlineMedium),
-                              const SizedBox(height: 10),
-                              Text(s.buyerTypeBody,
-                                  textAlign: TextAlign.center,
-                                  style: const TextStyle(
-                                      color: OColors.secondary)),
-                              const SizedBox(height: 24),
-                              for (final entry in _buyerTypes.entries)
-                                Padding(
-                                    padding: const EdgeInsets.only(bottom: 10),
-                                    child: _ChoiceRow(
-                                        icon: entry.value,
-                                        label: label(entry.key),
-                                        selected: buyerType == entry.key,
-                                        onTap: () => setState(
-                                            () => buyerType = entry.key))),
-                            ],
-                            if (step == 2) ...[
-                              Text(s.profileTitle,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .headlineMedium),
-                              const SizedBox(height: 24),
-                              OmoterraTextField(s.fullName, name),
-                              OmoterraTextField(s.region, region),
-                              DropdownButtonFormField<String>(
-                                  initialValue: language,
-                                  decoration:
-                                      InputDecoration(labelText: s.language),
-                                  items: const [
-                                    DropdownMenuItem(
-                                        value: 'en', child: Text('English')),
-                                    DropdownMenuItem(
-                                        value: 'sw', child: Text('Kiswahili'))
-                                  ],
-                                  onChanged: (v) =>
-                                      setState(() => language = v!)),
-                            ],
-                          ])),
+                          child: ListView(padding: EdgeInsets.zero, children: [
+                        if (step == 0) ...[
+                          Text(s.roleTitle,
+                              textAlign: TextAlign.center,
+                              style:
+                                  Theme.of(context).textTheme.headlineMedium),
+                          const SizedBox(height: 10),
+                          Text(s.roleBody,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(
+                                  color: OColors.secondary, height: 1.5)),
+                          const SizedBox(height: 28),
+                          _RoleCard(
+                              icon: Icons.shopping_cart_outlined,
+                              title: s.buySupply,
+                              body: s.buySupplyBody,
+                              selected: buy,
+                              onTap: () => setState(() => buy = !buy)),
+                          const SizedBox(height: 12),
+                          _RoleCard(
+                              icon: Icons.eco_outlined,
+                              title: s.sellSupply,
+                              body: s.sellSupplyBody,
+                              selected: sell,
+                              onTap: () => setState(() => sell = !sell)),
+                        ],
+                        if (step == 1) ...[
+                          Text(s.buyerTypeTitle,
+                              textAlign: TextAlign.center,
+                              style:
+                                  Theme.of(context).textTheme.headlineMedium),
+                          const SizedBox(height: 10),
+                          Text(s.buyerTypeBody,
+                              textAlign: TextAlign.center,
+                              style: const TextStyle(color: OColors.secondary)),
+                          const SizedBox(height: 24),
+                          for (final entry in _buyerTypes.entries)
+                            Padding(
+                                padding: const EdgeInsets.only(bottom: 10),
+                                child: _ChoiceRow(
+                                    icon: entry.value,
+                                    label: label(entry.key),
+                                    selected: buyerType == entry.key,
+                                    onTap: () =>
+                                        setState(() => buyerType = entry.key))),
+                        ],
+                        if (step == 2) ...[
+                          Text(s.profileTitle,
+                              style:
+                                  Theme.of(context).textTheme.headlineMedium),
+                          const SizedBox(height: 24),
+                          OmoterraTextField(s.fullName, name),
+                          OmoterraTextField(s.region, region),
+                        ],
+                      ])),
                       if (error != null) ErrorState(error!),
                       OmoterraButton(
                           step == 2 ? s.finishSetup : s.continueLabel,
@@ -211,9 +196,7 @@ class _RoleCard extends StatelessWidget {
                   const SizedBox(height: 4),
                   Text(body,
                       style: const TextStyle(
-                          fontSize: 13,
-                          color: OColors.secondary,
-                          height: 1.4))
+                          fontSize: 13, color: OColors.secondary, height: 1.4))
                 ])),
             const SizedBox(width: 8),
             _Check(selected: selected),
@@ -268,11 +251,7 @@ class _ChoiceRow extends StatelessWidget {
                         fontSize: 15,
                         fontWeight:
                             selected ? FontWeight.w600 : FontWeight.w500))),
-            Icon(
-                selected
-                    ? Icons.check_circle
-                    : Icons.radio_button_unchecked,
-                size: 21,
-                color: selected ? OColors.forest : OColors.border),
+            Icon(selected ? Icons.check_circle : Icons.radio_button_unchecked,
+                size: 21, color: selected ? OColors.forest : OColors.border),
           ])));
 }

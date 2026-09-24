@@ -51,10 +51,12 @@ class StockBalances extends StatelessWidget {
   Widget build(BuildContext context) {
     final units = rows.map((r) => r['unit_type'] as String).toSet();
     final columns = [
-      (Icons.inventory_2_outlined, labels?.availableStat ?? 'Available',
-          'quantity_available'),
-      (Icons.schedule, labels?.reservedStat ?? 'Reserved',
-          'quantity_reserved'),
+      (
+        Icons.inventory_2_outlined,
+        labels?.availableStat ?? 'Available',
+        'quantity_available'
+      ),
+      (Icons.schedule, labels?.reservedStat ?? 'Reserved', 'quantity_reserved'),
       (Icons.bar_chart, labels?.soldStat ?? 'Sold', 'quantity_sold'),
     ];
     return Container(
@@ -79,8 +81,7 @@ class StockBalances extends StatelessWidget {
                             child: Text(entry.$2,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
-                                    fontSize: 11.5,
-                                    color: OColors.secondary))),
+                                    fontSize: 11.5, color: OColors.secondary))),
                       ])))
           ]),
           if (units.isEmpty)
@@ -94,44 +95,44 @@ class StockBalances extends StatelessWidget {
                     child: Row(
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          SizedBox(
-                              width: 48,
-                              child: Center(
-                                  child: SupplyArt(
-                                      _unitIcon[unit] ?? 'crate', size: 34))),
-                          for (var i = 0; i < columns.length; i++) ...[
-                            // A divider between columns — not before the
-                            // first or after the last — so the three figures
-                            // read as separate cells rather than crowding
-                            // together.
-                            if (i > 0)
-                              const VerticalDivider(
-                                  width: 1, color: OColors.border),
-                            Expanded(
-                                child: Padding(
-                                    padding: const EdgeInsets.symmetric(
-                                        horizontal: 12),
-                                    child: Column(
-                                        crossAxisAlignment:
-                                            CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                              amount(rows
-                                                  .where((r) =>
-                                                      r['unit_type'] == unit)
-                                                  .fold<num>(
-                                                      0,
-                                                      (sum, r) =>
-                                                          sum +
-                                                          num.parse(
-                                                              '${r[columns[i].$3]}'))),
-                                              style: const TextStyle(
-                                                  fontSize: 22,
-                                                  fontWeight: FontWeight.w700,
-                                                  color: OColors.forest)),
-                                        ]))),
-                          ],
-                        ]))),
+                      SizedBox(
+                          width: 48,
+                          child: Center(
+                              child: SupplyArt(_unitIcon[unit] ?? 'crate',
+                                  size: 34))),
+                      for (var i = 0; i < columns.length; i++) ...[
+                        // A divider between columns — not before the
+                        // first or after the last — so the three figures
+                        // read as separate cells rather than crowding
+                        // together.
+                        if (i > 0)
+                          const VerticalDivider(
+                              width: 1, color: OColors.border),
+                        Expanded(
+                            child: Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 12),
+                                child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                          amount(rows
+                                              .where(
+                                                  (r) => r['unit_type'] == unit)
+                                              .fold<num>(
+                                                  0,
+                                                  (sum, r) =>
+                                                      sum +
+                                                      num.parse(
+                                                          '${r[columns[i].$3]}'))),
+                                          style: const TextStyle(
+                                              fontSize: 22,
+                                              fontWeight: FontWeight.w700,
+                                              color: OColors.forest)),
+                                    ]))),
+                      ],
+                    ]))),
         ]));
   }
 }
@@ -391,16 +392,13 @@ class SalesScreen extends ConsumerStatefulWidget {
 class _SalesState extends ConsumerState<SalesScreen> {
   String filter = 'all';
   @override
-  Widget build(BuildContext context) => Scaffold(
-      appBar: OmoterraAppBar(
-          title: Text(widget.id == null ? 'Sales records' : 'Sale details')),
-      body: ListView(padding: const EdgeInsets.all(20), children: [
+  Widget build(BuildContext context) =>
+      ListView(padding: const EdgeInsets.all(20), children: [
         if (widget.id == null) ...[
           const Text('Know what has sold.',
               style: TextStyle(fontSize: 26, fontWeight: FontWeight.w700)),
           const SizedBox(height: 8),
-          const Text(
-              'Omoterra deliveries and sales elsewhere, recorded separately.'),
+          const Text('Review completed sales and transaction history.'),
           const SizedBox(height: 20),
           Wrap(
               spacing: 8,
@@ -541,5 +539,5 @@ class _SalesState extends ConsumerState<SalesScreen> {
                           ]))))
           ]);
         }),
-      ]));
+      ]);
 }

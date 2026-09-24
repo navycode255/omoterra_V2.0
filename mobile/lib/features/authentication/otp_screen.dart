@@ -23,6 +23,7 @@ class _OtpState extends ConsumerState<OtpScreen> {
   Timer? timer;
   int remaining = 0;
   bool busy = false;
+  bool keypadVisible = true;
   Object? error;
 
   @override
@@ -161,11 +162,15 @@ class _OtpState extends ConsumerState<OtpScreen> {
                         const SizedBox(height: 8),
                         OmoterraButton(s.verify,
                             busy: busy,
-                            onPressed: code.length == length
-                                ? () => submit()
-                                : null),
+                            onPressed:
+                                code.length == length ? () => submit() : null),
                       ]))),
-          NumberPad(onDigit: _append, onBackspace: _backspace),
+          NumberPad(
+            visible: keypadVisible,
+            onToggle: () => setState(() => keypadVisible = !keypadVisible),
+            onDigit: _append,
+            onBackspace: _backspace,
+          ),
         ])));
   }
 }
@@ -189,25 +194,24 @@ class _OtpCells extends StatelessWidget {
         container: true,
         explicitChildNodes: false,
         excludeSemantics: true,
-        child: Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              for (var i = 0; i < length; i++) ...[
-                _OtpBox(digit: i < code.length ? code[i] : '',
-                    active: i == code.length),
-                if (i < length - 1)
-                  SizedBox(
-                      width: i == mid - 1 ? 16 : 6,
-                      child: i == mid - 1
-                          ? const Center(
-                              child: Text('—',
-                                  style: TextStyle(
-                                      fontSize: 16,
-                                      color: OColors.muted,
-                                      fontWeight: FontWeight.w600)))
-                          : null),
-              ],
-            ]));
+        child: Row(mainAxisAlignment: MainAxisAlignment.center, children: [
+          for (var i = 0; i < length; i++) ...[
+            _OtpBox(
+                digit: i < code.length ? code[i] : '',
+                active: i == code.length),
+            if (i < length - 1)
+              SizedBox(
+                  width: i == mid - 1 ? 16 : 6,
+                  child: i == mid - 1
+                      ? const Center(
+                          child: Text('—',
+                              style: TextStyle(
+                                  fontSize: 16,
+                                  color: OColors.muted,
+                                  fontWeight: FontWeight.w600)))
+                      : null),
+          ],
+        ]));
   }
 }
 

@@ -8,10 +8,10 @@ from . import models as m
 Image.MAX_IMAGE_PIXELS = 25_000_000
 
 
-def validate_owned_media(db, urls, owner_id):
+def validate_owned_media(db, urls, owner_id, allow_unowned=False):
     for url in urls:
         asset = db.get(m.MediaAsset, url.removeprefix('/media/'))
-        if not asset or asset.owner_id != owner_id:
+        if not asset or (asset.owner_id != owner_id and not (allow_unowned and asset.owner_id is None)):
             raise HTTPException(422, 'A photo is unavailable. Upload your own stock photo again.')
 
 

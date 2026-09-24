@@ -1,0 +1,18 @@
+# Combined Apache routing for the public Omoterra website and API.
+# Keep the API's existing Uvicorn process on 127.0.0.1:8011 and the Next.js
+# process on 127.0.0.1:3000. mod_rewrite, mod_proxy and mod_proxy_http are required.
+
+Options -Indexes
+RewriteEngine On
+
+# Keep mobile and dashboard API calls on FastAPI.
+RewriteRule ^(api(?:/.*)?)$ http://127.0.0.1:8011/$1 [P,QSA,L]
+RewriteRule ^health$ http://127.0.0.1:8011/health [P,QSA,L]
+
+# Serve the public homepage, sign-in and protected operations pages from Next.js.
+RewriteRule ^(.*)$ http://127.0.0.1:3000/$1 [P,QSA,L]
+
+# Never serve environment files or project configuration directly.
+<FilesMatch "^(\.env|package(-lock)?\.json|next\.config\.(js|mjs|ts)|tsconfig\.json)$">
+    Require all denied
+</FilesMatch>

@@ -30,7 +30,7 @@ void main() {
     expect(find.text('Quantity (tray)'), findsOneWidget);
     expect(find.text('Tray Size'), findsOneWidget);
     expect(find.text('Egg Size'), findsOneWidget);
-    expect(find.text('Ready Date'), findsOneWidget);
+    expect(find.text('Expected ready date'), findsOneWidget);
 
     // Bird-only fields must not leak into the eggs spec set.
     expect(find.text('Breed Type'), findsNothing);

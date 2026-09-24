@@ -51,11 +51,12 @@ class ListingFeed extends ConsumerWidget {
                   action: OmoterraButton('Request Supply',
                       onPressed: () => context.push('/request')));
             }
-            return Column(
-                children: matches
-                    .map((l) => ListingCard(l,
-                        onTap: () => context.push('/listing/${l.id}')))
-                    .toList());
+            return Column(children: [
+              for (var i = 0; i < matches.length; i++)
+                ListingCard(matches[i],
+                    key: ValueKey(matches[i].id),
+                    onTap: () => context.push('/listing/${matches[i].id}')),
+            ]);
           },
           loading: () => const LoadingSkeleton(),
           error: (e, _) => ErrorState(e,

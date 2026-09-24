@@ -78,7 +78,7 @@ class _AddStockState extends ConsumerState<AddStockScreen> {
 
   @override
   Widget build(BuildContext context) => Scaffold(
-      appBar: OmoterraAppBar(title: const Text('Add Stock')),
+      appBar: OmoterraAppBar(title: const Text('Add Production / Stock')),
       body: ListView(padding: const EdgeInsets.all(20), children: [
         ResourceView('/supplier/profile', builder: (profile) {
           if (profile == null) {
@@ -136,6 +136,9 @@ class _AddStockState extends ConsumerState<AddStockScreen> {
                                               setState(() => category = c))))
                                   .toList())),
                     if (step == 1) ...[
+                      const Text(
+                          'Register livestock that is still growing or ready now. Tell us when this batch will be ready.'),
+                      const SizedBox(height: 16),
                       OmoterraTextField('Quantity (${unitFor(category)})',
                           field('quantity_total'),
                           keyboard: const TextInputType.numberWithOptions(
@@ -143,7 +146,9 @@ class _AddStockState extends ConsumerState<AddStockScreen> {
                       for (final k in specKeys)
                         if (k.endsWith('date'))
                           OmoterraDateField(
-                              label(k),
+                              k == 'ready_date'
+                                  ? 'Expected ready date'
+                                  : label(k),
                               field(
                                   k,
                                   DateTime.now()
@@ -158,35 +163,32 @@ class _AddStockState extends ConsumerState<AddStockScreen> {
                           'tray_size',
                           'egg_size'
                         ].contains(k))
-                          Padding(
-                              padding: const EdgeInsets.only(bottom: 16),
-                              child: DropdownButtonFormField<String>(
-                                  initialValue: field(
-                                          k,
-                                          switch (k) {
-                                            'live_or_dressed' => 'live',
-                                            'sex' => 'mixed',
-                                            'tray_size' => '30',
-                                            'egg_size' => 'medium',
-                                            _ => 'chilled',
-                                          })
-                                      .text,
-                                  decoration:
-                                      InputDecoration(labelText: label(k)),
-                                  items: switch (k) {
-                                    'live_or_dressed' => ['live', 'dressed'],
-                                    'sex' => ['male', 'female', 'mixed'],
-                                    'tray_size' => ['12', '24', '30'],
-                                    'egg_size' => ['small', 'medium', 'large'],
-                                    _ => ['chilled', 'frozen'],
-                                  }
-                                      .map((v) => DropdownMenuItem(
-                                          value: v,
-                                          child: Text(k == 'tray_size'
-                                              ? '$v eggs'
-                                              : label(v))))
-                                      .toList(),
-                                  onChanged: (value) => field(k).text = value!))
+                          OmoterraDropdown<String>(
+                              value: field(
+                                      k,
+                                      switch (k) {
+                                        'live_or_dressed' => 'live',
+                                        'sex' => 'mixed',
+                                        'tray_size' => '30',
+                                        'egg_size' => 'medium',
+                                        _ => 'chilled',
+                                      })
+                                  .text,
+                              label: label(k),
+                              items: switch (k) {
+                                'live_or_dressed' => ['live', 'dressed'],
+                                'sex' => ['male', 'female', 'mixed'],
+                                'tray_size' => ['12', '24', '30'],
+                                'egg_size' => ['small', 'medium', 'large'],
+                                _ => ['chilled', 'frozen'],
+                              }
+                                  .map((v) => DropdownMenuItem(
+                                      value: v,
+                                      child: Text(k == 'tray_size'
+                                          ? '$v eggs'
+                                          : label(v))))
+                                  .toList(),
+                              onChanged: (value) => field(k).text = value!)
                         else
                           OmoterraTextField(label(k), field(k),
                               keyboard:
@@ -289,8 +291,7 @@ class _StepDots extends StatelessWidget {
                       style: TextStyle(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,
-                          color:
-                              i <= current ? Colors.white : OColors.muted))),
+                          color: i <= current ? Colors.white : OColors.muted))),
           if (i != total - 1)
             Expanded(
                 child: Container(

@@ -28,7 +28,8 @@ void main() {
     expect(logoBox.dx, lessThan(shellBox.dx + 40));
   });
 
-  testWidgets('the role pill offers the other role without leaving Home',
+  testWidgets(
+      'the role pill offers role registration when that role is not enrolled',
       (tester) async {
     await tester.pumpWidget(host('/buyer', const SizedBox()));
     await tester.pump(const Duration(seconds: 1));
@@ -36,9 +37,9 @@ void main() {
     expect(find.text('BUYER'), findsOneWidget);
     await tester.tap(find.text('BUYER'));
     await tester.pumpAndSettle();
-    expect(find.text('Supplier'), findsOneWidget,
-        reason: 'the popup menu should offer Supplier right there, instead '
-            'of only via Account');
+    expect(find.text('Register as supplier'), findsOneWidget,
+        reason:
+            'a missing role must start registration instead of granting access');
   });
 
   testWidgets('the shell shows supplier chrome once on a supplier route',

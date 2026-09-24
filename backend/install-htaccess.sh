@@ -33,36 +33,34 @@ if [ -f "$TARGET" ]; then
     echo "Existing .htaccess backed up to $backup"
 fi
 
-cat > "$TARGET" <<HTACCESS
+template="$TARGET.template"
+cat > "$template" <<'HTACCESS'
 # Deny application files first, before anything is proxied or served. On
 # this host the document root IS the application directory, so without
 # these rules Apache hands out source, logs and the dependency lock to
 # anyone who asks. Ordering matters: these must precede the rewrite.
-<FilesMatch "\\.(py|pyc|env|lock|sh|log|pid|broken|example|md)\$">
+<FilesMatch "\.(py|pyc|env|lock|sh|log|pid|broken|example|md)$">
     Require all denied
 </FilesMatch>
 
 # Dot-files (.env, .env.backup, .git/...) in any form.
-<FilesMatch "^\\.">
+<FilesMatch "^\.">
     Require all denied
 </FilesMatch>
 
-RedirectMatch 404 ^/(app|migrations|tests|logs|media|\\.venv|\\.git)(/|\$)
+RedirectMatch 404 ^/(app|migrations|tests|logs|media|\.venv|\.git)(/|$)
 
 RewriteEngine On
 
 # Hand every remaining path to the ASGI app, including /health and
 # /api/v1/*.
-RewriteCond %{REQUEST_URI} !^/\\.well-known/
-RewriteRule ^(.*)\$ http://127.0.0.1:$PORT/\$1 [P,QSA,L]
-
-<IfModule mod_proxy.c>
-    ProxyPreserveHost On
-    RequestHeader set X-Forwarded-Proto "https" env=HTTPS
-</IfModule>
+RewriteCond %{REQUEST_URI} !^/\.well-known/
+RewriteRule ^(.*)$ http://127.0.0.1:__PORT__/$1 [P,QSA,L]
 
 Options -Indexes
 HTACCESS
+sed "s/__PORT__/$PORT/" "$template" > "$TARGET"
+rm -f "$template"
 
 if [ ! -s "$TARGET" ]; then
     echo "Wrote $TARGET but it is empty — check permissions." >&2

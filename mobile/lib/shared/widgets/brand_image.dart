@@ -20,6 +20,7 @@ import 'supply_art.dart';
 class BrandImage extends StatelessWidget {
   final String name;
   final String fallbackArt;
+  final String extension;
   final BoxFit fit;
 
   /// Which part of the photograph survives a cover crop.
@@ -32,6 +33,7 @@ class BrandImage extends StatelessWidget {
     this.name, {
     super.key,
     required this.fallbackArt,
+    this.extension = 'jpg',
     this.fit = BoxFit.cover,
     this.alignment = Alignment.center,
     this.height,
@@ -42,7 +44,7 @@ class BrandImage extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final image = Image.asset(
-      'assets/images/$name.jpg',
+      'assets/images/$name.$extension',
       fit: fit,
       alignment: alignment,
       height: height,

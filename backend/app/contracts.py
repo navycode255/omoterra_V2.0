@@ -6,11 +6,11 @@ from decimal import Decimal
 from typing import Annotated, Literal, Optional
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-Category = Literal['broilers', 'local_chicken', 'goats', 'cattle', 'chicken_meat', 'beef', 'goat_meat', 'eggs']
+Category = Literal['broilers', 'local_chicken', 'layers', 'goats', 'cattle', 'chicken_meat', 'beef', 'goat_meat', 'eggs']
 Unit = Literal['bird', 'animal', 'kg', 'tray']
 Money = Annotated[Decimal, Field(gt=0, max_digits=14, decimal_places=2)]
 Quantity = Annotated[Decimal, Field(gt=0, max_digits=14, decimal_places=3)]
-UNITS = {'broilers': 'bird', 'local_chicken': 'bird', 'goats': 'animal', 'cattle': 'animal', 'chicken_meat': 'kg', 'beef': 'kg', 'goat_meat': 'kg', 'eggs': 'tray'}
+UNITS = {'broilers': 'bird', 'local_chicken': 'bird', 'layers': 'bird', 'goats': 'animal', 'cattle': 'animal', 'chicken_meat': 'kg', 'beef': 'kg', 'goat_meat': 'kg', 'eggs': 'tray'}
 
 
 class Input(BaseModel):
@@ -38,6 +38,21 @@ class Profile(Input):
         if 'buyer' in self.roles and not self.buyer_type:
             raise ValueError('Choose a buyer type')
         self.roles = sorted(set(self.roles))
+        return self
+
+
+class RoleRegistration(Input):
+    role: Literal['buyer', 'supplier']
+    buyer_type: Optional[Literal['personal', 'restaurant', 'butchery', 'hotel', 'retailer', 'caterer', 'other']] = None
+    legal_name: Optional[str] = Field(default=None, min_length=2, max_length=150)
+    internal_pickup_address: Optional[str] = Field(default=None, min_length=3, max_length=500)
+
+    @model_validator(mode='after')
+    def required_role_details(self):
+        if self.role == 'buyer' and not self.buyer_type:
+            raise ValueError('Choose a buyer type')
+        if self.role == 'supplier' and (not self.legal_name or not self.internal_pickup_address):
+            raise ValueError('Complete your supplier and pickup details')
         return self
 
 
@@ -137,6 +152,7 @@ class StockUpdate(Input):
 
 class Approval(Input):
     buyer_price_per_unit: Money
+    supplier_asking_price_per_unit: Optional[Money] = None
     supplier_payout_price_per_unit: Optional[Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=2)]] = None
     public_alias: str = Field(pattern=r'^[A-Za-z][A-Za-z -]{2,49}$')
 
@@ -151,6 +167,14 @@ class SourcingInput(Input):
     delivery_area: str = Field(min_length=2, max_length=150)
     notes: str = Field(default='', max_length=1000)
     reference_photo: Optional[str] = None
+    minimum_weight_kg: Optional[Annotated[Decimal, Field(gt=0, max_digits=8, decimal_places=3)]] = None
+    maximum_weight_kg: Optional[Annotated[Decimal, Field(gt=0, max_digits=8, decimal_places=3)]] = None
+    product_subtype: str = Field(default='', max_length=100)
+    delivery_region: str = Field(default='', max_length=80)
+    delivery_notes: str = Field(default='', max_length=500)
+    requirement_type: Literal['one_time', 'recurring'] = 'one_time'
+    recurrence_frequency: Literal['', 'weekly', 'monthly'] = ''
+    preferred_weekdays: list[Literal['monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday', 'sunday']] = Field(default_factory=list, max_length=7)
 
     @model_validator(mode='after')
     def valid_request(self):
@@ -160,7 +184,243 @@ class SourcingInput(Input):
             raise ValueError('Needed-by date must not be in the past')
         if self.reference_photo and not re.fullmatch(r'/media/[a-f0-9-]{36}', self.reference_photo):
             raise ValueError('Use a photo uploaded through Omoterra')
+        if self.minimum_weight_kg and self.maximum_weight_kg and self.minimum_weight_kg > self.maximum_weight_kg:
+            raise ValueError('Minimum weight cannot exceed maximum weight')
+        if self.requirement_type == 'recurring' and not self.recurrence_frequency:
+            raise ValueError('Choose a recurrence frequency')
+        if self.requirement_type == 'recurring' and not self.preferred_weekdays:
+            raise ValueError('Choose at least one preferred delivery day')
+        if self.requirement_type == 'one_time' and (self.recurrence_frequency or self.preferred_weekdays):
+            raise ValueError('Recurrence settings require a recurring requirement')
         return self
+
+
+class OperatorRequirementInput(SourcingInput):
+    buyer_profile_id: Optional[str] = None
+    buyer: Optional['OperatorBuyerInput'] = None
+    internal_notes: str = Field(default='', max_length=1000)
+
+
+class OperatorBuyerInput(Input):
+    business_name: str = Field(min_length=2, max_length=150)
+    buyer_type: Literal['personal', 'restaurant', 'butchery', 'hotel', 'retailer', 'caterer', 'other'] = 'other'
+    contact_person: str = Field(default='', max_length=100)
+    phone: str = Field(default='', max_length=20)
+    region: str = Field(default='', max_length=80)
+    area: str = Field(default='', max_length=100)
+    internal_notes: str = Field(default='', max_length=2000)
+
+
+class BuyerProfileInput(OperatorBuyerInput):
+    user_id: Optional[str] = None
+    preferences: dict = Field(default_factory=dict)
+    last_known_buying_price: Optional[Annotated[Decimal, Field(gt=0, max_digits=14, decimal_places=2)]] = None
+    minimum_order: Optional[Quantity] = None
+    payment_terms: str = Field(default='', max_length=100)
+
+
+class SupplierProfileInput(Input):
+    public_alias: str = Field(min_length=2, max_length=120)
+    legal_name: str = Field(min_length=2, max_length=150)
+    alternate_phone: str = Field(default='', max_length=20)
+    region: str = Field(min_length=2, max_length=80)
+    district: str = Field(min_length=2, max_length=100)
+    general_area: str = Field(default='', max_length=120)
+    categories: list[Category] = Field(min_length=1, max_length=9)
+    primary_category: Category
+    production_profile: dict = Field(default_factory=dict)
+    evidence_photos: list[str] = Field(default_factory=list, max_length=8)
+    production_frequency: str = Field(default='', max_length=120)
+    internal_pickup_address: str = Field(min_length=3, max_length=500)
+    pickup_instructions: str = Field(default='', max_length=1000)
+    omoterra_pickup: bool = False
+    supplier_transport: bool = False
+    supply_forms: list[Literal['live', 'dressed', 'chilled', 'frozen']] = Field(default_factory=list)
+    preferred_contact_method: Literal['phone', 'whatsapp', 'sms'] = 'phone'
+    operating_notes: str = Field(default='', max_length=1000)
+
+    @field_validator('region')
+    @classmethod
+    def public_region_only(cls, value):
+        if re.search(r'\d|@|https?://|www\.', value, re.I):
+            raise ValueError('Enter a general region name, not a phone number or exact address')
+        return value
+
+    @field_validator('alternate_phone')
+    @classmethod
+    def valid_alternate_phone(cls, value):
+        if value and not re.fullmatch(r'\+255[67]\d{8}', value):
+            raise ValueError('Enter an alternate Tanzanian mobile number or leave it blank')
+        return value
+
+    @field_validator('categories')
+    @classmethod
+    def unique_categories(cls, value):
+        if len(set(value)) != len(value):
+            raise ValueError('Choose each supply category only once')
+        return value
+
+    @model_validator(mode='after')
+    def valid_production_profile(self):
+        if self.primary_category not in self.categories:
+            raise ValueError('Your main supply category must be selected')
+        if set(self.production_profile) - set(self.categories):
+            raise ValueError('Production details must match selected categories')
+        for category, details in self.production_profile.items():
+            if not isinstance(details, dict):
+                raise ValueError('Enter production capacity by category')
+            try:
+                capacity = Decimal(str(details.get('capacity', '')))
+            except Exception as exc:
+                raise ValueError('Enter a valid production capacity') from exc
+            if not capacity.is_finite() or capacity < 0:
+                raise ValueError('Enter a valid non-negative production capacity')
+            if details.get('unit') != UNITS[category]:
+                raise ValueError('Choose the correct unit for each category')
+            if len(str(details.get('frequency', ''))) > 80:
+                raise ValueError('Production frequency is too long')
+        return self
+
+
+class SupplierStatusInput(Input):
+    status: Literal['under_review', 'approved', 'rejected', 'suspended']
+    notes: str = Field(default='', max_length=2000)
+
+
+class SupplierVerificationInput(Input):
+    checks: dict[str, bool]
+    notes: str = Field(default='', max_length=2000)
+
+class OperatorSupplierInput(SupplierProfileInput):
+    phone: str = Field(pattern=r'^\+255[67]\d{8}$')
+    name: str = Field(min_length=2, max_length=100)
+    internal_notes: str = Field(default='', max_length=2000)
+    verification: dict = Field(default_factory=dict)
+    current_batch: Optional['SupplierBatchInput'] = None
+    future_batches: list['SupplierBatchInput'] = Field(default_factory=list, max_length=10)
+
+    @model_validator(mode='after')
+    def batch_categories_selected(self):
+        batches = ([self.current_batch] if self.current_batch else []) + self.future_batches
+        if any(batch.category not in self.categories for batch in batches):
+            raise ValueError('Select every current and planned supply category above')
+        if any(batch.asking_price_per_unit is None for batch in batches):
+            raise ValueError('Add the agreed asking price for every current and planned batch')
+        return self
+
+
+class SupplierOnboardingInput(SupplierProfileInput):
+    name: str = Field(min_length=2, max_length=100)
+    current_batch: Optional['SupplierBatchInput'] = None
+    future_batches: list['SupplierBatchInput'] = Field(default_factory=list, max_length=10)
+
+    @model_validator(mode='after')
+    def batch_categories_selected(self):
+        batches = ([self.current_batch] if self.current_batch else []) + self.future_batches
+        if any(batch.category not in self.categories for batch in batches):
+            raise ValueError('Select every current and planned supply category above')
+        if any(batch.asking_price_per_unit is None for batch in batches):
+            raise ValueError('Add the agreed asking price for every current and planned batch')
+        return self
+
+
+class SupplierBatchInput(Input):
+    category: Category
+    subtype: str = Field(default='', max_length=100)
+    initial_quantity: Quantity
+    current_age: Optional[Annotated[Decimal, Field(ge=0, max_digits=8, decimal_places=3)]] = None
+    age_unit: Literal['days', 'weeks', 'months'] = 'weeks'
+    expected_ready_date: date
+    expected_min_weight_kg: Optional[Annotated[Decimal, Field(gt=0, max_digits=8, decimal_places=3)]] = None
+    expected_max_weight_kg: Optional[Annotated[Decimal, Field(gt=0, max_digits=8, decimal_places=3)]] = None
+    form: Literal['live', 'dressed', 'chilled', 'frozen'] = 'live'
+    asking_price_per_unit: Optional[Money] = None
+    region: str = Field(min_length=2, max_length=80)
+    private_pickup_location: str = Field(default='', max_length=500)
+    photos: list[str] = Field(default_factory=list, max_length=8)
+
+    @model_validator(mode='after')
+    def valid_batch(self):
+        if self.expected_ready_date < date.today():
+            raise ValueError('Expected ready date must be today or later')
+        if (self.expected_ready_date - date.today()).days > 365 * 5:
+            raise ValueError('Expected ready date is too far in the future')
+        if self.expected_min_weight_kg and self.expected_max_weight_kg and self.expected_min_weight_kg > self.expected_max_weight_kg:
+            raise ValueError('Minimum weight cannot exceed maximum weight')
+        if self.category not in ('chicken_meat', 'beef', 'goat_meat') and self.initial_quantity % 1:
+            raise ValueError('Birds, animals and trays require whole quantities')
+        if self.category in ('chicken_meat', 'beef', 'goat_meat') and self.form not in ('chilled', 'frozen', 'dressed'):
+            raise ValueError('Choose a valid meat form')
+        if self.category in ('broilers', 'local_chicken', 'goats', 'cattle') and self.form != 'live':
+            raise ValueError('Live stock batches must use the live form')
+        if re.search(r'\d|@|https?://|www\.', self.region, re.I):
+            raise ValueError('Enter a general region, not a private pickup address')
+        return self
+
+
+class BatchExternalSaleInput(Input):
+    quantity: Quantity
+    notes: str = Field(default='', max_length=500)
+
+
+class SupplyOfferInput(Input):
+    batch_id: str
+    offered_quantity: Quantity
+    expected_ready_date: Optional[date] = None
+    expected_min_weight_kg: Optional[Annotated[Decimal, Field(gt=0, max_digits=8, decimal_places=3)]] = None
+    expected_max_weight_kg: Optional[Annotated[Decimal, Field(gt=0, max_digits=8, decimal_places=3)]] = None
+    asking_price_per_unit: Optional[Money] = None
+    supplier_notes: str = Field(default='', max_length=500)
+
+
+class AllocationInput(Input):
+    supply_offer_id: Optional[str] = None
+    supplier_batch_id: str
+    allocated_quantity: Quantity
+
+
+class AllocationPlanInput(Input):
+    allocations: list[AllocationInput] = Field(min_length=1, max_length=50)
+
+
+class OfferReview(Input):
+    status: Literal['accepted', 'partially_accepted', 'rejected']
+    accepted_quantity: Optional[Quantity] = None
+    notes: str = Field(default='', max_length=1000)
+
+
+class AllocationUpdate(Input):
+    allocated_quantity: Optional[Quantity] = None
+    status: Optional[Literal['cancelled']] = None
+
+    @model_validator(mode='after')
+    def has_change(self):
+        if self.allocated_quantity is None and self.status is None:
+            raise ValueError('Provide a new allocation quantity or cancel the allocation')
+        return self
+
+
+class DemandOrderCreate(Input):
+    delivery_address_id: Optional[str] = None
+    payment_method: Literal['pay_on_delivery'] = 'pay_on_delivery'
+
+
+class RequirementProgress(Input):
+    status: Literal['confirmed', 'fulfilling', 'completed', 'cancelled']
+    internal_notes: str = Field(default='', max_length=1000)
+
+
+class BatchVerificationInput(Input):
+    verified_quantity: Quantity
+    sampled_average_weight_kg: Optional[Annotated[Decimal, Field(gt=0, max_digits=8, decimal_places=3)]] = None
+    rejected_quantity: Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)] = Decimal('0')
+    readiness_confirmed: bool = False
+    location_confirmed: bool = False
+    notes: str = Field(default='', max_length=1000)
+    photos: list[str] = Field(default_factory=list, max_length=8)
+    buyer_price_per_unit: Money
+    supplier_asking_price_per_unit: Optional[Money] = None
+    supplier_payout_price_per_unit: Optional[Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=2)]] = None
 
 
 class BusinessInput(Input):
@@ -172,12 +432,19 @@ class BusinessInput(Input):
     target_start_date: str = Field(min_length=2, max_length=100)
 
 
+class CollectionResult(Input):
+    order_item_id: str
+    actual_quantity: Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)]
+    rejected_quantity: Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)]
+
+
 class Progress(Input):
     expected_collection_date: Optional[date] = None
     internal_status: Literal['supply_confirmed', 'pickup_scheduled', 'collected', 'quality_checked', 'in_transit', 'delivered', 'completed', 'cancelled', 'payment_failed']
     actual_quantity: Optional[Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)]] = None
     rejected_quantity: Optional[Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)]] = None
     actual_weight: Optional[Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)]] = None
+    collection_results: Optional[list[CollectionResult]] = None
     collection_notes: str = Field(default='', max_length=1000)
 
 

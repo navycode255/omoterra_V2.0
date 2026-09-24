@@ -51,9 +51,14 @@ class ApiRepository implements OmoterraRepository {
           }));
       return response.data;
     } on DioException catch (error) {
+      final statusCode = error.response?.statusCode;
       final detail =
           error.response?.data is Map ? error.response?.data['detail'] : null;
-      if (error.response?.statusCode == 401) {
+      if (statusCode != null && statusCode >= 500) {
+        throw const ApiFailure(
+            'Omoterra is temporarily unavailable. Please try again shortly.');
+      }
+      if (statusCode == 401) {
         throw const ApiFailure(
             'Your session has expired. Sign in again from Account.');
       }
@@ -252,7 +257,77 @@ class LocalRepository implements OmoterraRepository {
         'legal_name': 'Preview Supplier Ltd',
         'internal_pickup_address': 'Preview pickup address',
         'completed_supplies_count': _supplier['completed_supplies_count'],
+        'status': 'approved',
       };
+    }
+    if (path == '/supplier/demand' || path.startsWith('/supplier/demand/')) {
+      final today = DateTime.now();
+      final rows = [
+        for (var i = 0; i < 3; i++)
+          {
+            'id': 'preview-demand-${i + 1}',
+            'category': i == 2 ? 'goats' : 'broilers',
+            'unit': i == 2 ? 'animals' : 'birds',
+            'form': 'Live',
+            'quantity': [500, 200, 300][i],
+            'matched': [320, 0, 150][i],
+            'weight': ['1.8–2.2', '1.8+', '25–35'][i],
+            'region': ['Dar es Salaam', 'Mbezi, Dar es Salaam', 'Kinondoni'][i],
+            'needed_by': today
+                .add(Duration(days: 6 + i * 2))
+                .toIso8601String()
+                .split('T')
+                .first,
+            'repeating': i == 1,
+            if (i == 1) 'schedule': 'Every Monday',
+            'buyer_type': 'Restaurant / Food Service',
+            'notes':
+                'Uniform size preferred. Good health and clean birds. Delivery to our location.',
+          },
+      ];
+      if (path == '/supplier/demand') return rows;
+      return rows.firstWhere((row) => row['id'] == path.split('/').last,
+          orElse: () =>
+              throw const ApiFailure('Demand is no longer available.'));
+    }
+    if (path == '/supplier/batches') {
+      final today = DateTime.now();
+      return [
+        {
+          'id': 'preview-batch-broilers',
+          'category': 'broilers',
+          'initial_quantity': '180',
+          'current_quantity': '180',
+          'reserved_quantity': '0',
+          'available_to_commit': '180',
+          'expected_ready_date': today
+              .add(const Duration(days: 5))
+              .toIso8601String()
+              .split('T')
+              .first,
+          'expected_min_weight_kg': '1.8',
+          'expected_max_weight_kg': '2.2',
+          'status': 'growing',
+          'approved_at': null,
+        },
+        {
+          'id': 'preview-batch-goats',
+          'category': 'goats',
+          'initial_quantity': '24',
+          'current_quantity': '24',
+          'reserved_quantity': '0',
+          'available_to_commit': '24',
+          'expected_ready_date': today
+              .add(const Duration(days: 7))
+              .toIso8601String()
+              .split('T')
+              .first,
+          'expected_min_weight_kg': '25',
+          'expected_max_weight_kg': '35',
+          'status': 'growing',
+          'approved_at': null,
+        },
+      ];
     }
     if (path == '/supplier/stock') {
       return [
@@ -335,9 +410,47 @@ final repositoryProvider = Provider<OmoterraRepository>((ref) {
       connectTimeout: const Duration(seconds: 15),
       receiveTimeout: const Duration(seconds: 20))));
 });
-final resourceProvider = FutureProvider.autoDispose.family<dynamic, String>(
-    (ref, path) => ref.watch(repositoryProvider).read(path));
+final resourceFailuresProvider =
+    StateProvider<Map<String, Object>>((ref) => const {});
+
+final resourceProvider =
+    FutureProvider.autoDispose.family<dynamic, String>((ref, path) async {
+  final failures = ref.read(resourceFailuresProvider.notifier);
+  ref.onDispose(() {
+    if (failures.state.containsKey(path)) {
+      failures.state = {...failures.state}..remove(path);
+    }
+  });
+  try {
+    final value = await ref.watch(repositoryProvider).read(path);
+    if (failures.state.containsKey(path)) {
+      failures.state = {...failures.state}..remove(path);
+    }
+    return value;
+  } catch (error) {
+    failures.state = {...failures.state, path: error};
+    rethrow;
+  }
+});
 final listingsProvider = FutureProvider.autoDispose
-    .family<List<SupplyListing>, String>((ref, category) => ref
-        .watch(repositoryProvider)
-        .listings({if (category.isNotEmpty) 'category': category}));
+    .family<List<SupplyListing>, String>((ref, category) async {
+  final failureKey = '@listing|$category';
+  final failures = ref.read(resourceFailuresProvider.notifier);
+  ref.onDispose(() {
+    if (failures.state.containsKey(failureKey)) {
+      failures.state = {...failures.state}..remove(failureKey);
+    }
+  });
+  try {
+    final rows = await ref.watch(repositoryProvider).listings({
+      if (category.isNotEmpty) 'category': category,
+    });
+    if (failures.state.containsKey(failureKey)) {
+      failures.state = {...failures.state}..remove(failureKey);
+    }
+    return rows;
+  } catch (error) {
+    failures.state = {...failures.state, failureKey: error};
+    rethrow;
+  }
+});

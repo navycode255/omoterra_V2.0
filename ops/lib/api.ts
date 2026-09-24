@@ -2,7 +2,7 @@ import 'server-only';
 
 // The operations token is a shared backend secret. It is read from the server
 // environment and attached here, so it never reaches the browser bundle.
-const base = process.env.OMOTERRA_API_URL ?? 'http://127.0.0.1:8010/api/v1';
+const base = process.env.OMOTERRA_API_URL ?? 'https://omoterra.jopex.co.tz/api/v1';
 const token = process.env.OMOTERRA_OPS_TOKEN ?? '';
 
 export class ApiError extends Error {
@@ -16,7 +16,7 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!token) {
-    throw new ApiError(500, 'OMOTERRA_OPS_TOKEN is not configured on the server.');
+    throw new ApiError(500, 'We could not load this information just now. Please try again later.');
   }
   let response: Response;
   try {
@@ -26,13 +26,26 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
       cache: 'no-store',
     });
   } catch {
-    throw new ApiError(503, 'The Omoterra backend is unreachable. Check it is running.');
+    throw new ApiError(503, 'We could not load this information just now. Check your connection and try again.');
   }
   const body = await response.text();
-  const parsed = body ? JSON.parse(body) : null;
+  let parsed: unknown = null;
+  try { parsed = body ? JSON.parse(body) : null; }
+  catch { parsed = null; }
   if (!response.ok) {
-    const detail = parsed?.detail ?? parsed?.message;
-    throw new ApiError(response.status, typeof detail === 'string' ? detail : 'The request failed.');
+    const detail = parsed && typeof parsed === 'object' && 'detail' in parsed && typeof parsed.detail === 'string'
+      ? parsed.detail
+      : null;
+    const message = response.status === 401
+      ? 'Your sign-in has expired. Please sign in again.'
+      : response.status === 403
+        ? 'You do not have access to this information.'
+        : response.status === 404
+          ? 'We could not find that information.'
+          : response.status === 400 || response.status === 409 || response.status === 422
+            ? detail ?? 'Please check the information and try again.'
+            : 'We could not complete that just now. Please try again.';
+    throw new ApiError(response.status, message);
   }
   return parsed as T;
 }
@@ -77,4 +90,8 @@ export async function media(id: string): Promise<{ body: ArrayBuffer; type: stri
     body: await response.arrayBuffer(),
     type: response.headers.get('content-type') ?? 'application/octet-stream',
   };
+}
+
+export function put<T>(path: string, body: unknown) {
+  return request<T>(path, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
 }

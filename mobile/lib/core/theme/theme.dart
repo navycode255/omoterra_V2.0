@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import 'motion.dart';
+export 'motion.dart';
+
 class OColors {
   static const forest = Color(0xFF123D2D),
       pressed = Color(0xFF0B2E21),
@@ -73,6 +76,7 @@ ThemeData omoterraTheme() {
 
 class OmoterraTransitions extends PageTransitionsBuilder {
   const OmoterraTransitions();
+
   @override
   Widget buildTransitions<T>(
       PageRoute<T> route,
@@ -80,13 +84,6 @@ class OmoterraTransitions extends PageTransitionsBuilder {
       Animation<double> animation,
       Animation<double> secondaryAnimation,
       Widget child) {
-    if (MediaQuery.disableAnimationsOf(context)) return child;
-    return FadeTransition(
-        opacity: animation.drive(CurveTween(curve: Curves.easeOut)),
-        child: SlideTransition(
-            position: animation.drive(
-                Tween(begin: const Offset(.025, 0), end: Offset.zero)
-                    .chain(CurveTween(curve: Curves.easeOutCubic))),
-            child: child));
+    return SizePageTransition(animation: animation, child: child);
   }
 }

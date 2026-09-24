@@ -18,6 +18,7 @@ String tsh(Object? value) => 'TZS ${amount(value)}';
 const categories = [
   'broilers',
   'local_chicken',
+  'layers',
   'goats',
   'cattle',
   'chicken_meat',
@@ -25,7 +26,7 @@ const categories = [
   'goat_meat',
   'eggs',
 ];
-String unitFor(String c) => ['broilers', 'local_chicken'].contains(c)
+String unitFor(String c) => ['broilers', 'local_chicken', 'layers'].contains(c)
     ? 'bird'
     : ['goats', 'cattle'].contains(c)
         ? 'animal'
@@ -59,6 +60,213 @@ class OmoterraButton extends StatelessWidget {
         : FilledButton.icon(
             onPressed: busy ? null : onPressed, icon: iconWidget, label: label);
   }
+}
+
+class OmoterraPickerOption<T> {
+  final T value;
+  final Widget title;
+  final String? subtitle;
+  final IconData? icon;
+  const OmoterraPickerOption(
+      {required this.value, required this.title, this.subtitle, this.icon});
+}
+
+/// One branded selection sheet shared by form selects and the app role menu.
+Future<T?> showOmoterraPicker<T>(
+  BuildContext context, {
+  required String title,
+  required List<OmoterraPickerOption<T>> options,
+  required T selected,
+}) =>
+    showModalBottomSheet<T>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (context) => SafeArea(
+        top: false,
+        child: Container(
+          constraints: BoxConstraints(
+              maxHeight: MediaQuery.sizeOf(context).height * .76),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+          ),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            const SizedBox(height: 10),
+            Container(
+                width: 38,
+                height: 4,
+                decoration: BoxDecoration(
+                    color: OColors.border,
+                    borderRadius: BorderRadius.circular(4))),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 16, 12, 12),
+              child: Row(children: [
+                Expanded(
+                    child: Text(title,
+                        style: const TextStyle(
+                            fontSize: 19,
+                            fontWeight: FontWeight.w700,
+                            color: OColors.ink))),
+                IconButton(
+                    tooltip: 'Close',
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(Icons.close_rounded)),
+              ]),
+            ),
+            const Divider(height: 1),
+            Flexible(
+                child: ListView.separated(
+              shrinkWrap: true,
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 20),
+              itemCount: options.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 4),
+              itemBuilder: (context, index) {
+                final option = options[index];
+                final active = option.value == selected;
+                return Material(
+                  color: active ? OColors.soft : Colors.transparent,
+                  borderRadius: BorderRadius.circular(14),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(14),
+                    onTap: () => Navigator.pop(context, option.value),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 13),
+                      child: Row(children: [
+                        if (option.icon != null) ...[
+                          Container(
+                              width: 38,
+                              height: 38,
+                              decoration: BoxDecoration(
+                                  color: active ? Colors.white : OColors.pale,
+                                  borderRadius: BorderRadius.circular(11)),
+                              child: Icon(option.icon,
+                                  color: OColors.forest, size: 20)),
+                          const SizedBox(width: 12),
+                        ],
+                        Expanded(
+                            child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                              DefaultTextStyle(
+                                  style: const TextStyle(
+                                      fontSize: 15,
+                                      fontWeight: FontWeight.w600,
+                                      color: OColors.ink),
+                                  child: option.title),
+                              if (option.subtitle != null) ...[
+                                const SizedBox(height: 3),
+                                Text(option.subtitle!,
+                                    style: const TextStyle(
+                                        fontSize: 12,
+                                        color: OColors.secondary)),
+                              ],
+                            ])),
+                        if (active)
+                          const Icon(Icons.check_circle_rounded,
+                              color: OColors.forest, size: 21),
+                      ]),
+                    ),
+                  ),
+                );
+              },
+            )),
+          ]),
+        ),
+      ),
+    );
+
+class OmoterraDropdown<T> extends StatelessWidget {
+  final String label;
+  final T value;
+  final List<DropdownMenuItem<T>> items;
+  final ValueChanged<T?>? onChanged;
+  const OmoterraDropdown(
+      {super.key,
+      required this.label,
+      required this.value,
+      required this.items,
+      required this.onChanged});
+
+  @override
+  Widget build(BuildContext context) {
+    final selected = items.where((item) => item.value == value).firstOrNull;
+    final options = items
+        .where((item) => item.value != null)
+        .map((item) => OmoterraPickerOption<T>(
+              value: item.value as T,
+              title: item.child,
+            ))
+        .toList();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16),
+      child: Semantics(
+        button: true,
+        label: '$label: ${value.toString()}',
+        child: InkWell(
+          borderRadius: BorderRadius.circular(14),
+          onTap: onChanged == null
+              ? null
+              : () async {
+                  final choice = await showOmoterraPicker<T>(context,
+                      title: label, options: options, selected: value);
+                  if (choice != null) onChanged!(choice);
+                },
+          child: InputDecorator(
+            isEmpty: selected == null,
+            decoration: InputDecoration(
+              labelText: label,
+              enabled: onChanged != null,
+              filled: true,
+              fillColor: Colors.white,
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 15),
+              suffixIcon: const Icon(Icons.keyboard_arrow_down_rounded,
+                  color: OColors.forest),
+              border: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: OColors.border)),
+              enabledBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide: const BorderSide(color: OColors.border)),
+              focusedBorder: OutlineInputBorder(
+                  borderRadius: BorderRadius.circular(14),
+                  borderSide:
+                      const BorderSide(color: OColors.forest, width: 1.5)),
+            ),
+            child: selected?.child ?? const SizedBox.shrink(),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class OmoterraActionDropdown extends StatelessWidget {
+  final Widget child;
+  final String title;
+  final String selected;
+  final List<OmoterraPickerOption<String>> options;
+  final ValueChanged<String> onSelected;
+  const OmoterraActionDropdown(
+      {super.key,
+      required this.child,
+      required this.title,
+      required this.selected,
+      required this.options,
+      required this.onSelected});
+  @override
+  Widget build(BuildContext context) => InkWell(
+        borderRadius: BorderRadius.circular(22),
+        onTap: () async {
+          final choice = await showOmoterraPicker<String>(context,
+              title: title, options: options, selected: selected);
+          if (choice != null) onSelected(choice);
+        },
+        child: child,
+      );
 }
 
 class OmoterraTextField extends StatelessWidget {
@@ -131,15 +339,117 @@ class StatusText extends StatelessWidget {
 class ErrorState extends StatelessWidget {
   final Object error;
   final VoidCallback? retry;
-  const ErrorState(this.error, {super.key, this.retry});
+  final String? title;
+  final String? message;
+  const ErrorState(this.error,
+      {super.key, this.retry, this.title, this.message});
   @override
-  Widget build(BuildContext context) => Padding(
-      padding: const EdgeInsets.symmetric(vertical: 16),
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('$error', style: const TextStyle(color: OColors.error)),
-        if (retry != null)
-          TextButton(onPressed: retry, child: const Text('Try again'))
-      ]));
+  Widget build(BuildContext context) {
+    final copy = _friendlyErrorCopy(error);
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.symmetric(vertical: 12),
+      padding: const EdgeInsets.fromLTRB(20, 24, 20, 22),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: OColors.border),
+      ),
+      child: Column(mainAxisSize: MainAxisSize.min, children: [
+        SizedBox(
+          height: 116,
+          child: Stack(alignment: Alignment.center, children: [
+            const SupplyArt('crate', size: 112, surface: false),
+            Positioned(
+              top: 2,
+              right: 28,
+              child: Container(
+                padding: const EdgeInsets.all(10),
+                decoration: const BoxDecoration(
+                    color: Color(0xFFFCE3E1), shape: BoxShape.circle),
+                child: const Icon(Icons.wifi_off_rounded,
+                    color: OColors.error, size: 22),
+              ),
+            ),
+          ]),
+        ),
+        const SizedBox(height: 12),
+        Text(title ?? copy.$1,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 8),
+        Text(message ?? copy.$2,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                  color: OColors.secondary,
+                )),
+        if (retry != null) ...[
+          const SizedBox(height: 20),
+          SizedBox(
+            width: double.infinity,
+            child: FilledButton.icon(
+              onPressed: retry,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('Try again'),
+            ),
+          ),
+        ],
+      ]),
+    );
+  }
+}
+
+/// Never show raw transport exceptions or server responses to customers.
+String friendlyErrorMessage(Object error) => _friendlyErrorCopy(error).$2;
+
+(String, String) _friendlyErrorCopy(Object error) {
+  final raw = error is ApiFailure ? error.message : '';
+  final text = raw.toLowerCase();
+  if (text.contains('temporarily unavailable') ||
+      text.contains('trouble loading right now')) {
+    return (
+      'Omoterra is having a short delay',
+      'We couldn’t load this just now. Please try again shortly.'
+    );
+  }
+  if (text.contains('session has expired')) {
+    return (
+      'Please sign in again',
+      'Your sign-in has expired. Sign in to continue.'
+    );
+  }
+  if (text == 'not found' || text.contains('status code 404')) {
+    return (
+      'We couldn’t find this just now',
+      'Refresh and try again. If the problem continues, try again later.'
+    );
+  }
+  if (text.contains('no longer available') || text.contains('not available')) {
+    return (
+      'This is no longer available',
+      'Choose another option and try again.'
+    );
+  }
+  if (text.contains('preview mode') ||
+      text.contains('api_base_url') ||
+      text.contains('backend') ||
+      text.contains('server') ||
+      text.contains('http') ||
+      text.contains('exception') ||
+      text.contains('status code') ||
+      text.contains('request failed')) {
+    return (
+      'We couldn’t complete that',
+      'Please check your connection and try again. If the problem continues, try again later.'
+    );
+  }
+  if (raw.isNotEmpty && raw.length < 180 && !raw.contains('\n')) {
+    return ('Please check this information', raw);
+  }
+  return (
+    'We couldn’t load this just now',
+    'Check your internet connection, then try again.'
+  );
 }
 
 class EmptyState extends StatelessWidget {
@@ -182,12 +492,9 @@ class ResourceView extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(resourceProvider(path));
-    if (state.hasError && state.hasValue) {
-      return Column(children: [
-        ErrorState(state.error!,
-            retry: () => ref.invalidate(resourceProvider(path))),
-        builder(state.value)
-      ]);
+    if (state.hasError) {
+      return ErrorState(state.error!,
+          retry: () => ref.invalidate(resourceProvider(path)));
     }
     return state.when(
         skipLoadingOnRefresh: true,
@@ -206,7 +513,8 @@ class ResourceView extends ConsumerWidget {
 /// they borrow the closest live-animal photo rather than falling back to the
 /// plain vector icon; swap in category_chicken_meat.jpg /
 /// category_goat_meat.jpg when photos exist.
-String _slot(String category) => const {
+String _slot(String category) =>
+    const {
       'cattle': 'cow',
       'beef': 'cow',
       'chicken_meat': 'broilers',
@@ -344,7 +652,8 @@ class ListingCard extends StatelessWidget {
                       FittedBox(
                           fit: BoxFit.scaleDown,
                           alignment: Alignment.centerLeft,
-                          child: Text('${tsh(listing.price)} / ${listing.unitType}',
+                          child: Text(
+                              '${tsh(listing.price)} / ${listing.unitType}',
                               maxLines: 1,
                               style: const TextStyle(
                                   fontSize: 15,
@@ -505,7 +814,8 @@ class _DateFieldState extends State<OmoterraDateField> {
 /// screen in the app — not just onboarding — shares the same back affordance.
 class BackChevron extends StatelessWidget {
   final VoidCallback? onPressed;
-  const BackChevron({super.key, this.onPressed});
+  final Color color;
+  const BackChevron({super.key, this.onPressed, this.color = OColors.ink});
   @override
   Widget build(BuildContext context) => Semantics(
       button: true,
@@ -513,11 +823,10 @@ class BackChevron extends StatelessWidget {
       child: InkWell(
           customBorder: const CircleBorder(),
           onTap: onPressed ?? () => Navigator.of(context).maybePop(),
-          child: const SizedBox(
+          child: SizedBox(
               width: 48,
               height: 48,
-              child: Icon(Icons.arrow_back_ios_new,
-                  size: 20, color: OColors.ink))));
+              child: Icon(Icons.arrow_back_ios_new, size: 20, color: color))));
 }
 
 /// Drop-in replacement for [AppBar] used across the app so every screen with

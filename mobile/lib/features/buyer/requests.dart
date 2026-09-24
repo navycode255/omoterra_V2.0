@@ -42,21 +42,49 @@ class _RequestSupplyState extends State<RequestSupplyScreen> {
         DataForm(
             path: '/requests',
             fields: [
-              const FormFieldSpec('category', 'Category', options: categories),
+              const FormFieldSpec('category', 'Product', options: categories),
               const FormFieldSpec('quantity', 'Quantity', numeric: true),
-              const FormFieldSpec(
-                  'weight_or_size_requirement', 'Preferred weight or size',
+              const FormFieldSpec('product_subtype', 'Subtype / breed',
                   optional: true),
+              const FormFieldSpec('minimum_weight_kg', 'Minimum weight (kg)',
+                  numeric: true, optional: true),
+              const FormFieldSpec('maximum_weight_kg', 'Maximum weight (kg)',
+                  numeric: true, optional: true),
               const FormFieldSpec(
-                  'live_dressed_or_cut', 'Live, dressed or preferred cut',
+                  'weight_or_size_requirement', 'Weight or size notes',
                   optional: true),
+              const FormFieldSpec('live_dressed_or_cut', 'Form',
+                  options: ['live', 'dressed', 'chilled', 'frozen']),
               FormFieldSpec('needed_by_date', 'Needed by (YYYY-MM-DD)',
                   initial: DateTime.now()
                       .add(const Duration(days: 1))
                       .toIso8601String()
                       .split('T')
                       .first),
+              const FormFieldSpec('delivery_region', 'Delivery region',
+                  optional: true),
               const FormFieldSpec('delivery_area', 'Delivery area'),
+              const FormFieldSpec('delivery_notes', 'Delivery instructions',
+                  optional: true, multiline: true),
+              const FormFieldSpec('requirement_type', 'Requirement type',
+                  options: ['one_time', 'recurring']),
+              const FormFieldSpec('recurrence_frequency', 'Repeat frequency',
+                  options: ['weekly', 'monthly'],
+                  showWhenKey: 'requirement_type',
+                  showWhenValue: 'recurring'),
+              const FormFieldSpec(
+                  'preferred_weekdays', 'Preferred delivery days',
+                  multiOptions: [
+                    'monday',
+                    'tuesday',
+                    'wednesday',
+                    'thursday',
+                    'friday',
+                    'saturday',
+                    'sunday'
+                  ],
+                  showWhenKey: 'requirement_type',
+                  showWhenValue: 'recurring'),
               const FormFieldSpec('notes', 'Additional notes',
                   optional: true, multiline: true)
             ],
@@ -88,13 +116,20 @@ class RequestDetail extends StatelessWidget {
                   StatusText(data['status']),
                   const SizedBox(height: 16),
                   SourcingProgress(data['status']),
+                  const SizedBox(height: 12),
+                  Text(
+                      '${amount(data['secured_quantity'])} / ${amount(data['quantity'])} secured · ${amount(data['remaining_quantity'])} remaining',
+                      style: const TextStyle(fontWeight: FontWeight.w700)),
                   const SizedBox(height: 24),
                   MoneySummary({
                     'Supply': label(data['category']),
                     'Quantity':
                         '${amount(data['quantity'])} ${data['unit_type']}',
                     'Needed by': data['needed_by_date'],
-                    'Delivery area': data['delivery_area']
+                    'Delivery area': data['delivery_area'],
+                    'Secured':
+                        '${amount(data['secured_quantity'])} / ${amount(data['quantity'])}',
+                    'Remaining': amount(data['remaining_quantity'])
                   }),
                   const SizedBox(height: 24),
                   const Text(
@@ -313,26 +348,44 @@ class SourcingProgress extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     if (status == 'cancelled') return const StatusText('cancelled');
-    const steps = ['submitted', 'sourcing', 'supply_found', 'confirmed'];
+    const steps = [
+      'open',
+      'partially_matched',
+      'fully_matched',
+      'confirmed',
+      'fulfilling',
+      'completed'
+    ];
+    const titles = [
+      'Request received',
+      'Matching supply',
+      'Supply secured',
+      'Confirmed',
+      'Preparing / in transit',
+      'Delivered'
+    ];
+    final normalized = switch (status) {
+      'submitted' => 'open',
+      'sourcing' => 'partially_matched',
+      'supply_found' => 'fully_matched',
+      _ => status,
+    };
+    final current = steps.indexOf(normalized);
     return Column(children: [
       for (int i = 0; i < steps.length; i++)
         Padding(
             padding: const EdgeInsets.symmetric(vertical: 9),
             child: Row(children: [
-              Icon(
-                  i <= steps.indexOf(status)
-                      ? Icons.check_circle
-                      : Icons.circle_outlined,
+              Icon(i <= current ? Icons.check_circle : Icons.circle_outlined,
                   size: 20,
-                  color: i <= steps.indexOf(status)
+                  color: i <= current
                       ? const Color(0xFF123D2D)
                       : const Color(0xFF909A94)),
               const SizedBox(width: 14),
-              Text(label(steps[i]),
+              Text(titles[i],
                   style: TextStyle(
-                      fontWeight: steps[i] == status
-                          ? FontWeight.w700
-                          : FontWeight.w400)),
+                      fontWeight:
+                          i == current ? FontWeight.w700 : FontWeight.w400)),
             ]))
     ]);
   }

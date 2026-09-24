@@ -18,7 +18,8 @@ class OmoterraApp extends ConsumerWidget {
       debugShowCheckedModeBanner: false,
       theme: omoterraTheme(),
       routerConfig: ref.watch(routerProvider),
-      locale: Locale(ref.watch(sessionProvider).valueOrNull?.language ?? 'en'),
+      locale: Locale(ref.watch(sessionProvider).valueOrNull?.language ??
+          ref.watch(selectedLanguageProvider)),
       supportedLocales: const [Locale('en'), Locale('sw')],
       localizationsDelegates: GlobalMaterialLocalizations.delegates);
 }

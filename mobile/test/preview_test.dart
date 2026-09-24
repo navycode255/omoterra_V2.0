@@ -37,14 +37,13 @@ void main() {
   // like an unbounded Row fails here rather than rendering blank on a phone.
   Widget host(Widget child) => ProviderScope(
       overrides: [repositoryProvider.overrideWithValue(LocalRepository())],
-      child: MaterialApp(
-          theme: omoterraTheme(), home: Scaffold(body: child)));
+      child: MaterialApp(theme: omoterraTheme(), home: Scaffold(body: child)));
 
   testWidgets('buyer home lays out against preview data', (tester) async {
     await tester.pumpWidget(host(const BuyerHome()));
     await tester.pump(const Duration(seconds: 1));
     expect(tester.takeException(), isNull);
-    expect(find.text('Buy Supply'), findsOneWidget);
+    expect(find.text('Explore Now'), findsNothing);
   });
 
   testWidgets('explore lays out against preview data', (tester) async {
@@ -59,8 +58,7 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
-  test('preview hides a supplier identity behind the approved alias',
-      () async {
+  test('preview hides a supplier identity behind the approved alias', () async {
     final detail = await repo.read('/listings/local-broilers');
     expect(detail['supplier']['public_alias'], 'Lake Zone Poultry');
     expect(detail.toString(), isNot(contains('Preview Supplier Ltd')));

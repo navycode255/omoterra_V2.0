@@ -7,26 +7,136 @@ import 'package:omoterra/core/theme/theme.dart';
 import 'package:omoterra/features/supplier/screens.dart';
 import 'package:omoterra/shared/widgets/components.dart';
 
+class PendingSupplierHomeRepository extends LocalRepository {
+  @override
+  Future<dynamic> read(String path, [Map<String, dynamic>? query]) async {
+    if (path == '/supplier/profile') return {'status': 'under_review'};
+    return super.read(path, query);
+  }
+}
+
+class FailingSupplierHomeRepository extends LocalRepository {
+  final Set<String> failingPaths;
+  FailingSupplierHomeRepository({this.failingPaths = const {}});
+
+  @override
+  Future<dynamic> read(String path, [Map<String, dynamic>? query]) async {
+    if (path == '/supplier/profile' &&
+        !failingPaths.contains('/supplier/profile')) {
+      return {'status': 'under_review'};
+    }
+    if (failingPaths.contains(path) || path == '/supplier/batches') {
+      throw const ApiFailure('Not Found');
+    }
+    return super.read(path, query);
+  }
+}
+
 Widget host(Widget child) => ProviderScope(
     overrides: [repositoryProvider.overrideWithValue(LocalRepository())],
-    child: MaterialApp(
-        theme: omoterraTheme(), home: Scaffold(body: child)));
+    child: MaterialApp(theme: omoterraTheme(), home: Scaffold(body: child)));
 
 void main() {
-  testWidgets('supplier home shows the banner greeting and a live stock row',
+  testWidgets('supplier home offers sales records and stock registration',
       (tester) async {
     await tester.pumpWidget(host(const SupplierHome()));
     await tester.pump(const Duration(seconds: 1));
     expect(tester.takeException(), isNull);
+    expect(find.text('Grow Beyond\nthe Farm'), findsOneWidget);
+    expect(find.text('Sales Records'), findsOneWidget);
+    expect(find.text('Add Stock'), findsOneWidget);
+    expect(tester.getTopLeft(find.text('Market Demand')).dy,
+        lessThan(tester.getTopLeft(find.text('Add Stock')).dy));
+    expect(tester.getTopLeft(find.text('Add Stock')).dy,
+        lessThan(tester.getTopLeft(find.text('Sales Records')).dy));
+  });
 
-    expect(find.textContaining('Good morning'), findsOneWidget);
-    // Broilers is 'live' in the preview fixtures; its dot must render green,
-    // not the generic grey a status without a dedicated colour gets.
-    final live = tester.widget<StatusText>(find.byType(StatusText).first);
-    expect(live.status, 'live');
-    final text = tester.widget<Text>(find.descendant(
-        of: find.byWidget(live), matching: find.byType(Text)));
-    expect(text.style?.color, OColors.positive);
+  testWidgets('under-review home skips unavailable supplier feature requests',
+      (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        repositoryProvider.overrideWithValue(FailingSupplierHomeRepository()),
+      ],
+      child: MaterialApp(
+        theme: omoterraTheme(),
+        home: const AppShell(path: '/supplier', child: SupplierHome()),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Registration under review'), findsOneWidget);
+    expect(find.text('Market Demand'), findsNothing);
+    expect(find.text('Add Stock'), findsNothing);
+    expect(find.byType(ErrorState), findsNothing);
+  });
+
+  testWidgets('pending supplier status is a notice, not an error',
+      (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        repositoryProvider.overrideWithValue(PendingSupplierHomeRepository()),
+      ],
+      child: MaterialApp(
+        theme: omoterraTheme(),
+        home: const AppShell(path: '/supplier', child: SupplierHome()),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text('Registration under review'), findsOneWidget);
+    expect(find.text('We’ll let you know when your supplier account is ready.'),
+        findsOneWidget);
+    expect(find.text('Market Demand'), findsNothing);
+    expect(find.text('Add your current production'), findsNothing);
+    expect(find.text('Add Stock'), findsNothing);
+    expect(find.text('My Stock'), findsNothing);
+    expect(find.text('Reservations'), findsNothing);
+    expect(find.text('Payouts'), findsNothing);
+    expect(find.text('Sales Records'), findsNothing);
+    expect(find.byType(ErrorState), findsNothing);
+  });
+
+  testWidgets('stock screen shows one error instead of failing sections',
+      (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        repositoryProvider.overrideWithValue(FailingSupplierHomeRepository(
+          failingPaths: const {'/supplier/stock', '/supplier/batches'},
+        )),
+      ],
+      child: MaterialApp(
+        theme: omoterraTheme(),
+        home: const AppShell(path: '/stock', child: StockScreen()),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(ErrorState), findsOneWidget);
+    expect(find.text('My stock'), findsNothing);
+    expect(find.text('Available listings'), findsNothing);
+  });
+
+  testWidgets('orders screen shows one error and hides its content',
+      (tester) async {
+    await tester.pumpWidget(ProviderScope(
+      overrides: [
+        repositoryProvider.overrideWithValue(FailingSupplierHomeRepository(
+          failingPaths: const {'/supplier/orders'},
+        )),
+      ],
+      child: MaterialApp(
+        theme: omoterraTheme(),
+        home: const AppShell(path: '/supplier-orders', child: SupplierOrders()),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.byType(ErrorState), findsOneWidget);
+    expect(find.text('Orders & reservations'), findsNothing);
   });
 
   testWidgets(
@@ -35,6 +145,8 @@ void main() {
     await tester.pumpWidget(host(const StockScreen()));
     await tester.pump(const Duration(seconds: 1));
     expect(tester.takeException(), isNull);
+    await tester.drag(find.byType(ListView).first, const Offset(0, -1400));
+    await tester.pumpAndSettle();
 
     expect(find.byIcon(Icons.more_horiz), findsWidgets);
     await tester.tap(find.byIcon(Icons.more_horiz).first);
@@ -58,39 +170,36 @@ void main() {
     expect(scaffold.extendBodyBehindAppBar, isTrue);
   });
 
-  testWidgets(
-      'the stats card column headers render in full, not truncated, and columns have dividers',
-      (tester) async {
+  testWidgets('quick stats keep stock units separate', (tester) async {
     await tester.pumpWidget(host(const SupplierHome()));
     await tester.pump(const Duration(seconds: 1));
     expect(tester.takeException(), isNull);
 
-    expect(find.text('Available'), findsOneWidget);
-    expect(find.text('Reserved'), findsOneWidget);
-    expect(find.text('Sold'), findsOneWidget);
-    expect(find.byType(VerticalDivider), findsWidgets);
+    await tester.drag(find.byType(ListView).first, const Offset(0, -500));
+    await tester.pumpAndSettle();
+    expect(find.text('Available'), findsNWidgets(2));
+    expect(find.text('Reserved'), findsNWidgets(2));
+    expect(find.text('300'), findsOneWidget);
+    expect(find.text('25'), findsNWidgets(2));
   });
 
-  testWidgets('the bottom nav is four plain tabs with Orders in its own slot',
+  testWidgets('supplier navigation includes Demand alongside Stock and Orders',
       (tester) async {
     await tester.pumpWidget(ProviderScope(
         overrides: [repositoryProvider.overrideWithValue(LocalRepository())],
         child: MaterialApp(
             theme: omoterraTheme(),
-            home:
-                const AppShell(path: '/supplier', child: SupplierHome()))));
+            home: const AppShell(path: '/supplier', child: SupplierHome()))));
     await tester.pump(const Duration(seconds: 1));
     expect(tester.takeException(), isNull);
 
     expect(find.text('Home'), findsOneWidget);
+    expect(find.bySemanticsLabel('Demand'), findsOneWidget);
     expect(find.text('Stock'), findsOneWidget);
     expect(find.text('Orders'), findsOneWidget);
     expect(find.text('Account'), findsOneWidget);
-    // No raised circular centre button any more — the four tabs sit in a
-    // plain rounded bar.
     expect(
-        find.byWidgetPredicate(
-            (w) => w is Material && w.shape is CircleBorder),
-        findsNothing);
+        find.byWidgetPredicate((w) => w is Material && w.shape is CircleBorder),
+        findsOneWidget);
   });
 }

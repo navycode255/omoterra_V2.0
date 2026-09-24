@@ -25,6 +25,22 @@ void main() {
     expect(find.text('746 48'), findsOneWidget);
   });
 
+  testWidgets('the custom keypad can be hidden and shown again',
+      (tester) async {
+    await tester.pumpWidget(harness());
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(InkWell, '1'), findsOneWidget);
+
+    await tester.tap(find.text('Hide keyboard'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(InkWell, '1'), findsNothing);
+    expect(find.text('Show keyboard'), findsOneWidget);
+
+    await tester.tap(find.text('Show keyboard'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(InkWell, '1'), findsOneWidget);
+  });
+
   testWidgets('no system keyboard is ever requested', (tester) async {
     await tester.pumpWidget(harness());
     await tester.pump();
@@ -76,8 +92,7 @@ void main() {
     await tester.pump();
 
     for (final digit in ['0', '1', '5', '9']) {
-      expect(
-          find.bySemanticsLabel(digit), findsOneWidget,
+      expect(find.bySemanticsLabel(digit), findsOneWidget,
           reason: 'key $digit must carry a spoken label');
     }
     expect(find.bySemanticsLabel('Delete'), findsOneWidget);

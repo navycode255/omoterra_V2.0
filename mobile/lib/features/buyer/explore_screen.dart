@@ -37,9 +37,9 @@ class _ExploreState extends State<ExploreScreen> {
               requiredField: false, keyboard: TextInputType.number),
           OmoterraTextField('Maximum weight (kg)', maximum,
               requiredField: false, keyboard: TextInputType.number),
-          DropdownButtonFormField<String>(
-              initialValue: condition,
-              decoration: const InputDecoration(labelText: 'Condition'),
+          OmoterraDropdown<String>(
+              label: 'Condition',
+              value: condition,
               items: ['', 'live', 'dressed', 'chilled', 'frozen']
                   .map((v) => DropdownMenuItem(
                       value: v,

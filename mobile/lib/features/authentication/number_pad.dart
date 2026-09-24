@@ -9,29 +9,56 @@ import '../../core/theme/theme.dart';
 class NumberPad extends StatelessWidget {
   final ValueChanged<String> onDigit;
   final VoidCallback onBackspace;
-  const NumberPad({super.key, required this.onDigit, required this.onBackspace});
+  final bool visible;
+  final VoidCallback onToggle;
+  const NumberPad({
+    super.key,
+    required this.onDigit,
+    required this.onBackspace,
+    required this.visible,
+    required this.onToggle,
+  });
 
   @override
-  Widget build(BuildContext context) => Container(
-      color: const Color(0xFFF2F4F2),
-      padding: EdgeInsets.fromLTRB(
-          6, 8, 6, 8 + MediaQuery.paddingOf(context).bottom),
-      child: Column(mainAxisSize: MainAxisSize.min, children: [
-        for (final row in const [
-          ['1', '2', '3'],
-          ['4', '5', '6'],
-          ['7', '8', '9'],
-          ['', '0', 'back'],
-        ])
-          Row(
-              children: row
-                  .map((key) => Expanded(
-                      child: _Key(
-                          value: key,
-                          onDigit: onDigit,
-                          onBackspace: onBackspace)))
-                  .toList()),
-      ]));
+  Widget build(BuildContext context) => AnimatedSize(
+      duration: const Duration(milliseconds: 180),
+      curve: Curves.easeOutCubic,
+      alignment: Alignment.topCenter,
+      child: Container(
+          color: const Color(0xFFF2F4F2),
+          padding: EdgeInsets.fromLTRB(
+              6, 2, 6, 8 + MediaQuery.paddingOf(context).bottom),
+          child: Column(mainAxisSize: MainAxisSize.min, children: [
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton.icon(
+                onPressed: onToggle,
+                icon: Icon(visible
+                    ? Icons.keyboard_arrow_down_rounded
+                    : Icons.keyboard_arrow_up_rounded),
+                label: Text(visible ? 'Hide keyboard' : 'Show keyboard'),
+                style: TextButton.styleFrom(
+                  foregroundColor: OColors.forest,
+                  visualDensity: VisualDensity.compact,
+                ),
+              ),
+            ),
+            if (visible)
+              for (final row in const [
+                ['1', '2', '3'],
+                ['4', '5', '6'],
+                ['7', '8', '9'],
+                ['', '0', 'back'],
+              ])
+                Row(
+                    children: row
+                        .map((key) => Expanded(
+                            child: _Key(
+                                value: key,
+                                onDigit: onDigit,
+                                onBackspace: onBackspace)))
+                        .toList()),
+          ])));
 }
 
 class _Key extends StatelessWidget {
@@ -39,9 +66,7 @@ class _Key extends StatelessWidget {
   final ValueChanged<String> onDigit;
   final VoidCallback onBackspace;
   const _Key(
-      {required this.value,
-      required this.onDigit,
-      required this.onBackspace});
+      {required this.value, required this.onDigit, required this.onBackspace});
 
   @override
   Widget build(BuildContext context) {

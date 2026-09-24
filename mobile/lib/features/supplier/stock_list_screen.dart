@@ -2,7 +2,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/theme/theme.dart';
+import '../../core/api/repository.dart';
 import '../../shared/widgets/components.dart';
+import 'supplier_batch_screen.dart';
 
 class StockList extends StatelessWidget {
   final String status;
@@ -64,8 +66,8 @@ class _StockCard extends ConsumerWidget {
                 ])),
             PopupMenuButton<String>(
                 icon: const Icon(Icons.more_horiz, color: OColors.muted),
-                shape:
-                    RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(14)),
                 onSelected: (route) => context.push(route),
                 itemBuilder: (context) => [
                       PopupMenuItem(
@@ -81,38 +83,72 @@ class _StockCard extends ConsumerWidget {
           ])));
 }
 
-class StockScreen extends StatefulWidget {
+class StockScreen extends ConsumerStatefulWidget {
   const StockScreen({super.key});
   @override
-  State<StockScreen> createState() => _StockState();
+  ConsumerState<StockScreen> createState() => _StockState();
 }
 
-class _StockState extends State<StockScreen> {
+class _StockState extends ConsumerState<StockScreen> {
   String status = '';
   @override
-  Widget build(BuildContext context) =>
-      ListView(padding: const EdgeInsets.all(20), children: [
-        SectionHeader('My stock',
-            action: '+ Add', onTap: () => context.push('/stock/new')),
-        SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: Row(
-                children: [
-              '',
-              'live',
-              'pending_review',
-              'needs_confirmation',
-              'paused',
-              'sold_out'
-            ]
-                    .map((s) => Padding(
-                        padding: const EdgeInsets.only(right: 8),
-                        child: ChoiceChip(
-                            label: Text(s.isEmpty ? 'All stock' : label(s)),
-                            selected: status == s,
-                            onSelected: (_) => setState(() => status = s))))
-                    .toList())),
-        const SizedBox(height: 24),
-        StockList(status: status)
-      ]);
+  Widget build(BuildContext context) {
+    final batches = ref.watch(resourceProvider('/supplier/batches'));
+    final stock = ref.watch(resourceProvider('/supplier/stock'));
+    if (batches.hasError || stock.hasError) {
+      final error = batches.hasError ? batches.error! : stock.error!;
+      return ListView(
+        padding: const EdgeInsets.all(20),
+        children: [
+          ErrorState(
+            error,
+            retry: () {
+              if (batches.hasError) {
+                ref.invalidate(resourceProvider('/supplier/batches'));
+              }
+              if (stock.hasError) {
+                ref.invalidate(resourceProvider('/supplier/stock'));
+              }
+            },
+          ),
+        ],
+      );
+    }
+    return ListView(padding: const EdgeInsets.all(20), children: [
+      Row(children: [
+        const Expanded(
+            child: Text('My stock',
+                style: TextStyle(fontSize: 21, fontWeight: FontWeight.w800))),
+        TextButton(
+            onPressed: () => context.push('/batches/new'),
+            child: const Text('+ Batch')),
+        TextButton(
+            onPressed: () => context.push('/stock/new'),
+            child: const Text('+ Stock')),
+      ]),
+      const SizedBox(height: 8),
+      SingleChildScrollView(
+          scrollDirection: Axis.horizontal,
+          child: Row(
+              children: [
+            '',
+            'live',
+            'pending_review',
+            'needs_confirmation',
+            'paused',
+            'sold_out'
+          ]
+                  .map((s) => Padding(
+                      padding: const EdgeInsets.only(right: 8),
+                      child: ChoiceChip(
+                          label: Text(s.isEmpty ? 'All stock' : label(s)),
+                          selected: status == s,
+                          onSelected: (_) => setState(() => status = s))))
+                  .toList())),
+      const SizedBox(height: 18),
+      const SupplierBatchList(),
+      SectionHeader('Available listings'),
+      StockList(status: status)
+    ]);
+  }
 }

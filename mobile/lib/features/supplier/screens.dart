@@ -9,3 +9,5 @@ export 'stock_detail_screen.dart';
 export 'stock_list_screen.dart';
 export 'supplier_home_screen.dart';
 export 'supplier_orders_screen.dart';
+
+export 'supplier_batch_screen.dart';

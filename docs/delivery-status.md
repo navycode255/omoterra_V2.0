@@ -12,11 +12,11 @@ Reservations are individually tracked. PostgreSQL transaction-scoped advisory lo
 
 ## Verification
 
-Latest measured results: **28 PostgreSQL tests passed; 5 Flutter tests passed; Flutter analysis clean; debug Android APK built.**
+Latest measured results: **47 PostgreSQL tests passed; 8 Flutter tests passed; Flutter analysis clean; debug Android APK built.**
 
 - PostgreSQL integration coverage: concurrent oversell prevention, hold expiry/release, order retry conflicts, immutable prices, cancellation/payment failure, accepted-quantity settlement math, role and address isolation, stock freshness, OTP attempt persistence/single use, media metadata/authorization, sourcing conversion, partial receipts, operator collection-photo privacy and stock approval.
 - Flutter: role-guard and model tests, read-only fixture transaction rejection, small-screen/enlarged-text usability, cancellation tracker; static analysis and debug Android compilation.
-- Android debug artifact: `mobile/build/app/outputs/flutter-apk/app-debug.apk`, compiled with emulator API URL `http://10.0.2.2:8000/api/v1`. It requires the running backend. No demo stock or successful transactions are manufactured.
+- Android debug artifact: `mobile/build/app/outputs/flutter-apk/app-debug.apk`, compiled with emulator API URL `http://10.0.2.2:8010/api/v1`. It requires the running backend. The optional development seed creates explicitly labelled sample scenarios; production transactions are never simulated.
 - No physical-device/end-to-end network acceptance or live provider payment has been performed. No production deployment was attempted.
 
 ## Remaining before a pilot release
@@ -29,3 +29,7 @@ Latest measured results: **28 PostgreSQL tests passed; 5 Flutter tests passed; F
 6. **Scope limits to review:** sourcing conversion currently uses one listing; allocation tables exist without allocation UI. Explore filters operate on the fetched supply page (50 by default); pagination is not implemented. Orders refresh when reopened or via list refresh, not realtime push. Quantity confirmation creates a server hold; merely typing an unfinished quantity does not send repeated holds.
 
 The separate Ops web dashboard is not included in this mobile/backend task. [operator-workflow.md](operator-workflow.md) documents the existing backend operator workflow.
+
+## UI and stock-history iteration
+
+Reference-inspired onboarding, buyer home/listings, sourcing and business flows, supplier stock wizard and inventory screens now use custom livestock/product vector art. Separate stock corrections, receipts, external sales, automatic delivery sales and reversals retain append-only history. See [stock-history.md](stock-history.md) for local testing instructions and the screen checklist. The existing Ops dashboard is preserved and shares the local API.

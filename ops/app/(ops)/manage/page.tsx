@@ -9,7 +9,11 @@ export const metadata = { title: 'Dashboard · Omoterra Operations' };
 const ATTENTION: { key: keyof Summary['attention']; label: string; href: string }[] = [
   { key: 'listings_pending_review', label: 'Listings awaiting approval', href: '/supply?tab=pending_review' },
   { key: 'listings_needing_confirmation', label: 'Listings needing supplier confirmation', href: '/supply?tab=needs_confirmation' },
-  { key: 'sourcing_unmatched', label: 'Sourcing requests not yet matched', href: '/sourcing' },
+  { key: 'demand_no_matching_supply', label: 'Demand without matching supply', href: '/sourcing' },
+  { key: 'partially_secured_near_deadline', label: 'Partially secured demand near deadline', href: '/sourcing?status=partially_matched' },
+  { key: 'batches_ready_unallocated', label: 'Supply ready without allocation', href: '/batches' },
+  { key: 'reservations_awaiting_confirmation', label: 'Reservations awaiting confirmation', href: '/sourcing' },
+  { key: 'verification_overdue', label: 'Batch verification overdue', href: '/batches?status=pending_review' },
   { key: 'orders_in_progress', label: 'Orders in progress', href: '/orders' },
   { key: 'payments_pending', label: 'Buyer payments outstanding', href: '/payments' },
   { key: 'settlements_pending', label: 'Supplier payouts pending', href: '/settlements' },
@@ -50,6 +54,21 @@ export default async function Dashboard() {
         <PageHeader title="Dashboard" subtitle="Today's trading position and what needs action." />
       </div>
       <div className="workspace">
+        <div className="stat-band">
+          {[
+            { label: 'Active buyer demand', value: String(summary.demand_metrics.active_buyer_demand) },
+            { label: 'Quantity demanded', value: summary.demand_metrics.total_quantity_demanded },
+            { label: 'Expected supplier quantity', value: summary.demand_metrics.expected_supplier_quantity },
+            { label: 'Commercially reserved', value: summary.demand_metrics.commercially_reserved_quantity },
+            { label: 'Supply ready soon', value: String(summary.demand_metrics.supply_ready_soon) },
+            { label: 'Ready for collection', value: String(summary.demand_metrics.ready_for_collection) },
+          ].map((stat) => (
+            <div key={stat.label} className="stat">
+              <div className="stat-label">{stat.label}</div>
+              <div className="stat-value numeric">{stat.value}</div>
+            </div>
+          ))}
+        </div>
         <div className="stat-band">
           {stats.map((stat) => (
             <div key={stat.label} className="stat">

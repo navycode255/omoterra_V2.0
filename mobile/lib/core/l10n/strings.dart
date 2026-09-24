@@ -22,26 +22,26 @@ class Strings {
       'Fresh livestock and farm produce. Direct from trusted suppliers.',
       'Mifugo na mazao mapya. Moja kwa moja kutoka kwa wasambazaji wanaoaminika.');
   String get getStarted => _t('Get Started', 'Anza Sasa');
+
   /// Reassures returning users that the single button covers them too.
   String get signInHint => _t('New or returning — just use your phone number.',
       'Mgeni au unarudi — tumia namba yako ya simu.');
-  String get phoneTitle => _t('Enter your\nphone number', 'Weka namba\nyako ya simu');
+  String get phoneTitle =>
+      _t('Enter your\nphone number', 'Weka namba\nyako ya simu');
   String get phoneBody => _t("We'll send you a verification code",
       'Tutakutumia msimbo wa uthibitisho');
   String get phoneLabel => _t('Phone number', 'Namba ya simu');
   String get phoneHint => '712 *** ***';
-  String get leadingZero => _t(
-      'Drop the leading 0 — +255 already covers it.',
+  String get leadingZero => _t('Drop the leading 0 — +255 already covers it.',
       'Ondoa 0 ya mwanzo — +255 tayari inaihusisha.');
-  String get phoneTooShort => _t(
-      'Enter all 9 digits of your number.',
+  String get phoneTooShort => _t('Enter all 9 digits of your number.',
       'Weka tarakimu zote 9 za namba yako.');
   String get continueLabel => _t('Continue', 'Endelea');
-  String get terms => _t('By continuing you agree to our\nTerms and Privacy Policy',
+  String get terms => _t(
+      'By continuing you agree to our\nTerms and Privacy Policy',
       'Kwa kuendelea unakubali\nMasharti na Sera ya Faragha');
   String get otpTitle => _t('Enter OTP', 'Thibitisha Namba Yako');
-  String otpBody(String phone) => _t(
-      "We've sent a 6-digit code to\n$phone",
+  String otpBody(String phone) => _t("We've sent a 6-digit code to\n$phone",
       'Tumetuma msimbo wa tarakimu 6 kwenda\n$phone');
   String resendIn(String time) =>
       _t('Resend code in $time', 'Tuma tena baada ya $time');
@@ -49,18 +49,20 @@ class Strings {
   String get verify => _t('Verify', 'Thibitisha');
   String get roleTitle =>
       _t('How will you use Omoterra?', 'Utatumiaje Omoterra?');
-  String get roleBody => _t('You can select one or both. You can add another role later.',
+  String get roleBody => _t(
+      'You can select one or both. You can add another role later.',
       'Unaweza kuchagua moja au zote mbili. Unaweza kuongeza nyingine baadaye.');
   String get buySupply => _t('Buy Supply', 'Nunua Bidhaa');
-  String get buySupplyBody => _t('For homes, restaurants, butcheries and businesses.',
+  String get buySupplyBody => _t(
+      'For homes, restaurants, butcheries and businesses.',
       'Kwa matumizi ya nyumbani, migahawa, bucha na biashara.');
   String get sellSupply => _t('Sell Supply', 'Uuze Bidhaa');
-  String get sellSupplyBody => _t(
-      'For farmers and suppliers.', 'Kwa wakulima na wasambazaji.');
+  String get sellSupplyBody =>
+      _t('For farmers and suppliers.', 'Kwa wakulima na wasambazaji.');
   String get buyerTypeTitle =>
       _t('What best describes you?', 'Unanunua kwa ajili ya?');
-  String get buyerTypeBody => _t('This helps us serve you better.',
-      'Hii inatusaidia kukuhudumia vizuri.');
+  String get buyerTypeBody => _t(
+      'This helps us serve you better.', 'Hii inatusaidia kukuhudumia vizuri.');
   String get profileTitle => _t('Your details', 'Taarifa zako');
   String get fullName => _t('Full name', 'Jina kamili');
   String get region => _t('Region / Area', 'Eneo / Mkoa');
@@ -70,8 +72,7 @@ class Strings {
   // Buyer -----------------------------------------------------------------
   String greeting(String name) =>
       _t('Good morning,\n$name', 'Habari za asubuhi,\n$name');
-  String get whatToday =>
-      _t('What do you need today?', 'Unahitaji nini leo?');
+  String get whatToday => _t('What do you need today?', 'Unahitaji nini leo?');
   String get buySupplyCard => _t('Buy Supply', 'Nunua Bidhaa');
   String get buySupplyCardBody => _t(
       'Browse available livestock and meat from trusted suppliers.',
@@ -89,8 +90,8 @@ class Strings {
   String get availableToday => _t('Available Today', 'Zilizopo Leo');
   String get viewAll => _t('View all', 'Angalia zote');
   String get explore => _t('Explore', 'Tafuta');
-  String get searchHint => _t('Search livestock, meat or produce…',
-      'Tafuta mifugo, nyama au mazao…');
+  String get searchHint => _t(
+      'Search livestock, meat or produce…', 'Tafuta mifugo, nyama au mazao…');
   String get all => _t('All', 'Zote');
   String get available => _t('available', 'zinapatikana');
   String get readyToday => _t('Ready today', 'Tayari leo');
@@ -140,8 +141,7 @@ class Strings {
   // Request supply --------------------------------------------------------
   String get product => _t('Product', 'Bidhaa');
   String get quantity => _t('Quantity', 'Kiasi');
-  String get preferredWeight =>
-      _t('Preferred Weight', 'Uzito Unaopendelea');
+  String get preferredWeight => _t('Preferred Weight', 'Uzito Unaopendelea');
   String get optional => _t('optional', 'si lazima');
   String get neededBy => _t('Needed By', 'Inahitajika Ifikapo');
   String get deliveryArea => _t('Delivery Area', 'Eneo la Kufikisha');
@@ -195,7 +195,8 @@ class Strings {
   String get priceAndLocation => _t('Price & Location', 'Bei na Eneo');
   String get addPhotos => _t('Add Photos', 'Ongeza Picha');
   String get previewSubmit => _t('Preview & Submit', 'Kagua na Tuma');
-  String get averageWeight => _t('Average Weight (kg)', 'Uzito wa Wastani (kg)');
+  String get averageWeight =>
+      _t('Average Weight (kg)', 'Uzito wa Wastani (kg)');
   String get ageWeeks => _t('Age (weeks)', 'Umri (wiki)');
   String get breedType => _t('Type / Breed', 'Aina / Kizazi');
   String get condition => _t('Condition', 'Hali');
@@ -220,8 +221,8 @@ class Strings {
   String get needsConfirmation =>
       _t('Needs confirmation', 'Inahitaji uthibitisho');
   String get confirmStock => _t('Confirm your stock', 'Thibitisha bidhaa zako');
-  String confirmStockBody(String qty, String unit) => _t(
-      'Are $qty $unit still available?', 'Je, $qty $unit bado zipo?');
+  String confirmStockBody(String qty, String unit) =>
+      _t('Are $qty $unit still available?', 'Je, $qty $unit bado zipo?');
   String confirmQty(String qty) => _t('Confirm $qty', 'Thibitisha $qty');
   String get updateQuantity => _t('Update quantity', 'Badilisha kiasi');
   String get payouts => _t('Payouts', 'Malipo');
@@ -254,8 +255,9 @@ class Strings {
 
 /// Watches the signed-in account's language so switching it in Account
 /// immediately re-renders every screen.
-final stringsProvider = Provider<Strings>((ref) =>
-    Strings(ref.watch(sessionProvider).valueOrNull?.language ?? 'en'));
+final stringsProvider = Provider<Strings>((ref) => Strings(
+    ref.watch(sessionProvider).valueOrNull?.language ??
+        ref.watch(selectedLanguageProvider)));
 
 extension StringsContext on WidgetRef {
   Strings get s => watch(stringsProvider);

@@ -19,17 +19,49 @@ class BuyerHome extends ConsumerStatefulWidget {
 
 class _BuyerHomeState extends ConsumerState<BuyerHome> {
   String chip = '';
+  Timer? _greetingTimer;
+  bool _showGreeting = false;
+  DateTime? _scheduledDeadline;
+
+  @override
+  void dispose() {
+    _greetingTimer?.cancel();
+    super.dispose();
+  }
+
+  void _syncGreeting(DateTime? deadline) {
+    if (deadline == _scheduledDeadline) return;
+    _scheduledDeadline = deadline;
+    _greetingTimer?.cancel();
+    final remaining = deadline?.difference(DateTime.now());
+    final visible = remaining != null && remaining > Duration.zero;
+    if (_showGreeting != visible) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _showGreeting != visible) {
+          setState(() => _showGreeting = visible);
+        }
+      });
+    }
+    if (visible) {
+      _greetingTimer = Timer(remaining, () {
+        if (mounted) setState(() => _showGreeting = false);
+      });
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final user = ref.watch(sessionProvider).valueOrNull;
     final s = ref.s;
+    _syncGreeting(ref.watch(greetingUntilProvider));
     return ListView(
         padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
         children: [
-          Text(s.greeting(user?.name.split(' ').first ?? ''),
-              style: Theme.of(context).textTheme.headlineMedium),
-          const SizedBox(height: 6),
+          if (_showGreeting) ...[
+            Text(s.greeting(user?.name.split(' ').first ?? ''),
+                style: Theme.of(context).textTheme.headlineMedium),
+            const SizedBox(height: 6),
+          ],
           Text(s.whatToday, style: const TextStyle(color: OColors.secondary)),
           const SizedBox(height: 18),
           const _BuySupplyBanner(),
@@ -124,7 +156,7 @@ class _BuySupplyBanner extends ConsumerStatefulWidget {
 
 class _BuySupplyBannerState extends ConsumerState<_BuySupplyBanner> {
   static const _slides = [
-        ('chicken_banner', 'png', 'broilers'),
+    ('chicken_banner', 'png', 'broilers'),
     ('goats_banner', 'png', 'goats'),
     ('logistics_banner', 'png', 'cattle'),
   ];

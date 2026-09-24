@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Omoterra V1 — artwork</title>
+<style>
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 40px; background: #f3f7f3; color: #123d30; font: 16px/1.5 system-ui, sans-serif; }
+  main { max-width: 1120px; margin: auto; }
+  h1 { margin-bottom: 4px; font-size: 32px; }
+  .intro { margin-top: 0; color: #52685d; }
+  .grid { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 24px; }
+  figure { margin: 0; overflow: hidden; border-radius: 20px; background: white; border: 1px solid #dce6df; }
+  img { display: block; width: 100%; height: 340px; object-fit: contain; background: #e6eee8; }
+  figcaption { padding: 20px; }
+  h2 { font-size: 18px; margin: 0 0 6px; }
+  p { margin: 0; }
+  a { color: #086044; }
+  footer { margin-top: 28px; color: #52685d; }
+  @media(max-width:650px) { body { padding: 20px; } .grid { grid-template-columns: 1fr; } }
+</style>
+<main>
+  <h1>Omoterra V1</h1>
+  <p class="intro">Reusable artwork from the supplied screen reference · original images without UI overlays</p>
+  <div class="grid">
+    <figure><a href="../../../mobile/assets/images/supplier-home-hero-v1.png"><img src="../../../mobile/assets/images/supplier-home-hero-v1.png" alt="Golden hen at right in a green hillside farm landscape"></a><figcaption><h2>Supplier Home</h2><p>Header artwork with space for the heading and existing logo.</p></figcaption></figure>
+    <figure><a href="../../../mobile/assets/images/poultry-card-v1.png"><img src="../../../mobile/assets/images/poultry-card-v1.png" alt="Cream poultry with red combs against a soft green farm background"></a><figcaption><h2>Demand · Matching · Reservations</h2><p>Shared poultry thumbnail for consistent cards across mobile and web.</p></figcaption></figure>
+    <figure><a href="../../../mobile/assets/images/demand-detail-hero-v1.png"><img src="../../../mobile/assets/images/demand-detail-hero-v1.png" alt="Portrait poultry farm illustration with dark green space for demand details"></a><figcaption><h2>Demand Detail</h2><p>Portrait artwork behind requirement details and the supply form.</p></figcaption></figure>
+    <figure><a href="../../../mobile/assets/images/farm-landscape-v1.png"><img src="../../../mobile/assets/images/farm-landscape-v1.png" alt="Misty sage hills, amber sun and small farm shed framed by leaves"></a><figcaption><h2>Welcome · Brand background</h2><p>Soft landscape with room for the existing wordmark and tagline.</p></figcaption></figure>
+  </div>
+  <footer>Admin Demand List and Payouts use the existing logo, UI gradients and vector icons. <a href="README.md">Page mapping</a> · <a href="prompts.json">Generation prompts</a></footer>
+</main>
+</html>

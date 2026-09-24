@@ -102,6 +102,9 @@ def reserve(db, buyer, data):
     if not listing:
         fail('This supply is no longer available.', 404)
     refresh_listing(db, listing)
+    supplier_profile = db.get(m.SupplierProfile, listing.supplier_id)
+    if not supplier_profile or supplier_profile.status != 'approved':
+        fail('This supply is not available right now.', 404)
     if listing.supplier_id == buyer:
         fail('You cannot reserve your own stock.')
     if not fresh(listing):
@@ -178,20 +181,43 @@ def advance(db, order, data):
             order.payment_status = 'failed'
             db.scalar(select(m.Payment).where(m.Payment.order_id == order.id)).status = 'failed'
     if target == 'quality_checked':
-        if data.actual_quantity is None or data.rejected_quantity is None:
-            fail('Record accepted and rejected quantities before dispatch.', 422)
-        if data.actual_quantity + data.rejected_quantity != order.expected_quantity:
-            fail('Accepted plus rejected quantity must equal the reserved quantity.', 422)
-        item = db.scalar(select(m.OrderItem).where(m.OrderItem.order_id == order.id))
-        listing = db.get(m.Listing, item.listing_id)
-        if listing.unit_type != 'kg' and (data.actual_quantity % 1 or data.rejected_quantity % 1):
-            fail('Birds and animals require whole quantities.', 422)
-        order.actual_quantity, order.rejected_quantity = data.actual_quantity, data.rejected_quantity
+        items = db.scalars(select(m.OrderItem).where(m.OrderItem.order_id == order.id).with_for_update()).all()
+        if data.collection_results:
+            by_id = {item.id: item for item in items}
+            submitted = {row.order_item_id: row for row in data.collection_results}
+            if len(submitted) != len(data.collection_results) or set(submitted) != set(by_id):
+                fail('Record collection results for every supplier allocation exactly once.', 422)
+            accepted_total = rejected_total = Decimal('0')
+            for item in items:
+                row = submitted[item.id]
+                if row.actual_quantity + row.rejected_quantity != item.quantity:
+                    fail('Accepted plus rejected quantity must equal each supplier allocation.', 422)
+                listing = db.get(m.Listing, item.listing_id)
+                if listing.unit_type != 'kg' and (row.actual_quantity % 1 or row.rejected_quantity % 1):
+                    fail('Birds and animals require whole quantities.', 422)
+                item.actual_quantity, item.rejected_quantity = row.actual_quantity, row.rejected_quantity
+                accepted_total += row.actual_quantity
+                rejected_total += row.rejected_quantity
+            order.actual_quantity, order.rejected_quantity = accepted_total, rejected_total
+        else:
+            if len(items) != 1 or data.actual_quantity is None or data.rejected_quantity is None:
+                fail('Record collection results for every supplier allocation.', 422)
+            item = items[0]
+            if data.actual_quantity + data.rejected_quantity != item.quantity:
+                fail('Accepted plus rejected quantity must equal the reserved quantity.', 422)
+            listing = db.get(m.Listing, item.listing_id)
+            if listing.unit_type != 'kg' and (data.actual_quantity % 1 or data.rejected_quantity % 1):
+                fail('Birds and animals require whole quantities.', 422)
+            item.actual_quantity, item.rejected_quantity = data.actual_quantity, data.rejected_quantity
+            order.actual_quantity, order.rejected_quantity = data.actual_quantity, data.rejected_quantity
         order.actual_weight, order.collection_notes = data.actual_weight, data.collection_notes
-        # Buyer is billed only accepted units; price snapshot never changes.
-        order.total_amount = money(item.unit_price * order.actual_quantity)
+        # Buyer is billed only accepted units at each item's agreed price.
+        order.total_amount = money(sum((item.unit_price * item.actual_quantity for item in items), Decimal('0')))
         payment = db.scalar(select(m.Payment).where(m.Payment.order_id == order.id))
         payment.amount = order.total_amount
+        if order.total_amount == 0:
+            payment.status = order.payment_status = 'paid'
+            payment.paid_at = m.now()
     if target == 'delivered':
         if order.actual_quantity is None:
             fail('Complete the quality check before delivery.')
@@ -199,25 +225,55 @@ def advance(db, order, data):
             listing = db.scalar(select(m.Listing).where(m.Listing.id == hold.listing_id).with_for_update())
             if hold.status != 'confirmed':
                 fail('Order reservation is no longer confirmed.')
-            # Release the exact original hold; only accepted units become sold.
+            # Release the exact original hold; only this supplier item's accepted units become sold.
+            item = db.scalar(select(m.OrderItem).where(m.OrderItem.order_id == order.id, m.OrderItem.listing_id == listing.id))
+            accepted = item.actual_quantity if item.actual_quantity is not None else order.actual_quantity
             release(db, hold, listing, 'released')
             before_sale = inv.balances(listing)
-            listing.quantity_sold += order.actual_quantity
+            listing.quantity_sold += accepted
             if listing.quantity_available == 0:
                 listing.listing_status = 'sold_out'
-            item = db.scalar(select(m.OrderItem).where(m.OrderItem.order_id == order.id, m.OrderItem.listing_id == listing.id))
-            if order.actual_quantity > 0:
-                db.add(m.StockSale(listing_id=listing.id, supplier_id=listing.supplier_id, source='omoterra', quantity=order.actual_quantity, sold_at=m.now(), order_item_id=item.id))
+            if accepted > 0:
+                db.add(m.StockSale(listing_id=listing.id, supplier_id=listing.supplier_id, source='omoterra', quantity=accepted, sold_at=m.now(), order_item_id=item.id))
                 inv.movement(db, listing, 'sale_omoterra', before_sale, f'order-item:{item.id}:sold', 'Delivered through Omoterra')
-            db.add(m.Settlement(supplier_id=listing.supplier_id, order_item_id=item.id,
-                farmer_asking_price_per_unit=item.asking_snapshot, supplier_payout_price_per_unit=item.payout_snapshot,
-                commission_amount_per_unit=item.asking_snapshot - item.payout_snapshot,
-                quantity=order.actual_quantity, total_payable=money(order.actual_quantity * item.payout_snapshot)))
+            if accepted > 0:
+                db.add(m.Settlement(supplier_id=listing.supplier_id, order_item_id=item.id,
+                    farmer_asking_price_per_unit=item.asking_snapshot, supplier_payout_price_per_unit=item.payout_snapshot,
+                    commission_amount_per_unit=item.asking_snapshot - item.payout_snapshot,
+                    quantity=accepted, total_payable=money(accepted * item.payout_snapshot)))
             profile = db.get(m.SupplierProfile, listing.supplier_id)
-            profile.completed_supplies_count += 1
+            if accepted > 0:
+                profile.completed_supplies_count += 1
+            if item.demand_allocation_id:
+                allocation = db.get(m.DemandAllocation, item.demand_allocation_id)
+                if allocation:
+                    allocation.accepted_quantity = accepted
+                    allocation.rejected_quantity = item.rejected_quantity or Decimal('0')
+                    allocation.status = 'delivered'
     if target == 'completed' and order.payment_status != 'paid':
         fail('Reconcile the buyer payment before completing this order.')
     order.internal_status = target
+    if order.sourcing_request_id:
+        from . import demand as dm
+        request = db.scalar(select(m.SourcingRequest).where(m.SourcingRequest.id == order.sourcing_request_id).with_for_update())
+        if request:
+            allocations = db.scalars(select(m.DemandAllocation).where(m.DemandAllocation.demand_id == request.id).with_for_update()).all()
+            if target == 'cancelled':
+                for allocation in allocations:
+                    if allocation.status in dm.SECURED_ALLOCATION_STATES:
+                        batch = db.scalar(select(m.SupplierBatch).where(m.SupplierBatch.id == allocation.supplier_batch_id).with_for_update())
+                        batch.current_quantity += allocation.allocated_quantity
+                        batch.status = ('partially_reserved' if batch.reserved_quantity > 0 else
+                            'ready' if batch.expected_ready_date and batch.expected_ready_date <= m.now().date().isoformat() else 'growing')
+                        allocation.status = 'cancelled'
+                request.converted_order_id = None
+                dm.refresh_demand_status(db, request)
+            elif target in ('supply_confirmed', 'pickup_scheduled', 'collected', 'quality_checked', 'in_transit'):
+                request.status = 'fulfilling'
+                for allocation in allocations:
+                    if allocation.status in dm.SECURED_ALLOCATION_STATES: allocation.status = target
+            elif target in ('delivered', 'completed'):
+                request.status = 'completed'
     if target in ACTIVITY:
         order.activity = [*order.activity, {'label': ACTIVITY[target], 'at': m.now().isoformat()}]
     db.flush()

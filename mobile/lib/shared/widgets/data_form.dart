@@ -5,11 +5,15 @@ import 'components.dart';
 
 class FormFieldSpec {
   final String key, title;
-  final List<String>? options;
+  final List<String>? options, multiOptions;
   final bool optional, numeric, multiline, date;
   final String initial;
+  final String? showWhenKey, showWhenValue;
   const FormFieldSpec(this.key, this.title,
       {this.options,
+      this.multiOptions,
+      this.showWhenKey,
+      this.showWhenValue,
       this.optional = false,
       this.numeric = false,
       this.multiline = false,
@@ -44,6 +48,7 @@ class _DataFormState extends ConsumerState<DataForm> {
   final key = newKey();
   final Map<String, TextEditingController> controllers = {};
   final Map<String, String> selections = {};
+  final Map<String, Set<String>> multiSelections = {};
   bool busy = false;
   Object? error;
   @override
@@ -55,6 +60,7 @@ class _DataFormState extends ConsumerState<DataForm> {
         selections[field.key] =
             field.initial.isNotEmpty ? field.initial : field.options!.first;
       }
+      if (field.multiOptions != null) multiSelections[field.key] = <String>{};
     }
   }
 
@@ -99,9 +105,13 @@ class _DataFormState extends ConsumerState<DataForm> {
       var data = <String, dynamic>{
         ...widget.fixed,
         for (final f in widget.fields)
-          f.key: f.options != null
-              ? selections[f.key]
-              : controllers[f.key]!.text.trim()
+          if (f.showWhenKey == null ||
+              selections[f.showWhenKey] == f.showWhenValue)
+            f.key: f.multiOptions != null
+                ? multiSelections[f.key]!.toList()
+                : f.options != null
+                    ? selections[f.key]
+                    : controllers[f.key]!.text.trim()
       };
       data = widget.transform?.call(data) ?? data;
       final response = await ref
@@ -120,20 +130,52 @@ class _DataFormState extends ConsumerState<DataForm> {
       key: form,
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         for (final field in widget.fields)
-          if (field.options != null)
+          if (field.showWhenKey != null &&
+              selections[field.showWhenKey] != field.showWhenValue)
+            const SizedBox.shrink()
+          else if (field.multiOptions != null)
             Padding(
-                padding: const EdgeInsets.only(bottom: 16),
-                child: DropdownButtonFormField<String>(
-                    initialValue: selections[field.key],
-                    isExpanded: true,
-                    decoration: InputDecoration(labelText: field.title),
-                    items: field.options!
-                        .map((v) =>
-                            DropdownMenuItem(value: v, child: Text(label(v))))
-                        .toList(),
-                    onChanged: busy
-                        ? null
-                        : (v) => setState(() => selections[field.key] = v!)))
+                padding: const EdgeInsets.only(bottom: 14),
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(field.title,
+                          style: Theme.of(context).textTheme.bodyMedium),
+                      const SizedBox(height: 8),
+                      Wrap(
+                          spacing: 8,
+                          runSpacing: 4,
+                          children: field.multiOptions!
+                              .map((value) => FilterChip(
+                                    label: Text(label(value)),
+                                    selected: multiSelections[field.key]!
+                                        .contains(value),
+                                    showCheckmark: false,
+                                    onSelected: busy
+                                        ? null
+                                        : (selected) => setState(() {
+                                              if (selected) {
+                                                multiSelections[field.key]!
+                                                    .add(value);
+                                              } else {
+                                                multiSelections[field.key]!
+                                                    .remove(value);
+                                              }
+                                            }),
+                                  ))
+                              .toList()),
+                    ]))
+          else if (field.options != null)
+            OmoterraDropdown<String>(
+                label: field.title,
+                value: selections[field.key]!,
+                items: field.options!
+                    .map((v) =>
+                        DropdownMenuItem(value: v, child: Text(label(v))))
+                    .toList(),
+                onChanged: busy
+                    ? null
+                    : (v) => setState(() => selections[field.key] = v!))
           else if (field.date || field.key.endsWith('_date'))
             OmoterraDateField(field.title, controllers[field.key]!,
                 pastAllowed: field.key == 'sold_on')

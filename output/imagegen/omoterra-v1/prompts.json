@@ -1,0 +1,10 @@
+{
+  "mode": "built-in image_gen",
+  "reference": "ChatGPT Image Sep 22, 2026, 02_10_44 AM.png",
+  "assets": [
+    {
+      "name": "supplier-home-hero-v1.png",
+      "prompt": "Use case: illustration-story. Asset type: Omoterra supplier home hero background, standalone production artwork, landscape 3:2. Primary request: generate ONLY the farm and chicken artwork inside the first mobile screen of the supplied design reference, not the screen itself. Reference image is visual style/composition guidance only. One handsome healthy golden buff and cream hen with red comb on the RIGHT half, facing left, body and head visible, lush grass foreground, softly layered Tanzanian green hills and pale mint morning sky. Premium softly realistic painterly illustration with fine feather detail, warm natural light, forest green, sage and cream palette, restrained orange accents. Left half quiet darker soft green vegetation suitable for white heading overlay; upper left pale uncluttered sky suitable for an existing green logo overlay. Match the approachable polished agricultural branding of the reference. Full bleed rectangular image, no device, no UI, no frame, no words, no letters, no logo, no watermark."
+    }
+  ]
+}

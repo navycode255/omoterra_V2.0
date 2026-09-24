@@ -32,7 +32,9 @@ def view(row):
 
 def sale_view(db, sale):
     listing = db.get(m.Listing, sale.listing_id)
-    return {'id': sale.id, 'listing_id': listing.id, 'category': listing.category, 'unit_type': listing.unit_type,
+    reversal = db.scalar(select(m.StockSaleReversal).where(m.StockSaleReversal.sale_id == sale.id))
+    return {'status': 'reversed' if reversal else 'recorded', 'reversal_reason': reversal.reason if reversal else None,
+        'id': sale.id, 'listing_id': listing.id, 'category': listing.category, 'unit_type': listing.unit_type,
         'source': sale.source, 'quantity': sale.quantity, 'sold_at': sale.sold_at, 'created_at': sale.created_at,
         'unit_price': sale.unit_price if sale.source == 'external' else None,
         'note': sale.note, 'total': (sale.quantity * sale.unit_price).quantize(Decimal('.01')) if sale.unit_price is not None and sale.source == 'external' else None}

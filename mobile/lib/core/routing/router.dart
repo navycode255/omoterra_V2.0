@@ -7,27 +7,37 @@ import '../../features/authentication/screens.dart';
 import '../../features/buyer/screens.dart';
 import '../../features/buyer/requests.dart';
 import '../../features/supplier/screens.dart';
+import '../../features/supplier/market_demand_screen.dart';
 import '../../features/supplier/inventory_screens.dart';
 import '../../shared/widgets/supply_art.dart';
 import '../../features/account/screens.dart';
+import '../../features/account/role_registration_screen.dart';
 import '../../shared/widgets/components.dart';
 import '../theme/theme.dart';
+import 'animated_route.dart';
 
 String? routeGuard(String path,
     {required bool signedIn,
     required bool setup,
-    required List<String> roles}) {
-  final authRoute = ['/welcome', '/phone', '/otp'].contains(path);
+    required List<String> roles,
+    String? activeRole}) {
+  final authRoute = ['/language', '/welcome', '/phone', '/otp'].contains(path);
   if (!signedIn) return authRoute ? null : '/welcome';
   if (!setup) return path == '/setup' ? null : '/setup';
   if (authRoute || path == '/setup' || path == '/') {
-    return roles.contains('buyer') ? '/buyer' : '/supplier';
+    return '/${preferredRole(roles, activeRole)}';
   }
   final supplierPath = path.startsWith('/supplier') ||
       path.startsWith('/stock') ||
+      path.startsWith('/batches') ||
       path.startsWith('/payouts') ||
       path.startsWith('/sales');
-  final commonPath = path.startsWith('/account');
+  final commonPath =
+      path.startsWith('/account') || path.startsWith('/register-role');
+  if (activeRole != null && !commonPath) {
+    final selected = preferredRole(roles, activeRole);
+    if (supplierPath != (selected == 'supplier')) return '/$selected';
+  }
   if (supplierPath && !roles.contains('supplier')) return '/buyer';
   if (!supplierPath && !commonPath && !roles.contains('buyer')) {
     return '/supplier';
@@ -38,6 +48,7 @@ String? routeGuard(String path,
 final routerProvider = Provider<GoRouter>((ref) {
   final notifier = ValueNotifier<int>(0);
   ref.listen(sessionProvider, (_, __) => notifier.value++);
+  ref.listen(activeRoleProvider, (_, __) => notifier.value++);
   final router = GoRouter(
       initialLocation: '/buyer',
       refreshListenable: notifier,
@@ -50,77 +61,129 @@ final routerProvider = Provider<GoRouter>((ref) {
         if (state.uri.path == '/session') {
           return user == null
               ? '/welcome'
-              : user.roles.contains('buyer')
-                  ? '/buyer'
-                  : '/supplier';
+              : !user.roles.any((r) => r == 'buyer' || r == 'supplier') ||
+                      user.name.isEmpty
+                  ? '/setup'
+                  : '/${preferredRole(user.roles, ref.read(activeRoleProvider))}';
+        }
+        if (user == null &&
+            !['/language', '/welcome', '/phone', '/otp']
+                .contains(state.uri.path)) {
+          return '/language';
         }
         return routeGuard(state.uri.path,
             signedIn: user != null,
             setup: user != null &&
                 user.name.isNotEmpty &&
                 user.roles.any((r) => r == 'buyer' || r == 'supplier'),
-            roles: user?.roles ?? []);
+            roles: user?.roles ?? [],
+            activeRole: ref.read(activeRoleProvider));
       },
       routes: [
-        GoRoute(path: '/session', builder: (_, __) => const SessionScreen()),
-        GoRoute(path: '/welcome', builder: (_, __) => const WelcomeScreen()),
-        GoRoute(path: '/phone', builder: (_, __) => const PhoneScreen()),
         GoRoute(
+            path: '/session',
+            pageBuilder: (_, state) => NoTransitionPage<void>(
+                key: state.pageKey, child: const SessionScreen())),
+        omoterraRoute(
+            path: '/language', builder: (_, __) => const LanguageScreen()),
+        omoterraRoute(
+            path: '/welcome', builder: (_, __) => const WelcomeScreen()),
+        omoterraRoute(path: '/phone', builder: (_, __) => const PhoneScreen()),
+        omoterraRoute(
             path: '/otp',
             builder: (_, state) => state.extra is Map<String, dynamic>
                 ? OtpScreen(state.extra! as Map<String, dynamic>)
                 : const PhoneScreen()),
-        GoRoute(path: '/setup', builder: (_, __) => const SetupScreen()),
+        omoterraRoute(path: '/setup', builder: (_, __) => const SetupScreen()),
+        omoterraRoute(
+            path: '/register-role/:role',
+            builder: (_, state) =>
+                RoleRegistrationScreen(state.pathParameters['role']!)),
         ShellRoute(
-            builder: (_, state, child) =>
-                AppShell(path: state.uri.path, child: child),
+            pageBuilder: (_, state, child) => NoTransitionPage<void>(
+                key: state.pageKey,
+                child: AppShell(path: state.uri.path, child: child)),
             routes: [
-              GoRoute(path: '/buyer', builder: (_, __) => const BuyerHome()),
-              GoRoute(
+              omoterraRoute(
+                  path: '/buyer',
+                  animate: false,
+                  builder: (_, __) => const BuyerHome()),
+              omoterraRoute(
                   path: '/explore',
+                  animate: false,
                   builder: (_, s) => ExploreScreen(
                       initialCategory:
                           s.uri.queryParameters['category'] ?? '')),
-              GoRoute(
-                  path: '/orders', builder: (_, __) => const OrdersScreen()),
-              GoRoute(
-                  path: '/account', builder: (_, __) => const AccountScreen()),
-              GoRoute(
-                  path: '/supplier', builder: (_, __) => const SupplierHome()),
-              GoRoute(path: '/stock', builder: (_, __) => const StockScreen()),
-              GoRoute(
+              omoterraRoute(
+                  path: '/orders',
+                  animate: false,
+                  builder: (_, __) => const OrdersScreen()),
+              omoterraRoute(
+                  path: '/account',
+                  animate: false,
+                  builder: (_, __) => const AccountScreen()),
+              omoterraRoute(
+                  path: '/supplier',
+                  animate: false,
+                  builder: (_, __) => const SupplierHome()),
+              omoterraRoute(
+                  path: '/supplier-demand',
+                  animate: false,
+                  builder: (_, __) => const MarketDemandScreen()),
+              omoterraRoute(
+                  path: '/stock',
+                  animate: false,
+                  builder: (_, __) => const StockScreen()),
+              omoterraRoute(
                   path: '/supplier-orders',
+                  animate: false,
                   builder: (_, __) => const SupplierOrders()),
+              omoterraRoute(
+                  path: '/sales',
+                  animate: false,
+                  builder: (_, __) => const SalesScreen()),
+              omoterraRoute(
+                  path: '/sales/:id',
+                  builder: (_, s) => SalesScreen(id: s.pathParameters['id'])),
+              omoterraRoute(
+                  path: '/supplier-demand/:id',
+                  builder: (_, s) =>
+                      DemandDetailScreen(s.pathParameters['id']!)),
+              omoterraRoute(
+                  path: '/supplier-orders/:id',
+                  builder: (_, s) =>
+                      SupplierOrders(id: s.pathParameters['id'])),
             ]),
-        GoRoute(
+        omoterraRoute(
             path: '/listing/:id',
             builder: (_, s) => ListingDetail(s.pathParameters['id']!)),
-        GoRoute(
+        omoterraRoute(
             path: '/checkout/:id',
             builder: (_, s) => CheckoutScreen(s.pathParameters['id']!)),
-        GoRoute(
+        omoterraRoute(
             path: '/confirmation/:id',
             builder: (_, s) => OrderConfirmation(s.pathParameters['id']!)),
-        GoRoute(
+        omoterraRoute(
             path: '/order/:id',
             builder: (_, s) => OrderDetail(s.pathParameters['id']!)),
-        GoRoute(
+        omoterraRoute(
             path: '/request', builder: (_, __) => const RequestSupplyScreen()),
-        GoRoute(
+        omoterraRoute(
             path: '/request-submitted/:id',
             builder: (_, s) => RequestSubmitted(s.pathParameters['id']!)),
-        GoRoute(
+        omoterraRoute(
             path: '/requests/:id',
             builder: (_, s) => RequestDetail(s.pathParameters['id']!)),
-        GoRoute(path: '/business', builder: (_, __) => const BusinessScreen()),
-        GoRoute(
+        omoterraRoute(
+            path: '/business', builder: (_, __) => const BusinessScreen()),
+        omoterraRoute(
             path: '/business/:type/request',
             builder: (_, s) =>
                 BusinessScreen(type: s.pathParameters['type'], request: true)),
-        GoRoute(
+        omoterraRoute(
             path: '/business/:type',
             builder: (_, s) => BusinessScreen(type: s.pathParameters['type'])),
-        GoRoute(
+        omoterraRoute(
             path: '/business-submitted',
             builder: (context, _) => Scaffold(
                 appBar: const OmoterraAppBar(),
@@ -130,50 +193,48 @@ final routerProvider = Provider<GoRouter>((ref) {
                         'Your request has been received. An Omoterra team member will contact you.',
                         action: OmoterraButton('Back to Home',
                             onPressed: () => context.go('/buyer')))))),
-        GoRoute(
+        omoterraRoute(
             path: '/account/support',
             builder: (_, __) => const AccountInfoScreen('support')),
-        GoRoute(
+        omoterraRoute(
             path: '/account/terms',
             builder: (_, __) => const AccountInfoScreen('terms')),
-        GoRoute(
+        omoterraRoute(
             path: '/account/privacy',
             builder: (_, __) => const AccountInfoScreen('privacy')),
-        GoRoute(
+        omoterraRoute(
             path: '/account/edit', builder: (_, __) => const ProfileScreen()),
-        GoRoute(
+        omoterraRoute(
             path: '/addresses', builder: (_, __) => const AddressesScreen()),
-        GoRoute(
+        omoterraRoute(
             path: '/addresses/new',
             builder: (_, s) => AddressesScreen(
                 create: true, edit: s.extra as Map<String, dynamic>?)),
-        GoRoute(
+        omoterraRoute(
             path: '/stock/:id/correct',
             builder: (_, s) =>
                 StockChangeScreen(s.pathParameters['id']!, 'correct')),
-        GoRoute(
+        omoterraRoute(
             path: '/stock/:id/add',
             builder: (_, s) =>
                 StockChangeScreen(s.pathParameters['id']!, 'add')),
-        GoRoute(
+        omoterraRoute(
             path: '/stock/:id/sell',
             builder: (_, s) => RecordSaleScreen(s.pathParameters['id']!)),
-        GoRoute(
+        omoterraRoute(
             path: '/stock/:id/history',
             builder: (_, s) => StockHistoryScreen(s.pathParameters['id']!)),
-        GoRoute(path: '/sales', builder: (_, __) => const SalesScreen()),
-        GoRoute(
-            path: '/sales/:id',
-            builder: (_, s) => SalesScreen(id: s.pathParameters['id'])),
-        GoRoute(path: '/stock/new', builder: (_, __) => const AddStockScreen()),
-        GoRoute(
+        omoterraRoute(
+            path: '/stock/new', builder: (_, __) => const AddStockScreen()),
+        omoterraRoute(
+            path: '/batches/new',
+            builder: (_, __) => const SupplierBatchScreen()),
+        omoterraRoute(
             path: '/stock/:id',
             builder: (_, s) => StockDetail(s.pathParameters['id']!)),
-        GoRoute(
-            path: '/supplier-orders/:id',
-            builder: (_, s) => SupplierOrders(id: s.pathParameters['id'])),
-        GoRoute(path: '/payouts', builder: (_, __) => const PayoutScreen()),
-        GoRoute(
+        omoterraRoute(
+            path: '/payouts', builder: (_, __) => const PayoutScreen()),
+        omoterraRoute(
             path: '/payouts/:id',
             builder: (_, s) => PayoutScreen(id: s.pathParameters['id'])),
       ],
@@ -231,6 +292,7 @@ class AppShell extends ConsumerWidget {
     final user = ref.watch(sessionProvider).valueOrNull;
     final supplier = path.startsWith('/supplier') ||
         path == '/stock' ||
+        path.startsWith('/sales') ||
         (path == '/account' &&
             (ref.watch(activeRoleProvider) == 'supplier' ||
                 user?.roles.contains('buyer') == false));
@@ -243,165 +305,360 @@ class AppShell extends ConsumerWidget {
     // nav Row below is never role-conditional: same logo, same padding,
     // same role pill in the same place, whichever role is active.
     final onSupplierHome = path == '/supplier';
+    final resourceFailures = ref.watch(resourceFailuresProvider);
+    final showScreenError = resourceFailures.isNotEmpty && !onSupplierHome;
+    final screenError = resourceFailures.values.firstOrNull;
     // The tabbed screens are the root of the signed-in app, so the system
     // back gesture should leave the app rather than be swallowed.
     return ExitOnBack(
         child: Scaffold(
-        extendBodyBehindAppBar: onSupplierHome,
-        appBar: PreferredSize(
-            preferredSize: const Size.fromHeight(64),
-            child: SafeArea(
-                bottom: false,
-                child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 8, 16, 8),
-                    // The logo hugs the left edge on its own (not Expanded,
-                    // which would center it in the leftover space); the role
-                    // switcher sits at the right with whatever room remains.
-                    child: Row(children: [
-                      const BrandMark(size: 21),
-                      const Spacer(),
-                      _RoleSwitcher(supplier: supplier),
-                    ])))),
-        body: SafeArea(
-            top: false,
-            child: RefreshIndicator(
-                onRefresh: () async {
-                  ref.invalidate(resourceProvider);
-                  ref.invalidate(listingsProvider);
-                },
-                child: child)),
-        bottomNavigationBar: _BottomNav(
-            selected: routes.indexOf(path).clamp(0, 3),
-            onSelect: (i) => context.go(routes[i]),
-            items: [
-              const _NavItem(Icons.home_outlined, Icons.home, 'Home'),
-              _NavItem(
-                  supplier ? Icons.inventory_2_outlined : Icons.search,
-                  supplier ? Icons.inventory_2 : Icons.search,
-                  supplier ? 'Stock' : 'Explore'),
-              const _NavItem(Icons.receipt_long_outlined, Icons.receipt_long,
-                  'Orders'),
-              const _NavItem(
-                  Icons.person_outline, Icons.person, 'Account'),
-            ])));
+            // The hero can sit under the chrome on Home. Other supplier
+            // screens reserve the same transparent chrome height so their
+            // first controls never hide beneath it.
+            extendBodyBehindAppBar: onSupplierHome,
+            appBar: PreferredSize(
+                preferredSize: const Size.fromHeight(64),
+                child: SafeArea(
+                    bottom: false,
+                    child: Padding(
+                        padding: const EdgeInsets.fromLTRB(20, 8, 16, 8),
+                        // The logo hugs the left edge on its own (not Expanded,
+                        // which would center it in the leftover space); the role
+                        // switcher sits at the right with whatever room remains.
+                        child: Row(children: [
+                          const BrandMark(size: 21),
+                          const Spacer(),
+                          _RoleSwitcher(supplier: supplier),
+                        ])))),
+            body: SafeArea(
+                top: false,
+                child: RefreshIndicator(
+                    onRefresh: () async {
+                      ref.invalidate(resourceProvider);
+                      ref.invalidate(listingsProvider);
+                    },
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Visibility(
+                          visible: !showScreenError,
+                          maintainState: true,
+                          child: child,
+                        ),
+                        if (showScreenError)
+                          ListView(
+                            padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
+                            children: [
+                              ErrorState(
+                                screenError!,
+                                retry: () {
+                                  for (final path in resourceFailures.keys) {
+                                    if (path.startsWith('@listing|')) {
+                                      ref.invalidate(listingsProvider(
+                                          path.substring('@listing|'.length)));
+                                    } else {
+                                      ref.invalidate(resourceProvider(path));
+                                    }
+                                  }
+                                },
+                              ),
+                            ],
+                          ),
+                      ],
+                    ))),
+            bottomNavigationBar: _BottomNav(
+                selected: routes.indexOf(path),
+                onSelect: (i) => context.go(routes[i]),
+                onDemand: () =>
+                    context.go(supplier ? '/supplier-demand' : '/explore'),
+                supplier: supplier)));
   }
 }
 
-class _NavItem {
-  final IconData icon, selectedIcon;
-  final String label;
-  const _NavItem(this.icon, this.selectedIcon, this.label);
-}
-
-/// The floating bottom nav: a rounded white bar holding the four tabs,
+/// The floating bottom nav: a rounded white bar holding the role’s tabs,
 /// lifted off the screen edge so it reads as its own surface.
 class _BottomNav extends StatelessWidget {
   final int selected;
-  final List<_NavItem> items;
   final ValueChanged<int> onSelect;
+  final VoidCallback onDemand;
+  final bool supplier;
   const _BottomNav(
-      {required this.selected, required this.items, required this.onSelect});
+      {required this.selected,
+      required this.onSelect,
+      required this.onDemand,
+      required this.supplier});
 
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    return Padding(
-        padding: EdgeInsets.fromLTRB(16, 0, 16, bottomInset > 0 ? 8 : 16),
-        child: Container(
-            height: 64,
+    final bar = PhysicalShape(
+      clipper: _DemandNavClipper(),
+      color: const Color(0xFFF1F7F4),
+      clipBehavior: Clip.antiAlias,
+      elevation: 3,
+      shadowColor: OColors.forest.withValues(alpha: .14),
+      child: SizedBox(
+        height: 80,
+        child: DecoratedBox(
             decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(28),
-                boxShadow: [
-                  BoxShadow(
-                      color: Colors.black.withValues(alpha: .08),
-                      blurRadius: 18,
-                      offset: const Offset(0, 6)),
-                ]),
-            child: Row(
-                children: [_tab(0), _tab(1), _tab(2), _tab(3)])));
+                gradient: LinearGradient(
+                    begin: Alignment.topCenter,
+                    end: Alignment.bottomCenter,
+                    colors: [
+                  const Color(0xFFFCFEFC),
+                  const Color(0xFFEDF5F1)
+                ])),
+            child: CustomPaint(
+                painter: _NavLeavesPainter(),
+                child: Row(children: [
+                  _tab(0, Icons.home_outlined, Icons.home, 'Home'),
+                  _tab(
+                      1,
+                      supplier ? Icons.inventory_2_outlined : Icons.search,
+                      supplier ? Icons.inventory_2 : Icons.search,
+                      supplier ? 'Stock' : 'Explore'),
+                  const Spacer(),
+                  _tab(2, Icons.inventory_2_outlined, Icons.inventory_2,
+                      'Orders'),
+                  _tab(3, Icons.person_outline, Icons.person, 'Account'),
+                ]))),
+      ),
+    );
+    final demandButton = Material(
+      color: OColors.forest,
+      shape: const CircleBorder(),
+      elevation: 0,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onDemand,
+        child: Container(
+          width: 56,
+          height: 56,
+          decoration: const BoxDecoration(shape: BoxShape.circle),
+          padding: const EdgeInsets.all(4),
+          child:
+              Image.asset('assets/icons/white-icon.png', fit: BoxFit.contain),
+        ),
+      ),
+    );
+    return Padding(
+      padding:
+          EdgeInsets.fromLTRB(10, 0, 10, bottomInset > 0 ? bottomInset : 10),
+      child: SizedBox(
+        height: 92,
+        child: Stack(clipBehavior: Clip.none, children: [
+          Positioned(left: 0, right: 0, top: 12, child: bar),
+          Positioned(
+              left: 0,
+              right: 0,
+              top: 0,
+              child: Center(
+                  child: Semantics(
+                      button: true,
+                      selected: selected == -1,
+                      label: supplier ? 'Demand' : 'Explore',
+                      child: demandButton))),
+        ]),
+      ),
+    );
   }
 
-  Widget _tab(int i) {
-    final item = items[i];
+  Widget _tab(int i, IconData icon, IconData selectedIcon, String label) {
     final active = i == selected;
     return Expanded(
         child: Semantics(
             button: true,
             selected: active,
-            label: item.label,
+            label: label,
             child: InkWell(
                 onTap: () => onSelect(i),
                 child: Column(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(active ? item.selectedIcon : item.icon,
-                          size: 23,
-                          color: active ? OColors.forest : OColors.muted),
+                      AnimatedContainer(
+                          duration: AppMotion.control,
+                          curve: AppMotion.settle,
+                          width: active ? 48 : 44,
+                          height: 32,
+                          decoration: BoxDecoration(
+                              color: active
+                                  ? const Color(0xFFE0EFE7)
+                                  : Colors.transparent,
+                              borderRadius: BorderRadius.circular(20)),
+                          child: AnimatedSwitcher(
+                              duration: AppMotion.quick,
+                              switchInCurve: AppMotion.enter,
+                              transitionBuilder: (child, animation) =>
+                                  ScaleTransition(
+                                      scale: animation,
+                                      child: FadeTransition(
+                                          opacity: animation, child: child)),
+                              child: Icon(active ? selectedIcon : icon,
+                                  key: ValueKey(active),
+                                  size: 23,
+                                  color: active
+                                      ? OColors.forest
+                                      : const Color(0xFF6F7775)))),
                       const SizedBox(height: 3),
-                      Text(item.label,
+                      AnimatedDefaultTextStyle(
+                          duration: AppMotion.control,
+                          curve: AppMotion.settle,
                           style: TextStyle(
                               fontSize: 11,
                               fontWeight:
                                   active ? FontWeight.w700 : FontWeight.w500,
+                              color: active
+                                  ? OColors.forest
+                                  : const Color(0xFF6F7775)),
+                          child: Text(label)),
+                      const SizedBox(height: 5),
+                      AnimatedContainer(
+                          duration: AppMotion.control,
+                          curve: AppMotion.settle,
+                          width: active ? 19 : 0,
+                          height: 3,
+                          decoration: BoxDecoration(
                               color:
-                                  active ? OColors.forest : OColors.muted)),
+                                  active ? OColors.forest : Colors.transparent,
+                              borderRadius: BorderRadius.circular(3))),
                     ]))));
   }
 }
 
-/// The pill in the top nav that switches between Buyer and Supplier right
-/// there, instead of going via Account. Account still has its own switch
-/// too — this is a second, faster place to do the same thing, not a
-/// replacement for it. The shell's chrome (tabs, colours) is keyed off the
-/// route rather than the active-role provider alone, so picking a role here
-/// also lands on that role's home tab — the same one tap away, just without
-/// a detour through Account first.
+/// A single continuous navigation surface with a concave center cradle for
+/// the floating demand action.
+class _DemandNavClipper extends CustomClipper<Path> {
+  @override
+  Path getClip(Size size) {
+    const radius = 24.0;
+    final center = size.width / 2;
+    final path = Path()..moveTo(radius, 0);
+    path.lineTo(center - 62, 0);
+    path.cubicTo(center - 42, 0, center - 36, 9, center - 31, 28);
+    path.cubicTo(center - 26, 43, center - 16, 50, center, 50);
+    path.cubicTo(center + 16, 50, center + 26, 43, center + 31, 28);
+    path.cubicTo(center + 36, 9, center + 42, 0, center + 62, 0);
+    path.lineTo(size.width - radius, 0);
+    path.quadraticBezierTo(size.width, 0, size.width, radius);
+    path.lineTo(size.width, size.height - radius);
+    path.quadraticBezierTo(
+        size.width, size.height, size.width - radius, size.height);
+    path.lineTo(radius, size.height);
+    path.quadraticBezierTo(0, size.height, 0, size.height - radius);
+    path.lineTo(0, radius);
+    path.quadraticBezierTo(0, 0, radius, 0);
+    return path..close();
+  }
+
+  @override
+  bool shouldReclip(covariant _DemandNavClipper oldClipper) => false;
+}
+
+class _NavLeavesPainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xFFD6E9DE).withValues(alpha: .72);
+    for (final mirror in [false, true]) {
+      canvas.save();
+      if (mirror) {
+        canvas.translate(size.width, 0);
+        canvas.scale(-1, 1);
+      }
+      final upper = Path()
+        ..moveTo(-8, 40)
+        ..cubicTo(-7, 17, 7, 6, 24, 10)
+        ..cubicTo(14, 25, 9, 35, -8, 40)
+        ..close();
+      final lower = Path()
+        ..moveTo(-6, 71)
+        ..cubicTo(-8, 48, 4, 36, 20, 32)
+        ..cubicTo(16, 52, 9, 65, -6, 71)
+        ..close();
+      canvas.drawPath(upper, paint);
+      canvas.drawPath(lower, paint);
+      canvas.restore();
+    }
+  }
+
+  @override
+  bool shouldRepaint(covariant _NavLeavesPainter oldDelegate) => false;
+}
+
+/// Explicit role selection is persisted before navigating to its home.
 class _RoleSwitcher extends ConsumerWidget {
   final bool supplier;
   const _RoleSwitcher({required this.supplier});
+
   @override
-  Widget build(BuildContext context, WidgetRef ref) => PopupMenuButton<String>(
-      tooltip: 'Switch role',
-      offset: const Offset(0, 44),
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+  Widget build(BuildContext context, WidgetRef ref) {
+    final roles =
+        ref.watch(sessionProvider).valueOrNull?.roles ?? const <String>[];
+    final options = <OmoterraPickerOption<String>>[
+      if (roles.contains('buyer'))
+        const OmoterraPickerOption(
+            value: 'buyer',
+            title: Text('Buyer'),
+            icon: Icons.shopping_basket_outlined,
+            subtitle: 'Browse and buy supply'),
+      if (roles.contains('supplier'))
+        const OmoterraPickerOption(
+            value: 'supplier',
+            title: Text('Supplier'),
+            icon: Icons.storefront_outlined,
+            subtitle: 'Manage and sell your supply'),
+      if (!roles.contains('buyer'))
+        const OmoterraPickerOption(
+            value: 'register:buyer',
+            title: Text('Register as buyer'),
+            icon: Icons.shopping_basket_outlined,
+            subtitle: 'Complete buyer details to add this role'),
+      if (!roles.contains('supplier'))
+        const OmoterraPickerOption(
+            value: 'register:supplier',
+            title: Text('Register as supplier'),
+            icon: Icons.storefront_outlined,
+            subtitle: 'Complete supplier details to add this role'),
+    ];
+    return OmoterraActionDropdown(
+      title: 'Choose account type',
+      selected: supplier ? 'supplier' : 'buyer',
+      options: options,
       onSelected: (role) async {
-        await ref.read(sessionProvider.notifier).switchRole(role);
-        if (context.mounted) {
-          context.go(role == 'buyer' ? '/buyer' : '/supplier');
+        if (role.startsWith('register:')) {
+          context.push('/register-role/${role.substring('register:'.length)}');
+          return;
+        }
+        try {
+          await ref.read(sessionProvider.notifier).switchRole(role);
+          if (context.mounted) {
+            context.go(role == 'buyer' ? '/buyer' : '/supplier');
+          }
+        } catch (error) {
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+                content: Text(
+                    'We couldn’t switch roles just now. Please try again.')));
+          }
         }
       },
-      itemBuilder: (context) => [
-            _roleItem('buyer', 'Buyer', !supplier),
-            _roleItem('supplier', 'Supplier', supplier),
-          ],
       child: Container(
-          padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
-          decoration: BoxDecoration(
-              color: OColors.soft, borderRadius: BorderRadius.circular(20)),
-          child: Row(mainAxisSize: MainAxisSize.min, children: [
-            const Icon(Icons.person, size: 15, color: OColors.forest),
-            const SizedBox(width: 5),
-            Text(supplier ? 'SUPPLIER' : 'BUYER',
-                style: const TextStyle(
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: .8,
-                    color: OColors.forest)),
-            const Icon(Icons.keyboard_arrow_down,
-                size: 16, color: OColors.forest),
-          ])));
-
-  PopupMenuItem<String> _roleItem(String role, String label, bool active) =>
-      PopupMenuItem(
-          value: role,
-          child: Row(children: [
-            Icon(active ? Icons.check_circle : Icons.circle_outlined,
-                size: 18,
-                color: active ? OColors.forest : OColors.muted),
-            const SizedBox(width: 10),
-            Text(label,
-                style: TextStyle(
-                    fontWeight: active ? FontWeight.w700 : FontWeight.w500)),
-          ]));
+        padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+        decoration: BoxDecoration(
+            color: OColors.soft, borderRadius: BorderRadius.circular(20)),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          const Icon(Icons.person, size: 15, color: OColors.forest),
+          const SizedBox(width: 5),
+          Text(supplier ? 'SUPPLIER' : 'BUYER',
+              style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: .8,
+                  color: OColors.forest)),
+          const Icon(Icons.keyboard_arrow_down,
+              size: 16, color: OColors.forest),
+        ]),
+      ),
+    );
+  }
 }

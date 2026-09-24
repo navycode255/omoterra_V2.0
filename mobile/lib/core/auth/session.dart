@@ -8,6 +8,14 @@ import '../api/repository.dart';
 final sessionProvider =
     AsyncNotifierProvider<SessionController, AppUser?>(SessionController.new);
 final activeRoleProvider = StateProvider<String>((ref) => 'buyer');
+final selectedLanguageProvider = StateProvider<String>((ref) => 'en');
+final greetingUntilProvider = StateProvider<DateTime?>((ref) => null);
+
+String preferredRole(List<String> roles, String? saved) => roles.contains(saved)
+    ? saved!
+    : roles.contains('buyer')
+        ? 'buyer'
+        : 'supplier';
 
 class SessionController extends AsyncNotifier<AppUser?> {
   /// The splash stays up until startup work is done, so its duration follows
@@ -64,16 +72,15 @@ class SessionController extends AsyncNotifier<AppUser?> {
   /// BrandImage falls back to vector artwork, so startup continues.
   Future<void> _decode(String asset) {
     final completer = Completer<void>();
-    final stream =
-        AssetImage(asset).resolve(ImageConfiguration.empty);
+    final stream = AssetImage(asset).resolve(ImageConfiguration.empty);
     late final ImageStreamListener listener;
     void done() {
       if (!completer.isCompleted) completer.complete();
       stream.removeListener(listener);
     }
 
-    listener = ImageStreamListener((_, __) => done(),
-        onError: (_, __) => done());
+    listener =
+        ImageStreamListener((_, __) => done(), onError: (_, __) => done());
     stream.addListener(listener);
     return completer.future;
   }
@@ -88,18 +95,35 @@ class SessionController extends AsyncNotifier<AppUser?> {
   }
 
   Future<AppUser?> _restore() async {
+    final greetingAt = await storage.read(key: 'signed_in_at');
+    final signedInAt = DateTime.tryParse(greetingAt ?? '');
+    final greetingDeadline = signedInAt?.add(const Duration(minutes: 2));
+    ref.read(greetingUntilProvider.notifier).state =
+        greetingDeadline != null && greetingDeadline.isAfter(DateTime.now())
+            ? greetingDeadline
+            : null;
+    final savedLanguage = await storage.read(key: 'selected_language');
+    if (savedLanguage == 'en' || savedLanguage == 'sw') {
+      ref.read(selectedLanguageProvider.notifier).state = savedLanguage!;
+    }
     // The offline design preview opens straight into the signed-in app so the
     // whole product can be browsed without a backend. Build with
     // --dart-define=PREVIEW_ONBOARDING=true to land on the phone screen
     // instead and walk the sign-up flow.
-    if (localPreview && !previewOnboarding) {
-      return AppUser.fromJson(Map<String, dynamic>.from(
-          await ref.read(repositoryProvider).read('/me')));
+    if (!(localPreview && !previewOnboarding)) {
+      final token = await storage.read(key: 'session');
+      if (token == null) return null;
     }
-    final token = await storage.read(key: 'session');
-    if (token == null) return null;
-    return AppUser.fromJson(Map<String, dynamic>.from(
+    final user = AppUser.fromJson(Map<String, dynamic>.from(
         await ref.read(repositoryProvider).read('/me')));
+    await _restoreRole(user);
+    return user;
+  }
+
+  Future<void> _restoreRole(AppUser user) async {
+    final saved = await storage.read(key: 'active_role:${user.id}');
+    ref.read(activeRoleProvider.notifier).state =
+        preferredRole(user.roles, saved);
   }
 
   Future<void> verify(String challenge, String code) async {
@@ -107,32 +131,50 @@ class SessionController extends AsyncNotifier<AppUser?> {
         .read(repositoryProvider)
         .write('/auth/verify', {'challenge_id': challenge, 'code': code});
     await storage.write(key: 'session', value: response['access_token']);
-    state = AsyncData(
-        AppUser.fromJson(Map<String, dynamic>.from(response['user'])));
+    final user = AppUser.fromJson(Map<String, dynamic>.from(response['user']));
+    await _restoreRole(user);
+    final signedInAt = DateTime.now();
+    await storage.write(
+        key: 'signed_in_at', value: signedInAt.toIso8601String());
+    ref.read(greetingUntilProvider.notifier).state =
+        signedInAt.add(const Duration(minutes: 2));
+    state = AsyncData(user);
   }
 
   Future<void> profile(Map<String, dynamic> data) async {
     final response =
         await ref.read(repositoryProvider).write('/me', data, method: 'PUT');
-    state = AsyncData(AppUser.fromJson(Map<String, dynamic>.from(response)));
+    final user = AppUser.fromJson(Map<String, dynamic>.from(response));
+    await _restoreRole(user);
+    state = AsyncData(user);
   }
 
-  /// Switches the active role, enabling the capability first if the user
-  /// doesn't have it yet. Shared by the Account screen and the top nav's
-  /// role switcher so there is one implementation of "become a buyer" /
-  /// "become a supplier", not two.
+  Future<void> setLanguage(String language) async {
+    if (language != 'en' && language != 'sw') {
+      throw ArgumentError.value(language, 'language');
+    }
+    await storage.write(key: 'selected_language', value: language);
+    ref.read(selectedLanguageProvider.notifier).state = language;
+  }
+
+  Future<void> acceptRegisteredRole(dynamic response, String role) async {
+    final user = AppUser.fromJson(Map<String, dynamic>.from(response));
+    await _restoreRole(user);
+    state = AsyncData(user);
+    await switchRole(role);
+  }
+
+  /// Change only between capabilities already registered on this account.
   Future<void> switchRole(String role) async {
+    if (role != 'buyer' && role != 'supplier') {
+      throw ArgumentError.value(role, 'role');
+    }
     final user = state.value;
     if (user == null) return;
     if (!user.roles.contains(role)) {
-      await profile({
-        'name': user.name,
-        'region': user.region,
-        'language': user.language,
-        'roles': {...user.roles, role}.toList(),
-        'buyer_type': role == 'buyer' ? user.buyerType ?? 'personal' : user.buyerType
-      });
+      throw StateError('Register this account as $role before switching.');
     }
+    await storage.write(key: 'active_role:${user.id}', value: role);
     ref.read(activeRoleProvider.notifier).state = role;
   }
 
@@ -141,6 +183,8 @@ class SessionController extends AsyncNotifier<AppUser?> {
       await ref.read(repositoryProvider).write('/auth/logout', {});
     } finally {
       await storage.delete(key: 'session');
+      await storage.delete(key: 'signed_in_at');
+      ref.read(greetingUntilProvider.notifier).state = null;
       PaintingBinding.instance.imageCache.clear();
       PaintingBinding.instance.imageCache.clearLiveImages();
       ref.invalidate(resourceProvider);

@@ -16,6 +16,7 @@ class PhoneScreen extends ConsumerStatefulWidget {
 class _PhoneState extends ConsumerState<PhoneScreen> {
   final phone = TextEditingController();
   bool busy = false;
+  bool keypadVisible = true;
   Object? error;
 
   @override
@@ -36,8 +37,9 @@ class _PhoneState extends ConsumerState<PhoneScreen> {
     });
     try {
       final number = '+255${digits.substring(digits.length - 9)}';
-      final response =
-          await ref.read(repositoryProvider).write('/auth/otp', {'phone': number});
+      final response = await ref
+          .read(repositoryProvider)
+          .write('/auth/otp', {'phone': number});
       if (mounted) {
         context.push('/otp', extra: {
           ...Map<String, dynamic>.from(response),
@@ -97,7 +99,13 @@ class _PhoneState extends ConsumerState<PhoneScreen> {
                             style: const TextStyle(color: OColors.secondary)),
                         const SizedBox(height: 28),
                         _PhoneField(value: phone.text, hint: s.phoneHint),
-                        if (error != null) ErrorState(error!),
+                        if (error != null) ...[
+                          const SizedBox(height: 8),
+                          if (error is String)
+                            _PhoneValidationError(error! as String)
+                          else
+                            ErrorState(error!),
+                        ],
                         const SizedBox(height: 20),
                         OmoterraButton(s.continueLabel,
                             busy: busy, onPressed: submit),
@@ -109,9 +117,40 @@ class _PhoneState extends ConsumerState<PhoneScreen> {
                                 color: OColors.muted,
                                 height: 1.5)),
                       ]))),
-          NumberPad(onDigit: _append, onBackspace: _backspace),
+          NumberPad(
+            visible: keypadVisible,
+            onToggle: () => setState(() => keypadVisible = !keypadVisible),
+            onDigit: _append,
+            onBackspace: _backspace,
+          ),
         ])));
   }
+}
+
+class _PhoneValidationError extends StatelessWidget {
+  final String message;
+  const _PhoneValidationError(this.message);
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 9),
+        decoration: BoxDecoration(
+          color: const Color(0xFFFCE3E1),
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.error_outline, size: 18, color: OColors.error),
+            const SizedBox(width: 8),
+            Expanded(
+              child: Text(
+                message,
+                style: const TextStyle(color: OColors.error, fontSize: 13),
+              ),
+            ),
+          ],
+        ),
+      );
 }
 
 /// Displays the number entered on the in-app keypad. It is not a TextField:
@@ -187,9 +226,7 @@ class _TanzanianFlag extends StatelessWidget {
   Widget build(BuildContext context) => ClipRRect(
       borderRadius: BorderRadius.circular(3),
       child: SizedBox(
-          width: 24,
-          height: 17,
-          child: CustomPaint(painter: _FlagPainter())));
+          width: 24, height: 17, child: CustomPaint(painter: _FlagPainter())));
 }
 
 class _FlagPainter extends CustomPainter {
