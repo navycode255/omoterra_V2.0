@@ -31,6 +31,13 @@ export function titleCase(value: string) {
     .join(' ');
 }
 
+// Tanzanian numbers are stored as +255XXXXXXXXX and shown as +255 7XX XXX XXX.
+export function phone(value: string | null | undefined) {
+  if (!value) return '—';
+  const match = /^\+255(\d{3})(\d{3})(\d{3})$/.exec(value);
+  return match ? `+255 ${match[1]} ${match[2]} ${match[3]}` : value;
+}
+
 // Quantities arrive as decimal strings such as "12.000". Trailing zeros are
 // dropped for display without converting through a float.
 export function quantity(value: string | null | undefined) {

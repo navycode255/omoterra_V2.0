@@ -1080,3 +1080,6 @@ textarea.input {
   .signin-panel { width: 54%; padding-left: 24px; }
   .signin-card { width: min(645px, calc(100% - 48px)); }
 }
+.sort-header { display: inline-flex; align-items: center; gap: 6px; padding: 0; border: 0; background: none; color: inherit; font: inherit; font-weight: inherit; letter-spacing: inherit; text-transform: inherit; cursor: pointer; }
+.sort-header svg { color: #8a9aac; flex: none; }
+.sort-header[data-active='true'] svg { color: #075e43; }

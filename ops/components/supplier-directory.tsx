@@ -7,24 +7,39 @@ import { tzs } from '@/lib/format';
 import type { SupplierRow } from '@/lib/types';
 
 type Filter = 'all' | 'approved' | 'under_review';
+type SortKey = 'public_alias' | 'status' | 'legal_name' | 'pending_settlement_total';
 
 function statusLabel(status: SupplierRow['status']) {
-  return status.split('_').map((word) => word[0].toUpperCase() + word.slice(1)).join(' ');
+  const label = status.replace(/_/g, ' ');
+  return label[0].toUpperCase() + label.slice(1);
+}
+
+function compare(a: SupplierRow, b: SupplierRow, key: SortKey) {
+  if (key === 'pending_settlement_total') return Number(a[key]) - Number(b[key]);
+  return a[key].localeCompare(b[key], undefined, { sensitivity: 'base' });
 }
 
 export function SupplierDirectory({ suppliers }: { suppliers: SupplierRow[] }) {
   const [filter, setFilter] = useState<Filter>('all');
   const [query, setQuery] = useState('');
+  const [sort, setSort] = useState<{ key: SortKey; direction: 1 | -1 } | null>(null);
   const approved = suppliers.filter((supplier) => supplier.status === 'approved').length;
   const review = suppliers.filter((supplier) => supplier.status === 'under_review' || supplier.status === 'new').length;
   const shown = useMemo(() => {
     const search = query.trim().toLowerCase();
-    return suppliers.filter((supplier) => {
+    const rows = suppliers.filter((supplier) => {
       const matchesFilter = filter === 'all' || supplier.status === filter || (filter === 'under_review' && supplier.status === 'new');
       const haystack = [supplier.public_alias, supplier.legal_name, supplier.phone, supplier.region, supplier.district].join(' ').toLowerCase();
       return matchesFilter && (!search || haystack.includes(search));
     });
-  }, [filter, query, suppliers]);
+    return sort ? rows.sort((a, b) => compare(a, b, sort.key) * sort.direction) : rows;
+  }, [filter, query, sort, suppliers]);
+
+  function sortHeader(label: string, sortKey: SortKey) {
+    const active = sort?.key === sortKey;
+    const ariaSort = active ? (sort.direction === 1 ? 'ascending' : 'descending') : 'none';
+    return <th key={sortKey} aria-sort={ariaSort}><button type="button" className="sort-header" data-active={active} onClick={() => setSort({ key: sortKey, direction: active && sort.direction === 1 ? -1 : 1 })}>{label}<Icons.sort size={14}/></button></th>;
+  }
 
   return <div className="supplier-directory">
     <section className="supplier-summary" aria-label="Supplier summary">
@@ -42,7 +57,7 @@ export function SupplierDirectory({ suppliers }: { suppliers: SupplierRow[] }) {
     </div>
     <div className="supplier-table-wrap">
       <table className="supplier-table">
-        <thead><tr><th>Supplier</th><th>Status</th><th>Legal name (internal)</th><th>Region / district</th><th>Live</th><th>Pending</th><th>Completed</th><th>Owed</th><th>Actions</th></tr></thead>
+        <thead><tr>{sortHeader('Supplier', 'public_alias')}{sortHeader('Status', 'status')}{sortHeader('Legal name (internal)', 'legal_name')}<th>Region / district</th><th>Live</th><th>Pending</th><th>Completed</th>{sortHeader('Owed', 'pending_settlement_total')}<th>Actions</th></tr></thead>
         <tbody>{shown.length ? shown.map((supplier) => <tr key={supplier.id}>
           <td><Link href={`/suppliers/${supplier.id}`} className="supplier-name">{supplier.public_alias}</Link>{!supplier.alias_approved && <small>Alias not approved</small>}</td>
           <td><span className="directory-status" data-status={supplier.status}>{statusLabel(supplier.status)}</span></td>

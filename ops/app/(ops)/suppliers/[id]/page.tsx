@@ -7,7 +7,7 @@ import { SupplierStatusControl, SupplierVerificationForm } from '@/components/su
 import { Empty, Status } from '@/components/ui';
 import { ApiError, get } from '@/lib/api';
 import { editSupplierProfile } from '@/lib/actions';
-import { category, date, listingTone, quantity, reference, titleCase, tzs } from '@/lib/format';
+import { category, date, listingTone, phone, quantity, reference, titleCase, tzs } from '@/lib/format';
 import type { SupplierDetail } from '@/lib/types';
 
 const CATEGORY_KEYS = ['broilers','local_chicken','layers','eggs','goats','cattle','chicken_meat','beef','goat_meat'];
@@ -40,7 +40,7 @@ export default async function SupplierDetailPage({ params, searchParams }: { par
       <div className="breadcrumbs"><Link href="/suppliers">Suppliers</Link><Icons.chevron size={14}/><span>{supplier.public_alias}</span></div>
       <div className="supplier-identity">
         <div className="supplier-mark"><Icons.home size={34}/></div>
-        <div><h1>{supplier.public_alias}</h1><p>{supplier.legal_name}<i/> {supplier.phone}<i/> {supplier.region}</p></div>
+        <div><h1>{supplier.public_alias}</h1><p>{supplier.legal_name}<i/> {phone(supplier.phone)}<i/> {supplier.region}</p></div>
         <div className="supplier-head-actions"><SupplierStatusControl id={supplier.id} status={supplier.status} canApprove={canApprove}/><Link href={editHref} className="button" data-variant="secondary"><Icons.edit size={18}/>Edit supplier</Link><button className="icon-button" type="button" aria-label="More supplier actions"><Icons.more size={22}/></button></div>
       </div>
       <nav className="supplier-tabs" aria-label="Supplier sections"><a href="#overview" className="active"><Icons.cubes size={20}/>Overview</a><a href="#verification"><Icons.clipboard size={20}/>Verification</a><a href="#production"><Icons.users size={20}/>Production</a><a href="#history"><Icons.clock size={20}/>History</a></nav>
@@ -76,7 +76,7 @@ export default async function SupplierDetailPage({ params, searchParams }: { par
 
       <div className="supplier-card-grid">
         <DetailCard icon={<Icons.clipboard size={22}/>} title="Supplier details" editHref={editHref}>
-          <Details items={[["Farm / supplier alias", supplier.public_alias], ["Legal name", supplier.legal_name], ["Primary phone", supplier.phone], ["Alternate phone", supplier.alternate_phone || '—'], ["Joined", date(supplier.created_at)], ["Region", supplier.region || '—'], ["District", supplier.district || '—'], ["General area", supplier.general_area || '—'], ["Preferred contact", titleCase(supplier.preferred_contact_method)]]}/>
+          <Details items={[["Farm / supplier alias", supplier.public_alias], ["Legal name", supplier.legal_name], ["Primary phone", phone(supplier.phone)], ["Alternate phone", phone(supplier.alternate_phone)], ["Joined", date(supplier.created_at)], ["Region", supplier.region || '—'], ["District", supplier.district || '—'], ["General area", supplier.general_area || '—'], ["Preferred contact", titleCase(supplier.preferred_contact_method)]]}/>
         </DetailCard>
         <DetailCard icon={<Icons.sprout size={23}/>} title="Production profile" editHref={editHref} id="production">
           <Details items={[["Main category", supplier.primary_category ? category(supplier.primary_category) : '—'], ["Production cycle", supplier.production_frequency || '—'], ["Can Omoterra collect?", supplier.omoterra_pickup ? 'Yes' : 'No'], ["Can supplier arrange transport?", supplier.supplier_transport ? 'Yes' : 'No'], ["Usual supply forms", supplier.supply_forms.map(titleCase).join(', ') || '—'], ["Operating schedule / notes", supplier.operating_notes || '—']]}/>
