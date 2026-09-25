@@ -1,32 +1,51 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { startSession, verifyPassphrase } from '@/lib/session';
+import { ApiError, post } from '@/lib/api';
+import { pendingChallenge, setChallenge, startSession } from '@/lib/session';
+import type { Operator } from '@/lib/types';
 
-function signInRedirect(request: NextRequest, error?: string) {
+function back(request: NextRequest, params: Record<string, string>) {
   const url = new URL('/sign-in', request.url);
-  if (error) url.searchParams.set('error', error);
+  for (const [key, value] of Object.entries(params)) url.searchParams.set(key, value);
   return NextResponse.redirect(url, 303);
 }
 
+function phoneNumber(raw: string) {
+  const digits = raw.replace(/[\s-]/g, '');
+  if (/^\+255[67]\d{8}$/.test(digits)) return digits;
+  if (/^0[67]\d{8}$/.test(digits)) return '+255' + digits.slice(1);
+  if (/^255[67]\d{8}$/.test(digits)) return '+' + digits;
+  return null;
+}
+
+type Challenge = { challenge_id: string; development_code?: string };
+type Session = { session_token: string; expires_in: number; operator: Operator };
+
 export async function POST(request: NextRequest) {
-  const formData = await request.formData();
-  const passphrase = String(formData.get('passphrase') ?? '');
+  const form = await request.formData();
+  const step = String(form.get('step') ?? 'phone');
 
-  let valid = false;
-  try {
-    valid = verifyPassphrase(passphrase);
-  } catch (error) {
-    console.error('Omoterra dashboard passphrase is not configured.', error);
-    return signInRedirect(request, 'config');
+  if (step === 'phone') {
+    const phone = phoneNumber(String(form.get('phone') ?? ''));
+    if (!phone) return back(request, { error: 'phone' });
+    try {
+      const challenge = await post<Challenge>('/ops/auth/otp', { phone });
+      await setChallenge({ id: challenge.challenge_id, phone, developmentCode: challenge.development_code });
+    } catch (error) {
+      const status = error instanceof ApiError ? error.status : 0;
+      return back(request, { error: status === 403 ? 'unknown' : status === 429 ? 'wait' : 'server' });
+    }
+    return back(request, { step: 'code' });
   }
 
-  if (!valid) return signInRedirect(request, '1');
-
+  const challenge = await pendingChallenge();
+  if (!challenge) return back(request, { error: 'expired' });
+  const code = String(form.get('code') ?? '').trim();
   try {
-    await startSession();
+    const session = await post<Session>('/ops/auth/verify', { challenge_id: challenge.id, code });
+    await startSession(session.session_token, session.expires_in);
   } catch (error) {
-    console.error('Could not create the Omoterra dashboard session.', error);
-    return signInRedirect(request, 'session');
+    const status = error instanceof ApiError ? error.status : 0;
+    return back(request, status === 400 ? { step: 'code', error: 'code' } : { error: status === 403 ? 'unknown' : 'server' });
   }
-
   return NextResponse.redirect(new URL('/manage', request.url), 303);
 }

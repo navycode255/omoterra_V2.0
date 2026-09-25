@@ -2,7 +2,7 @@ import hashlib
 import hmac
 import secrets
 from datetime import timedelta
-from fastapi import Depends, Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select, text
 from .db import database
 from .config import settings
@@ -33,17 +33,45 @@ def role(name):
     return require
 
 
-def ops(x_ops_token: str = Header(default='')):
+OPERATOR_SESSION_HOURS = 12
+
+
+def ops_service(x_ops_token: str = Header(default='')):
+    """The dashboard server's own credential. Browsers never hold it, so
+    ops endpoints can only be reached through the dashboard."""
     expected = settings().ops_token
     if not expected or not hmac.compare_digest(expected, x_ops_token):
         raise HTTPException(403, 'Operations authentication required.')
+
+
+def ops(request: Request, x_operator_session: str = Header(default=''), _=Depends(ops_service), db=Depends(database)):
+    """The signed-in operator. Every change they make is written to the
+    audit trail inside the request's own transaction."""
+    session = db.scalar(select(m.OperatorSession).where(
+        m.OperatorSession.token_hash == digest(x_operator_session), m.OperatorSession.expires_at > m.now()))
+    operator = db.get(m.Operator, session.operator_id) if session else None
+    if not operator or not operator.active:
+        raise HTTPException(401, 'Sign in to the operations dashboard again.')
+    if request.method not in ('GET', 'HEAD', 'OPTIONS'):
+        db.add(m.OpsAuditEntry(operator_id=operator.id, method=request.method, path=request.url.path))
+    return operator
+
+
+def ops_admin(operator=Depends(ops)):
+    if operator.role != 'admin':
+        raise HTTPException(403, 'Only an Omoterra admin can do this.')
+    return operator
+
+
+def operator_view(operator):
+    return {k: getattr(operator, k) for k in ('id', 'phone', 'name', 'role', 'active', 'last_login_at', 'created_at')}
 
 
 def user_view(user):
     return {k: getattr(user, k) for k in ['id', 'phone', 'name', 'region', 'language', 'roles', 'buyer_type']}
 
 
-def start_otp(db, phone):
+def start_otp(db, phone, purpose='app'):
     # Serialize per phone to prevent simultaneous resend-limit bypass.
     db.execute(text('SELECT pg_advisory_xact_lock(:key)'), {'key': int(digest(phone)[:15], 16)})
     prior = db.scalar(select(m.OtpChallenge).where(m.OtpChallenge.phone == phone).order_by(m.OtpChallenge.created_at.desc()))
@@ -52,7 +80,8 @@ def start_otp(db, phone):
     for old in db.scalars(select(m.OtpChallenge).where(m.OtpChallenge.phone == phone, m.OtpChallenge.consumed.is_(False))):
         old.consumed = True
     code = ''.join(secrets.choice('0123456789') for _ in range(settings().otp_length))
-    challenge = m.OtpChallenge(id=m.identifier(), phone=phone, code_hash='', expires_at=m.now() + timedelta(seconds=settings().otp_ttl_seconds))
+    challenge = m.OtpChallenge(id=m.identifier(), phone=phone, code_hash='', purpose=purpose,
+        expires_at=m.now() + timedelta(seconds=settings().otp_ttl_seconds))
     challenge.code_hash = otp_hash(challenge.id, code)
     db.add(challenge)
     # Commit before the challenge_id leaves this function. A flush alone
@@ -71,9 +100,11 @@ def start_otp(db, phone):
     return response
 
 
-def verify_otp(db, challenge_id, code):
+def consume_otp(db, challenge_id, code, purpose):
+    """Checks a code and returns the phone it was sent to."""
     challenge = db.scalar(select(m.OtpChallenge).where(m.OtpChallenge.id == challenge_id).with_for_update())
-    if not challenge or challenge.consumed or challenge.expires_at <= m.now() or challenge.attempts >= 5:
+    if (not challenge or challenge.purpose != purpose or challenge.consumed
+            or challenge.expires_at <= m.now() or challenge.attempts >= 5):
         raise HTTPException(400, 'This code has expired. Request a new code.')
     challenge.attempts += 1
     if not hmac.compare_digest(challenge.code_hash, otp_hash(challenge.id, code)):
@@ -81,12 +112,34 @@ def verify_otp(db, challenge_id, code):
         db.commit()
         raise HTTPException(400, 'The code is incorrect. Check it and try again.')
     challenge.consumed = True
-    user = db.scalar(select(m.User).where(m.User.phone == challenge.phone))
+    return challenge.phone
+
+
+def verify_otp(db, challenge_id, code):
+    phone = consume_otp(db, challenge_id, code, 'app')
+    user = db.scalar(select(m.User).where(m.User.phone == phone))
     if not user:
-        user = m.User(phone=challenge.phone)
+        user = m.User(phone=phone)
         db.add(user)
         db.flush()
     token = secrets.token_urlsafe(48)
     db.add(m.AuthSession(user_id=user.id, token_hash=digest(token), expires_at=m.now() + timedelta(days=settings().session_days)))
     db.flush()
     return {'access_token': token, 'user': user_view(user)}
+
+
+def start_operator_session(db, challenge_id, code):
+    phone = consume_otp(db, challenge_id, code, 'ops')
+    operator = db.scalar(select(m.Operator).where(m.Operator.phone == phone))
+    if not operator or not operator.active:
+        raise HTTPException(403, 'This number is not an active Omoterra operator.')
+    return issue_operator_session(db, operator)
+
+
+def issue_operator_session(db, operator):
+    token = secrets.token_urlsafe(48)
+    db.add(m.OperatorSession(operator_id=operator.id, token_hash=digest(token),
+        expires_at=m.now() + timedelta(hours=OPERATOR_SESSION_HOURS)))
+    operator.last_login_at = m.now()
+    db.flush()
+    return {'session_token': token, 'expires_in': OPERATOR_SESSION_HOURS * 3600, 'operator': operator_view(operator)}

@@ -30,6 +30,12 @@ class User(Entity, Base):
     language: Mapped[str] = mapped_column(default='en')
     roles: Mapped[list] = mapped_column(JSON, default=list)
     buyer_type: Mapped[Optional[str]]
+    # Account deletion anonymizes and deactivates rather than removing the
+    # row: orders, settlements and audit trails referencing this id must
+    # survive. `phone` is rewritten to a unique placeholder so the real
+    # number can sign up again.
+    deleted: Mapped[bool] = mapped_column(default=False)
+    deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
 class SupplierProfile(Base):
@@ -55,6 +61,10 @@ class SupplierProfile(Base):
     supplier_transport: Mapped[bool] = mapped_column(default=False)
     supply_forms: Mapped[list] = mapped_column(JSON, default=list)
     preferred_contact_method: Mapped[str] = mapped_column(default='phone')
+    # Exact farm pin, kept private to operations like the pickup address.
+    farm_latitude: Mapped[Optional[Decimal]] = mapped_column(Numeric(9, 6))
+    farm_longitude: Mapped[Optional[Decimal]] = mapped_column(Numeric(9, 6))
+    farm_map_url: Mapped[str] = mapped_column(default='')
     status: Mapped[str] = mapped_column(default='new', index=True)
     verification: Mapped[dict] = mapped_column(JSON, default=dict)
     internal_notes: Mapped[str] = mapped_column(Text, default='')
@@ -106,6 +116,7 @@ class Listing(Entity, Base):
     specs: Mapped[dict] = mapped_column(JSON, default=dict)
     region: Mapped[str]
     photos: Mapped[list] = mapped_column(JSON, default=list)
+    video: Mapped[Optional[str]]
     farmer_asking_price_per_unit: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     supplier_payout_price_per_unit: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))
     buyer_price_per_unit: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))
@@ -116,6 +127,9 @@ class Listing(Entity, Base):
     last_confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     confirmation_due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), index=True)
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # When the supplier was last reminded to confirm availability, so the
+    # reminder job sends one reminder per confirmation window.
+    confirmation_reminded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     __table_args__ = (
         CheckConstraint('quantity_total >= 0 AND quantity_reserved >= 0 AND quantity_sold >= 0 AND quantity_reserved + quantity_sold <= quantity_total', name='valid_inventory'),
         CheckConstraint('farmer_asking_price_per_unit > 0'),
@@ -363,6 +377,9 @@ class OtpChallenge(Entity, Base):
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     attempts: Mapped[int] = mapped_column(default=0)
     consumed: Mapped[bool] = mapped_column(default=False)
+    # 'app' codes sign in marketplace users; 'ops' codes sign in operators.
+    # Each verify endpoint accepts only its own, so neither can open the other.
+    purpose: Mapped[str] = mapped_column(String(8), default='app')
 
 
 class Idempotency(Base):
@@ -372,10 +389,37 @@ class Idempotency(Base):
     resource_id: Mapped[str]
 
 
+class SupplierPhoto(Entity, Base):
+    """One farm/stock photo of a supplier. The image file lives in media storage;
+    only its URL is kept here. A supplier can have any number of photos."""
+    __tablename__ = 'supplier_photos'
+    supplier_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    media_id: Mapped[Optional[str]] = mapped_column(ForeignKey('media_assets.id'))
+    image_url: Mapped[str]
+    __table_args__ = (UniqueConstraint('supplier_id', 'image_url', name='uq_supplier_photo_url'),)
+
+
+class SupplierVideo(Entity, Base):
+    """The single supplier/farm video. UNIQUE(supplier_id) makes "at most one
+    video per supplier" a database guarantee, not just an API check."""
+    __tablename__ = 'supplier_videos'
+    supplier_id: Mapped[str] = mapped_column(ForeignKey('users.id'), unique=True)
+    youtube_video_id: Mapped[str] = mapped_column(String(32))
+    youtube_url: Mapped[str]
+    thumbnail_url: Mapped[str]
+    title: Mapped[str] = mapped_column(default='')
+    source: Mapped[str] = mapped_column(default='link')
+    status: Mapped[str] = mapped_column(default='ready')
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+    __table_args__ = (CheckConstraint("status IN ('processing','ready','failed')", name='valid_supplier_video_status'),
+        CheckConstraint("source IN ('link','upload')", name='valid_supplier_video_source'))
+
+
 class MediaAsset(Entity, Base):
     __tablename__ = 'media_assets'
     owner_id: Mapped[Optional[str]] = mapped_column(ForeignKey('users.id'), index=True)
     storage_name: Mapped[str] = mapped_column(unique=True)
+    content_type: Mapped[str] = mapped_column(default='image/jpeg')
 
 
 class PaymentReceipt(Entity, Base):
@@ -419,3 +463,95 @@ class StockSaleReversal(Entity, Base):
     sale_id: Mapped[str] = mapped_column(ForeignKey('stock_sales.id'), unique=True)
     supplier_id: Mapped[str] = mapped_column(ForeignKey('users.id'))
     reason: Mapped[str] = mapped_column(Text)
+
+
+class Notification(Entity, Base):
+    """Something a user should know about: kept as an in-app inbox entry and,
+    when push is configured, also delivered to their phones."""
+    __tablename__ = 'notifications'
+    user_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    # Which side of the account it concerns, so opening it can switch the
+    # app to the matching role before navigating to `link`.
+    role: Mapped[str] = mapped_column(String(16))
+    kind: Mapped[str] = mapped_column(String(48))
+    title: Mapped[str]
+    body: Mapped[str] = mapped_column(Text, default='')
+    link: Mapped[str] = mapped_column(default='')
+    read_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (CheckConstraint("role IN ('buyer','supplier')", name='valid_notification_role'),)
+
+
+class DeviceToken(Entity, Base):
+    """A phone registered for push. A token belongs to one account at a time;
+    signing in as someone else on the same phone moves it."""
+    __tablename__ = 'device_tokens'
+    user_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    token: Mapped[str] = mapped_column(unique=True)
+    platform: Mapped[str] = mapped_column(String(16), default='android')
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+
+
+class Operator(Entity, Base):
+    """An Omoterra staff member using the operations dashboard. Separate from
+    marketplace users: signing in here never creates a buyer or supplier."""
+    __tablename__ = 'operators'
+    phone: Mapped[str] = mapped_column(String(20), unique=True)
+    name: Mapped[str]
+    role: Mapped[str] = mapped_column(String(16), default='staff')
+    active: Mapped[bool] = mapped_column(default=True)
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (CheckConstraint("role IN ('admin','staff')", name='valid_operator_role'),)
+
+
+class OperatorSession(Entity, Base):
+    __tablename__ = 'operator_sessions'
+    operator_id: Mapped[str] = mapped_column(ForeignKey('operators.id'), index=True)
+    token_hash: Mapped[str] = mapped_column(unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+
+class OpsAuditEntry(Entity, Base):
+    """One change made through the dashboard, written in the same transaction
+    as the change, so only actions that took effect are recorded."""
+    __tablename__ = 'ops_audit'
+    operator_id: Mapped[str] = mapped_column(ForeignKey('operators.id'), index=True)
+    method: Mapped[str] = mapped_column(String(8))
+    path: Mapped[str]
+
+
+class AdminSetup(Entity, Base):
+    """One run of the dashboard's "Admin setup": opened with the setup
+    passphrase, approved by an existing admin's phone code when there already
+    is an admin, and finished when the new admin confirms their own phone."""
+    __tablename__ = 'admin_setups'
+    token_hash: Mapped[str] = mapped_column(unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    needs_approval: Mapped[bool]
+    approved_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    new_name: Mapped[str] = mapped_column(default='')
+    new_phone: Mapped[str] = mapped_column(String(20), default='')
+    completed_operator_id: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+
+
+class AdminSetupAttempt(Entity, Base):
+    """Every passphrase attempt, for rate limiting guesses."""
+    __tablename__ = 'admin_setup_attempts'
+    succeeded: Mapped[bool]
+
+
+class OrderRating(Entity, Base):
+    """A buyer's rating of one delivered order. It counts toward the
+    reputation of every supplier whose stock was in the order. Comments are
+    never shown to other buyers; suppliers see them without the buyer."""
+    __tablename__ = 'order_ratings'
+    order_id: Mapped[str] = mapped_column(ForeignKey('orders.id'), unique=True)
+    buyer_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    stars: Mapped[int] = mapped_column(Integer)
+    comment: Mapped[str] = mapped_column(Text, default='')
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+    # Operations can hide an abusive or mistaken rating; it then stops
+    # counting toward the supplier's reputation.
+    hidden: Mapped[bool] = mapped_column(default=False)
+    hidden_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (CheckConstraint('stars BETWEEN 1 AND 5', name='valid_rating_stars'),)

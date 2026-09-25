@@ -5,6 +5,7 @@ import '../../core/theme/theme.dart';
 import '../../core/api/repository.dart';
 import '../../shared/widgets/brand_image.dart';
 import '../../shared/widgets/components.dart';
+import 'supplier_reviews_screen.dart';
 
 class SupplierHome extends ConsumerWidget {
   const SupplierHome({super.key});
@@ -214,6 +215,7 @@ class SupplierHome extends ConsumerWidget {
                             onTap: () => context.push('/sales'))),
                   ]),
                   const SizedBox(height: 12),
+                  const _RatingTile(),
                   const _QuickStats(),
                 ]))),
       ],
@@ -411,4 +413,22 @@ class _QuickStats extends StatelessWidget {
               ],
             ]));
       });
+}
+
+/// Buyer ratings at a glance; hidden until it loads, and if it cannot.
+class _RatingTile extends ConsumerWidget {
+  const _RatingTile();
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final reputation = ref.watch(supplierReputationProvider).valueOrNull;
+    if (reputation == null) return const SizedBox.shrink();
+    return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: SupplierTile(
+            title: 'Buyer ratings',
+            subtitle: reputationSummary(reputation),
+            icon: Icons.star_outline_rounded,
+            prominent: true,
+            onTap: () => context.push('/supplier-reviews')));
+  }
 }

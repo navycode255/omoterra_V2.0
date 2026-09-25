@@ -105,7 +105,12 @@ def _failed_app(message):
 try:
     from a2wsgi import ASGIMiddleware
     from app.main import app
+    from app.migrations import apply_on_startup
 
+    # The WSGI adapter does not run FastAPI's startup hook, so pending
+    # database migrations are applied here. A failed migration lands in the
+    # except below: the error log gets the reason, the site does not start.
+    apply_on_startup()
     application = ASGIMiddleware(app)
 except Exception:  # noqa: BLE001 - report any startup failure, not just imports
     import traceback

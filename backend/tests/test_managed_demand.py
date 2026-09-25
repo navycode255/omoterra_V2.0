@@ -6,7 +6,7 @@ from sqlalchemy import select
 from app import models as m
 from test_commerce import headers
 
-OPS = {'X-Ops-Token': 'test-operator-secret'}
+OPS = {'X-Ops-Token': 'test-operator-secret', 'X-Operator-Session': 'ops-admin'}
 
 
 def idem(key):

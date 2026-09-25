@@ -24,15 +24,22 @@ const GROUPS = [
   ] },
 ] as const;
 
-export function Sidebar({ counts }: { counts: Record<string, number> }) {
+// Only admins manage staff and read the activity log.
+const ADMIN_GROUP = { label: 'Team', modules: [
+  { href: '/staff', label: 'Staff', icon: Icons.users, key: null },
+  { href: '/activity', label: 'Activity', icon: Icons.clock, key: null },
+] } as const;
+
+export function Sidebar({ counts, admin }: { counts: Record<string, number>; admin: boolean }) {
   const pathname = usePathname();
+  const groups = admin ? [...GROUPS, ADMIN_GROUP] : GROUPS;
   return <aside className="sidebar">
     <nav className="nav" aria-label="Operations navigation">
-      {GROUPS.map((group) => <div className="nav-group" key={group.label}>
+      {groups.map((group) => <div className="nav-group" key={group.label}>
         <p className="nav-heading">{group.label}</p>
         {group.modules.map((module) => {
           const active = module.href === '/manage' ? pathname === '/manage' : pathname.startsWith(module.href);
-          const count = module.key ? counts[module.key] : 0;
+          const count = module.key ? counts[module.key] ?? 0 : 0;
           const ModuleIcon = module.icon;
           return <Link key={module.href} href={module.href} className="nav-item" data-active={active}>
             <span className="nav-label"><ModuleIcon size={20}/>{module.label}</span>

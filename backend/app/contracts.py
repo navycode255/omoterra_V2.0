@@ -10,6 +10,8 @@ Category = Literal['broilers', 'local_chicken', 'layers', 'goats', 'cattle', 'ch
 Unit = Literal['bird', 'animal', 'kg', 'tray']
 Money = Annotated[Decimal, Field(gt=0, max_digits=14, decimal_places=2)]
 Quantity = Annotated[Decimal, Field(gt=0, max_digits=14, decimal_places=3)]
+GOOGLE_DOMAIN = r'google\.(?:com|[a-z]{2})(?:\.[a-z]{2})?'
+GOOGLE_MAPS_LINK = re.compile(rf'^https://(?:(?:www\.)?{GOOGLE_DOMAIN}/maps|maps\.{GOOGLE_DOMAIN}|maps\.app\.goo\.gl|goo\.gl/maps)(?:[/?#]|$)', re.I)
 UNITS = {'broilers': 'bird', 'local_chicken': 'bird', 'layers': 'bird', 'goats': 'animal', 'cattle': 'animal', 'chicken_meat': 'kg', 'beef': 'kg', 'goat_meat': 'kg', 'eggs': 'tray'}
 
 
@@ -77,6 +79,7 @@ class ListingInput(Input):
     specs: dict
     region: str = Field(min_length=2, max_length=80)
     photos: list[str] = Field(default_factory=list, max_length=8)
+    video: Optional[str] = Field(default=None, max_length=80)
     farmer_asking_price_per_unit: Money
     quantity_total: Quantity
 
@@ -135,6 +138,9 @@ class Checkout(Input):
     reservation_id: str
     delivery_address_id: str
     preferred_delivery_date: date
+    # 'pay_now' is reserved for a mobile-money provider. Until one is connected
+    # checkout rejects it (422) and /config advertises only 'pay_on_delivery';
+    # the app shows Pay Now greyed out as "coming soon".
     payment_method: Literal['pay_now', 'pay_on_delivery']
 
     @field_validator('preferred_delivery_date')
@@ -238,6 +244,22 @@ class SupplierProfileInput(Input):
     supply_forms: list[Literal['live', 'dressed', 'chilled', 'frozen']] = Field(default_factory=list)
     preferred_contact_method: Literal['phone', 'whatsapp', 'sms'] = 'phone'
     operating_notes: str = Field(default='', max_length=1000)
+    farm_latitude: Optional[Annotated[Decimal, Field(ge=-90, le=90, max_digits=9, decimal_places=6)]] = None
+    farm_longitude: Optional[Annotated[Decimal, Field(ge=-180, le=180, max_digits=9, decimal_places=6)]] = None
+    farm_map_url: str = Field(default='', max_length=500)
+
+    @field_validator('farm_map_url')
+    @classmethod
+    def google_maps_link(cls, value):
+        if value and not GOOGLE_MAPS_LINK.match(value):
+            raise ValueError('Paste a Google Maps link for the farm location')
+        return value
+
+    @model_validator(mode='after')
+    def farm_pin_complete(self):
+        if (self.farm_latitude is None) != (self.farm_longitude is None):
+            raise ValueError('The farm location needs both latitude and longitude')
+        return self
 
     @field_validator('region')
     @classmethod
@@ -285,6 +307,11 @@ class SupplierProfileInput(Input):
 class SupplierStatusInput(Input):
     status: Literal['under_review', 'approved', 'rejected', 'suspended']
     notes: str = Field(default='', max_length=2000)
+
+
+class SupplierVideoInput(Input):
+    youtube_url: str = Field(min_length=11, max_length=300)
+    title: str = Field(default='', max_length=120)
 
 
 class SupplierVerificationInput(Input):
@@ -472,6 +499,11 @@ class BusinessProgress(Input):
     internal_notes: str = Field(default='', max_length=2000)
 
 
+class StockMediaInput(Input):
+    photos: list[str] = Field(default_factory=list, max_length=8)
+    video: Optional[str] = Field(default=None, max_length=80)
+
+
 class StockCorrection(Input):
     counted_on_hand: Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)]
     reason: str = Field(min_length=5, max_length=500)
@@ -498,3 +530,53 @@ class SaleInput(Input):
 
 class SaleReversalInput(Input):
     reason: str = Field(min_length=5, max_length=500)
+
+
+class NotificationsRead(Input):
+    ids: list[str] = Field(default_factory=list, max_length=200)
+    all: bool = False
+
+
+class DeviceInput(Input):
+    token: str = Field(min_length=20, max_length=4096)
+    platform: Literal['android', 'ios', 'web'] = 'android'
+
+
+class OperatorInput(Input):
+    phone: str = Field(pattern=r'^\+255[67]\d{8}$')
+    name: str = Field(min_length=2, max_length=100)
+    role: Literal['admin', 'staff'] = 'staff'
+
+
+class OperatorUpdate(Input):
+    name: Optional[str] = Field(default=None, min_length=2, max_length=100)
+    role: Optional[Literal['admin', 'staff']] = None
+    active: Optional[bool] = None
+
+
+class SetupStart(Input):
+    passphrase: str = Field(min_length=1, max_length=200)
+
+
+class SetupPhone(Input):
+    setup_token: str = Field(min_length=20, max_length=200)
+    phone: str = Field(pattern=r'^\+255[67]\d{8}$')
+
+
+class SetupAdmin(SetupPhone):
+    name: str = Field(min_length=2, max_length=100)
+
+
+class SetupVerify(Input):
+    setup_token: str = Field(min_length=20, max_length=200)
+    challenge_id: str
+    code: str = Field(pattern=r'^\d{4,8}$')
+
+
+class RatingInput(Input):
+    stars: int = Field(ge=1, le=5)
+    comment: str = Field(default='', max_length=500)
+
+
+class RatingVisibility(Input):
+    hidden: bool

@@ -1,7 +1,7 @@
 from decimal import Decimal
 from test_commerce import headers, order, reserve
 
-OPS = {'X-Ops-Token': 'test-operator-secret'}
+OPS = {'X-Ops-Token': 'test-operator-secret', 'X-Operator-Session': 'ops-admin'}
 
 
 def ops(client, path):

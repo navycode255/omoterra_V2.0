@@ -151,7 +151,7 @@ def test_partial_reconciliation_records_receipts_once(client, sessions, seeded):
         for status in ['pickup_scheduled', 'collected', 'quality_checked', 'in_transit', 'delivered']:
             s.advance(db, row, c.Progress(internal_status=status, actual_quantity=4, rejected_quantity=0))
     def reconcile(key, amount, reference):
-        return client.post(f'/api/v1/ops/orders/{id}/reconcile', headers={'X-Ops-Token': 'test-operator-secret', 'Idempotency-Key': key}, json={'amount': amount, 'payment_reference': reference})
+        return client.post(f'/api/v1/ops/orders/{id}/reconcile', headers={'X-Ops-Token': 'test-operator-secret', 'X-Operator-Session': 'ops-admin', 'Idempotency-Key': key}, json={'amount': amount, 'payment_reference': reference})
     first = reconcile('first-receipt-key', '10000', 'cash-receipt-one')
     assert first.status_code == 200 and first.json()['status'] == 'partial'
     assert reconcile('first-receipt-key', '10000', 'cash-receipt-one').json()['received_amount'] == '10000.00'
@@ -166,7 +166,7 @@ def test_operator_source_conversion_is_idempotent(client, sessions, seeded):
     with sessions.begin() as db:
         request = m.SourcingRequest(buyer_id=seeded['buyer'], category='broilers', unit_type='bird', quantity=4, needed_by_date='2027-01-01', delivery_area='Dar', status='confirmed')
         db.add(request); db.flush(); id = request.id
-    ops = {'X-Ops-Token': 'test-operator-secret', 'Idempotency-Key': 'source-hold-key'}
+    ops = {'X-Ops-Token': 'test-operator-secret', 'X-Operator-Session': 'ops-admin', 'Idempotency-Key': 'source-hold-key'}
     hold = client.post(f'/api/v1/ops/requests/{id}/reserve', headers=ops, json={'listing_id': seeded['listing'], 'quantity': '4'})
     assert hold.status_code == 200
     payload = checkout_data(seeded, hold.json()['id']).model_dump(mode='json')
@@ -180,7 +180,7 @@ def test_operator_source_conversion_is_idempotent(client, sessions, seeded):
 
 def test_operator_rejection_releases_active_holds(client, sessions, seeded):
     reserve(sessions, seeded, 3)
-    result = client.patch(f"/api/v1/ops/listings/{seeded['listing']}/status", headers={'X-Ops-Token': 'test-operator-secret', 'Idempotency-Key': 'listing-review-key'}, json={'status': 'rejected'})
+    result = client.patch(f"/api/v1/ops/listings/{seeded['listing']}/status", headers={'X-Ops-Token': 'test-operator-secret', 'X-Operator-Session': 'ops-admin', 'Idempotency-Key': 'listing-review-key'}, json={'status': 'rejected'})
     assert result.status_code == 200
     with sessions() as db:
         assert db.get(m.Listing, seeded['listing']).quantity_reserved == 0
@@ -195,7 +195,7 @@ def test_ops_collection_photos_never_cross_mobile_boundary(client, sessions, see
     settings().media_directory = str(tmp_path)
     id = order(sessions, seeded)
     raw = BytesIO(); Image.new('RGB', (10, 10)).save(raw, 'JPEG')
-    response = client.post(f'/api/v1/ops/orders/{id}/photos', headers={'X-Ops-Token': 'test-operator-secret', 'Idempotency-Key': 'collection-photo-key'}, files={'file': ('collection.jpg', raw.getvalue(), 'image/jpeg')})
+    response = client.post(f'/api/v1/ops/orders/{id}/photos', headers={'X-Ops-Token': 'test-operator-secret', 'X-Operator-Session': 'ops-admin', 'Idempotency-Key': 'collection-photo-key'}, files={'file': ('collection.jpg', raw.getvalue(), 'image/jpeg')})
     assert response.status_code == 200
     for role in ['buyer', 'supplier']:
         assert client.get('/api/v1' + response.json()['url'], headers=headers(role)).status_code == 404
@@ -211,7 +211,7 @@ def test_supplier_submission_to_buyer_approval_boundary(client, seeded):
     assert response.json()['listing_status'] == 'pending_review'
     assert 'buyer_price_per_unit' not in response.json()
     assert client.get(f'/api/v1/listings/{id}', headers=headers()).status_code == 404
-    approved = client.post(f'/api/v1/ops/listings/{id}/approve', headers={'X-Ops-Token': 'test-operator-secret'}, json={'buyer_price_per_unit': '13000', 'public_alias': 'Green Supply Partner'})
+    approved = client.post(f'/api/v1/ops/listings/{id}/approve', headers={'X-Ops-Token': 'test-operator-secret', 'X-Operator-Session': 'ops-admin'}, json={'buyer_price_per_unit': '13000', 'public_alias': 'Green Supply Partner'})
     assert approved.status_code == 200
     result = client.get(f'/api/v1/listings/{id}', headers=headers()).json()
     assert result['buyer_price_per_unit'] == '13000.00'
@@ -229,7 +229,7 @@ def test_eggs_listing_uses_tray_specs_and_rejects_bad_tray_size(client, seeded):
     assert response.status_code == 200
     id = response.json()['id']
     approved = client.post(f'/api/v1/ops/listings/{id}/approve',
-        headers={'X-Ops-Token': 'test-operator-secret'},
+        headers={'X-Ops-Token': 'test-operator-secret', 'X-Operator-Session': 'ops-admin'},
         json={'buyer_price_per_unit': '10000', 'public_alias': 'Egg Partner'})
     assert approved.status_code == 200
     result = client.get(f'/api/v1/listings/{id}', headers=headers()).json()
@@ -265,7 +265,7 @@ def test_collection_date_is_explicit_not_inferred_from_delivery(client, sessions
     id = order(sessions, seeded)
     view = client.get('/api/v1/supplier/orders', headers=headers('supplier')).json()
     assert view[0]['expected_collection_date'] is None
-    response = client.post(f'/api/v1/ops/orders/{id}/progress', headers={'X-Ops-Token': 'test-operator-secret', 'Idempotency-Key': 'pickup-schedule-key'}, json={'internal_status': 'pickup_scheduled', 'expected_collection_date': '2027-01-01'})
+    response = client.post(f'/api/v1/ops/orders/{id}/progress', headers={'X-Ops-Token': 'test-operator-secret', 'X-Operator-Session': 'ops-admin', 'Idempotency-Key': 'pickup-schedule-key'}, json={'internal_status': 'pickup_scheduled', 'expected_collection_date': '2027-01-01'})
     assert response.status_code == 200
     view = client.get('/api/v1/supplier/orders', headers=headers('supplier')).json()
     assert view[0]['expected_collection_date'] == '2027-01-01'

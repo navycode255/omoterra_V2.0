@@ -208,6 +208,9 @@ final routerProvider = Provider<GoRouter>((ref) {
         omoterraRoute(
             path: '/account/edit', builder: (_, __) => const ProfileScreen()),
         omoterraRoute(
+            path: '/supplier-reviews',
+            builder: (_, __) => const SupplierReviewsScreen()),
+        omoterraRoute(
             path: '/notifications',
             builder: (_, __) => const NotificationsScreen()),
         omoterraRoute(

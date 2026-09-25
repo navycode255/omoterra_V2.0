@@ -48,6 +48,7 @@ export interface Listing {
   unit_type: 'bird' | 'animal' | 'kg';
   region: string;
   photos: string[];
+  video: string | null;
   specs: Record<string, string>;
   farmer_asking_price_per_unit: string;
   supplier_payout_price_per_unit: string | null;
@@ -200,6 +201,9 @@ export interface SupplierDetail extends Omit<SupplierRow, 'live_listings' | 'pen
   general_area: string;
   primary_category: string | null;
   evidence_photos: string[];
+  photos: SupplierPhoto[];
+  video: SupplierVideo | null;
+  video_upload_enabled: boolean;
   production_profile: Record<string, { capacity: string; unit: string; frequency: string }> ;
   production_frequency: string;
   pickup_instructions: string;
@@ -221,6 +225,9 @@ export interface SupplierDetail extends Omit<SupplierRow, 'live_listings' | 'pen
   batch_verifications: { batch_id: string; verified_quantity: string; sampled_average_weight_kg: string | null; rejected_quantity: string; readiness_confirmed: boolean; location_confirmed: boolean; notes: string; status: string; inspected_at: string }[];
   name: string;
   internal_pickup_address: string;
+  farm_latitude: string | number | null;
+  farm_longitude: string | number | null;
+  farm_map_url: string;
   listings: Listing[];
   settlements: Settlement[];
 }
@@ -299,4 +306,37 @@ export interface Dashboard {
   recent_suppliers: { id: string; name: string; region: string; district: string; status: SupplierRow['status']; joined_at: string }[];
   recent_orders: { id: string; buyer: string; internal_status: InternalStatus; total_amount: string; created_at: string }[];
   recent_activity: DashboardActivity[];
+}
+
+export interface SupplierPhoto { id: string; url: string; created_at: string }
+
+export interface SupplierVideo {
+  id: string;
+  youtube_video_id: string;
+  youtube_url: string;
+  thumbnail_url: string;
+  title: string;
+  source: 'link' | 'upload';
+  status: 'processing' | 'ready' | 'failed';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface Operator {
+  id: string;
+  phone: string;
+  name: string;
+  role: 'admin' | 'staff';
+  active: boolean;
+  last_login_at: string | null;
+  created_at: string;
+}
+
+export interface AuditEntry {
+  id: string;
+  operator_id: string;
+  operator_name: string;
+  method: string;
+  path: string;
+  at: string;
 }

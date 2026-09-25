@@ -80,6 +80,19 @@ export default async function ListingReview({ params }: { params: Promise<{ id: 
                 approving.
               </p>
             </Card>
+
+            <Card title="Video">
+              {listing.video ? (
+                <video src={photoUrl(listing.video)} controls preload="metadata" style={{ width: '100%', borderRadius: 12 }} />
+              ) : (
+                <p className="muted small">No video submitted.</p>
+              )}
+              {listing.video && (
+                <p className="meta" style={{ marginTop: 'var(--s3)' }}>
+                  Watch and listen for names, phone numbers or signage before approving.
+                </p>
+              )}
+            </Card>
           </div>
 
           <div className="stack">

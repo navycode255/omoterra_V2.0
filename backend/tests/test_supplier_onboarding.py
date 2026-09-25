@@ -3,7 +3,7 @@ from sqlalchemy import select, func
 from app import models as m
 from test_commerce import headers
 
-OPS = {'X-Ops-Token': 'test-operator-secret'}
+OPS = {'X-Ops-Token': 'test-operator-secret', 'X-Operator-Session': 'ops-admin'}
 
 
 def ops_key(key):
@@ -164,3 +164,76 @@ def test_ops_supplier_photos_round_trip_through_profile_edits(client):
     # section edit, so photos missing here would be wiped by the next save.
     detail = client.get(f'/api/v1/ops/suppliers/{supplier_id}', headers=OPS).json()
     assert detail['evidence_photos'] == [photo.json()['url']]
+
+
+def _jpeg(color=(40, 120, 60)):
+    from io import BytesIO
+    from PIL import Image
+    raw = BytesIO()
+    Image.new('RGB', (40, 30), color).save(raw, 'JPEG')
+    return raw.getvalue()
+
+
+def test_ops_supplier_has_many_photos_added_and_deleted_individually(client, seeded):
+    supplier = seeded['supplier']
+    files = [('files', (f'farm{i}.jpg', _jpeg((i * 40, 90, 60)), 'image/jpeg')) for i in range(3)]
+    added = client.post(f'/api/v1/ops/suppliers/{supplier}/photos', headers=OPS, files=files)
+    assert added.status_code == 201, added.text
+    photos = added.json()['photos']
+    assert len(photos) == 3
+    more = client.post(f'/api/v1/ops/suppliers/{supplier}/photos', headers=OPS, files=[('files', ('x.jpg', _jpeg(), 'image/jpeg'))])
+    assert len(more.json()['photos']) == 4
+    removed = client.delete(f"/api/v1/ops/suppliers/{supplier}/photos/{photos[1]['id']}", headers=OPS)
+    assert removed.status_code == 200
+    remaining = [p['id'] for p in removed.json()['photos']]
+    assert photos[1]['id'] not in remaining and len(remaining) == 3
+    assert client.delete(f"/api/v1/ops/suppliers/{supplier}/photos/{photos[1]['id']}", headers=OPS).status_code == 404
+    detail = client.get(f'/api/v1/ops/suppliers/{supplier}', headers=OPS).json()
+    assert [p['id'] for p in detail['photos']] == remaining
+    assert detail['evidence_photos'] == [p['url'] for p in detail['photos']]
+
+
+def test_profile_edit_without_photos_keeps_existing_photos(client):
+    created = client.post('/api/v1/ops/suppliers', headers=ops_key('supplier-photos-keep'), json=supplier_body('+255712345612'))
+    supplier = created.json()['id']
+    client.post(f'/api/v1/ops/suppliers/{supplier}/photos', headers=OPS, files=[('files', ('a.jpg', _jpeg(), 'image/jpeg'))])
+    profile = {k: v for k, v in supplier_body().items() if k not in ('phone', 'name', 'internal_notes', 'verification', 'current_batch', 'future_batches')}
+    assert client.put(f'/api/v1/ops/suppliers/{supplier}', headers=OPS, json={**profile, 'evidence_photos': []}).status_code == 200
+    assert len(client.get(f'/api/v1/ops/suppliers/{supplier}', headers=OPS).json()['photos']) == 1
+
+
+def test_supplier_has_at_most_one_video(client, sessions, seeded):
+    import pytest
+    from sqlalchemy.exc import IntegrityError
+    supplier = seeded['supplier']
+    url = f'/api/v1/ops/suppliers/{supplier}/video'
+    empty = client.get(url, headers=OPS).json()
+    assert empty == {'video': None, 'upload_enabled': False}
+    first = client.post(url, headers=OPS, json={'youtube_url': 'https://youtu.be/dQw4w9WgXcQ', 'title': 'Farm tour'})
+    assert first.status_code == 201, first.text
+    assert first.json()['video']['thumbnail_url'] == 'https://i.ytimg.com/vi/dQw4w9WgXcQ/hqdefault.jpg'
+    second = client.post(url, headers=OPS, json={'youtube_url': 'https://www.youtube.com/watch?v=9bZkp7q19f0'})
+    assert second.status_code == 409 and second.json()['detail'] == 'Supplier already has a video.'
+    replaced = client.put(url, headers=OPS, json={'youtube_url': 'https://www.youtube.com/shorts/9bZkp7q19f0', 'title': 'New tour'})
+    assert replaced.status_code == 200, replaced.text
+    assert replaced.json()['video']['id'] == first.json()['video']['id']
+    assert replaced.json()['video']['youtube_video_id'] == '9bZkp7q19f0'
+    with sessions() as db:
+        assert db.scalar(select(func.count()).select_from(m.SupplierVideo).where(m.SupplierVideo.supplier_id == supplier)) == 1
+    # The database itself refuses a second video row for the same supplier.
+    with pytest.raises(IntegrityError):
+        with sessions.begin() as db:
+            db.add(m.SupplierVideo(supplier_id=supplier, youtube_video_id='aaaaaaaaaaa', youtube_url='x', thumbnail_url='y'))
+    assert client.post(url, headers=OPS, json={'youtube_url': 'https://example.com/video'}).status_code == 422
+    assert client.delete(url, headers=OPS).status_code == 200
+    assert client.get(url, headers=OPS).json()['video'] is None
+    assert client.delete(url, headers=OPS).status_code == 404
+    upload = client.post(f'{url}/upload', headers=OPS, files={'file': ('tour.mp4', b'0' * 10, 'video/mp4')})
+    assert upload.status_code == 503
+
+
+def test_youtube_links_in_common_forms_are_understood():
+    from app.video import youtube_id
+    for link in ['https://youtu.be/dQw4w9WgXcQ?t=3', 'youtube.com/watch?v=dQw4w9WgXcQ&list=x', 'https://m.youtube.com/shorts/dQw4w9WgXcQ',
+            'https://www.youtube.com/embed/dQw4w9WgXcQ', 'https://www.youtube.com/live/dQw4w9WgXcQ', 'dQw4w9WgXcQ']:
+        assert youtube_id(link) == 'dQw4w9WgXcQ', link

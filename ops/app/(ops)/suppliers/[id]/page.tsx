@@ -2,7 +2,8 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Icons } from '@/components/icons';
 import { SupplierStatusControl, SupplierVerificationForm } from '@/components/supplier-controls';
-import { ApprovalGuide, EditableCard, EditSupplierButton, SupplierPhotos, SupplierTabs } from '@/components/supplier-profile';
+import { ApprovalGuide, EditableCard, EditSupplierButton, SupplierTabs } from '@/components/supplier-profile';
+import { SupplierPhotosCard, SupplierVideoCard } from '@/components/supplier-media';
 import { Empty, Status } from '@/components/ui';
 import { ApiError, get } from '@/lib/api';
 import { category, date, listingTone, phone, quantity, reference, titleCase, tzs } from '@/lib/format';
@@ -10,7 +11,7 @@ import { approvalRequirements, missingProfileFields, type RequiredProfileField }
 import type { SupplierDetail } from '@/lib/types';
 
 const CATEGORY_KEYS = ['broilers','local_chicken','layers','eggs','goats','cattle','chicken_meat','beef','goat_meat'];
-const MAX_PHOTOS = 8;
+const MAX_PHOTOS = 30;
 const SECTION_FIELDS: Record<string, RequiredProfileField[]> = {
   details: ['public_alias', 'legal_name', 'region', 'district'],
   production: [],
@@ -20,6 +21,14 @@ const SECTION_FIELDS: Record<string, RequiredProfileField[]> = {
 
 function Details({ items }: { items: [string, React.ReactNode][] }) {
   return <dl className="supplier-definition">{items.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>;
+}
+
+// The pin the supplier set in the app. Coordinates are the source of truth;
+// the pasted link is kept alongside for reference.
+function FarmLocation({ supplier }: { supplier: SupplierDetail }) {
+  if (supplier.farm_latitude == null || supplier.farm_longitude == null) return <>Not set</>;
+  const point = `${Number(supplier.farm_latitude).toFixed(6)},${Number(supplier.farm_longitude).toFixed(6)}`;
+  return <a href={`https://www.google.com/maps/search/?api=1&query=${point}`} target="_blank" rel="noopener noreferrer">{point} · Open in Google Maps</a>;
 }
 
 function Field({ label, name, children }: { label: string; name: string; children: React.ReactNode }) {
@@ -33,7 +42,6 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
   catch (error) { if (error instanceof ApiError && error.status === 404) notFound(); throw error; }
   const approval = approvalRequirements(supplier);
   const canApprove = approval.every((group) => group.items.every((item) => item.done));
-  const photos = supplier.evidence_photos ?? [];
   const missing = missingProfileFields(supplier);
   const categoryChoices = (withCapacity: boolean) => <div className="category-editor">
     <input type="hidden" name="categories_field" value="1"/>
@@ -92,7 +100,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
             <Field label="Operating schedule / notes" name="operating_notes"><textarea className="input" id="edit_operating_notes" name="operating_notes" defaultValue={supplier.operating_notes}/></Field>
           </>}/>
         <EditableCard id={supplier.id} section="pickup" extras={extrasFor('pickup')} icon={<Icons.pin size={23}/>} title="Private pickup location"
-          view={<Details items={[["Address", supplier.internal_pickup_address || '—'], ["Region", supplier.region || '—'], ["Pickup instructions", supplier.pickup_instructions || '—']]}/>}
+          view={<Details items={[["Farm location", <FarmLocation key="farm" supplier={supplier}/>], ["Address", supplier.internal_pickup_address || '—'], ["Region", supplier.region || '—'], ["Pickup instructions", supplier.pickup_instructions || '—']]}/>}
           fields={<>
             <Field label="Exact pickup address (private)" name="internal_pickup_address"><textarea className="input" id="edit_internal_pickup_address" name="internal_pickup_address" defaultValue={supplier.internal_pickup_address} required minLength={3}/></Field>
             <Field label="Pickup instructions" name="pickup_instructions"><textarea className="input" id="edit_pickup_instructions" name="pickup_instructions" defaultValue={supplier.pickup_instructions}/></Field>
@@ -101,7 +109,8 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
           view={<div className="category-pills">{supplier.categories.length ? supplier.categories.map((item) => <span key={item}>{category(item)}</span>) : <span>None recorded</span>}</div>}
           fields={categoryChoices(true)}/>
         <section className="supplier-detail-card" id="verification"><SupplierVerificationForm id={supplier.id} verification={supplier.verification} notes={supplier.internal_notes}/></section>
-        <SupplierPhotos id={supplier.id} photos={photos} max={MAX_PHOTOS}/>
+        <SupplierPhotosCard id={supplier.id} photos={supplier.photos ?? []} limit={MAX_PHOTOS}/>
+        <SupplierVideoCard id={supplier.id} video={supplier.video ?? null} uploadEnabled={supplier.video_upload_enabled ?? false}/>
       </div>
       <section className="supplier-lower-section" id="production">
         <h2>Current and planned production</h2>

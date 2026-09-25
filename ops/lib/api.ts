@@ -1,7 +1,10 @@
 import 'server-only';
+import { cookies } from 'next/headers';
 
-// The operations token is a shared backend secret. It is read from the server
-// environment and attached here, so it never reaches the browser bundle.
+// The operations token is the dashboard server's own backend credential. It is
+// read from the server environment and attached here, so it never reaches the
+// browser bundle. The signed-in operator's session (an httpOnly cookie) goes
+// with it, so the backend knows which person made each change.
 const base = process.env.OMOTERRA_API_URL ?? 'https://omoterra.jopex.co.tz/api/v1';
 const token = process.env.OMOTERRA_OPS_TOKEN ?? '';
 
@@ -32,11 +35,16 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!token) {
     throw new ApiError(500, 'We could not load this information just now. Please try again later.');
   }
+  const operator = (await cookies()).get('omoterra_operator')?.value ?? '';
   let response: Response;
   try {
     response = await fetch(base + path, {
       ...init,
-      headers: { 'X-Ops-Token': token, ...(init.headers ?? {}) },
+      headers: {
+        'X-Ops-Token': token,
+        ...(operator ? { 'X-Operator-Session': operator } : {}),
+        ...(init.headers ?? {}),
+      },
       cache: 'no-store',
     });
   } catch {
@@ -89,12 +97,23 @@ export async function postFile<T>(path: string, file: File, idempotencyKey: stri
   });
 }
 
+export async function postFiles<T>(path: string, field: string, files: File[]): Promise<T> {
+  const form = new FormData();
+  for (const file of files) form.append(field, file);
+  return request<T>(path, { method: 'POST', body: form });
+}
+
+export function del<T>(path: string) {
+  return request<T>(path, { method: 'DELETE' });
+}
+
 // Photos are fetched server-side and streamed through this app, because the
 // backend media route is ops-authenticated and the browser has no token.
 export async function media(id: string): Promise<{ body: ArrayBuffer; type: string } | null> {
   if (!token) return null;
+  const operator = (await cookies()).get('omoterra_operator')?.value ?? '';
   const response = await fetch(`${base}/ops/media/${id}`, {
-    headers: { 'X-Ops-Token': token },
+    headers: { 'X-Ops-Token': token, 'X-Operator-Session': operator },
     cache: 'no-store',
   });
   if (!response.ok) return null;

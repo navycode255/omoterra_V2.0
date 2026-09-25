@@ -143,7 +143,23 @@ OMOTERRA_MEDIA_DIRECTORY=/home/CPANEL_USERNAME/omoterra_backend/media
 OMOTERRA_SUPPORT_PHONE=
 OMOTERRA_TERMS_TEXT=
 OMOTERRA_PRIVACY_TEXT=
+# Push notifications through Firebase (leave 'disabled' to use only the
+# in-app inbox). The key file is the Firebase service-account JSON; keep it
+# outside public_html and outside the app folder, readable only by you.
+OMOTERRA_PUSH_PROVIDER=fcm
+OMOTERRA_FCM_CREDENTIALS_FILE=/home/CPANEL_USERNAME/secrets/firebase-key.json
 ```
+
+Upload the Firebase key with **File Manager** into `/home/CPANEL_USERNAME/secrets/`
+(create the folder), then protect it:
+
+```bash
+chmod 700 ~/secrets
+chmod 600 ~/secrets/firebase-key.json
+```
+
+If the path is wrong or the file is not a service-account key, the API refuses
+to start and says so in the log, so a typo cannot silently turn push off.
 
 Generate secrets with:
 
@@ -160,24 +176,64 @@ chmod 600 .env
 mkdir -p media
 ```
 
-## 5. Create the database tables
+## 5. Database tables are created and updated automatically
 
-Run the initializer once:
+There is nothing to run by hand. Every time the API starts (Passenger or
+`restart-omoterra.sh`), it applies any new file in `migrations/` that the
+database has not had yet, records it in the `schema_migrations` table, and only
+then starts serving. On an empty database this builds every table; after an
+update it applies just the new migrations.
+
+- If a migration fails it is rolled back completely and the API does **not**
+  start. The reason is in `logs/app.log` (uvicorn) or the cPanel error log
+  (Passenger). Nothing is left half-applied.
+- Several workers starting at once wait for each other; each migration runs once.
+- The first time this runs on a database that was migrated by hand, it detects
+  which migrations are already in effect and records them without re-running.
+
+To see or apply migrations without restarting:
 
 ```bash
 cd ~/omoterra_backend
-source .venv/bin/activate
-python -m app.manage
+.venv/bin/python -m app.migrations status   # applied / detected / pending
+.venv/bin/python -m app.migrations apply
 ```
 
-Expected output:
+Back up the database before deploying an update that adds migrations (on Neon,
+create a branch or snapshot first).
 
-```text
-Omoterra development schema created.
+Do not use `python -m app.manage` on the live database: it only creates missing
+tables and never adds new columns, which is how the schema drifted before.
+
+### Register operations admins
+
+Admins register themselves from the dashboard sign-in screen, using a setup
+passphrase kept only in the backend `.env`:
+
+```dotenv
+OMOTERRA_ADMIN_SETUP_PASSPHRASE=PASTE_A_LONG_RANDOM_PASSPHRASE_HERE
 ```
 
-Do not run the initializer repeatedly on a live database. Do not use it together
-with the SQL migrations on the same empty database.
+It must be at least 8 characters (`openssl rand -base64 24` makes a good one);
+leave it empty to switch admin setup off. Restart the API after setting it.
+
+On the sign-in screen, tap **Admin setup** (small link under the form):
+
+1. Enter the setup passphrase.
+2. **If an admin already exists**, enter an existing admin's phone number and
+   the code sent to it. The passphrase alone never creates an admin once one
+   exists; the new admin is recorded as approved by that admin.
+3. Enter the new admin's name and phone, then the code sent to that phone.
+   They are signed in as admin and can add staff from **Team → Staff**.
+
+Five wrong passphrases lock admin setup for 15 minutes, and an unfinished setup
+expires after 15 minutes.
+
+If the dashboard is unreachable, an admin can still be created on the server:
+
+```bash
+.venv/bin/python -m app.operators add +2557XXXXXXXX "Full Name" --admin
+```
 
 ## 6. Test the API before attaching the domain
 
@@ -259,6 +315,42 @@ minutes:
 Do not schedule `restart-omoterra.sh` directly every five minutes because that
 would unnecessarily restart a healthy API.
 
+## 8b. Scheduled jobs (cron)
+
+Two jobs run from cPanel **Cron Jobs**. Upload the scripts into
+`/home/jopexco/omoterra_backend/` and make them executable:
+
+```bash
+cd ~/omoterra_backend
+chmod 750 watchdog-omoterra.sh reminders-omoterra.sh
+./reminders-omoterra.sh && tail -n 3 logs/reminders.log
+```
+
+The manual run should log a line like `Stock reminders sent: 0`. Then, in cPanel
+open **Cron Jobs → Add New Cron Job** and add each line below (choose
+"Common Settings: Once Per Hour" for the reminders, or paste the full line):
+
+| Job | Schedule | Command |
+| --- | --- | --- |
+| Restart the API if it stops answering | every 5 minutes | `/home/jopexco/omoterra_backend/watchdog-omoterra.sh >/dev/null 2>&1` |
+| Remind suppliers to confirm stock | every hour, on the hour | `/home/jopexco/omoterra_backend/reminders-omoterra.sh >/dev/null 2>&1` |
+
+As crontab lines:
+
+```cron
+*/5 * * * * /home/jopexco/omoterra_backend/watchdog-omoterra.sh >/dev/null 2>&1
+0 * * * * /home/jopexco/omoterra_backend/reminders-omoterra.sh >/dev/null 2>&1
+```
+
+The reminder job warns a supplier 6 hours before their stock stops being shown
+to buyers (it must be re-confirmed every 48 hours) and again once it has been
+hidden. Each listing gets one reminder per confirmation window, so running it
+more often, or by hand, never sends duplicates, and a run that is still going
+makes the next one skip rather than overlap.
+
+Check it is working in `logs/reminders.log` (one line per run; failures are
+logged with `FAILED` and the reason). The log keeps its last 2000 lines.
+
 ## 9. Verify the public API
 
 Replace the domain with the API URL configured in cPanel:
@@ -288,11 +380,10 @@ cd ~/omoterra_backend
 source .venv/bin/activate
 git pull
 pip install -r requirements.lock
-python -m app.manage
 ```
 
-Only run `python -m app.manage` when the database schema must be initialized or
-updated. Restart the cPanel Python application after updating the code.
+Then restart the application (step 8). New database migrations are applied
+automatically as it starts; confirm with `python -m app.migrations status`.
 
 ## Common problems
 
@@ -352,4 +443,6 @@ Before using this API for real users:
 - Configure durable media storage and backups.
 - Restrict operator endpoints and review access logs.
 - Set real terms, privacy text, and support contact details.
+- Set the admin setup passphrase and register the first admin (step 5), and add the cron jobs (step 8b).
+- Configure push notifications (step 4) and confirm a test phone receives one.
 - Run the backend tests against the cPanel PostgreSQL database.

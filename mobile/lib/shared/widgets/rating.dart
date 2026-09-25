@@ -62,7 +62,7 @@ class ReputationStrip extends StatelessWidget {
     final deliveries = (r['deliveries'] as num?)?.toInt() ?? 0;
     final quality = (r['quality_passed'] as num?)?.toInt();
     Widget stat(String value, String label, {Widget? leading}) => Expanded(
-        child: Column(children: [
+            child: Column(children: [
           Row(mainAxisSize: MainAxisSize.min, children: [
             if (leading != null) ...[leading, const SizedBox(width: 3)],
             Text(value,
@@ -140,8 +140,8 @@ class _RateOrderCardState extends ConsumerState<RateOrderCard> {
           {'stars': stars, 'comment': comment.text.trim()});
       if (!mounted) return;
       setState(() => editing = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Thank you. Your rating helps other buyers.')));
+      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Thank you. Your rating helps other buyers.')));
       widget.onRated();
     } catch (e) {
       if (mounted) setState(() => error = e);
@@ -158,8 +158,10 @@ class _RateOrderCardState extends ConsumerState<RateOrderCard> {
       return Surface(
           child: Row(children: [
         Expanded(
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Your rating', style: TextStyle(fontWeight: FontWeight.w700)),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          const Text('Your rating',
+              style: TextStyle(fontWeight: FontWeight.w700)),
           const SizedBox(height: 6),
           StarRow(stars.toDouble(), size: 20),
           if (comment.text.isNotEmpty) ...[
@@ -212,10 +214,13 @@ class _RateOrderCardState extends ConsumerState<RateOrderCard> {
               maxLines: 3,
               minLines: 2,
               decoration: const InputDecoration(
-                  hintText: 'What went well, or what could be better? (optional)')),
+                  hintText:
+                      'What went well, or what could be better? (optional)')),
           if (error != null) ErrorState(error!),
-          OmoterraButton(widget.rating == null ? 'Submit rating' : 'Update rating',
-              busy: busy, onPressed: stars == 0 ? null : submit),
+          OmoterraButton(
+              widget.rating == null ? 'Submit rating' : 'Update rating',
+              busy: busy,
+              onPressed: stars == 0 ? null : submit),
         ]));
   }
 }

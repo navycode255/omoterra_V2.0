@@ -1,5 +1,9 @@
 import os
 import uuid
+
+# Tests build their schema from the models; never touch a real database's
+# migrations when the app starts under TestClient.
+os.environ['OMOTERRA_AUTO_MIGRATE'] = 'false'
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
@@ -67,6 +71,13 @@ def client(sessions, seeded):
     with sessions.begin() as db:
         for role in ['buyer', 'supplier', 'other']:
             db.add(m.AuthSession(user_id=seeded[role], token_hash=digest(role), expires_at=m.now() + timedelta(days=1)))
+        # Operators signed in to the dashboard: send X-Operator-Session
+        # 'ops-admin' or 'ops-staff' alongside the service token.
+        for role in ['admin', 'staff']:
+            operator = m.Operator(phone=f"+25571000000{'1' if role == 'admin' else '2'}", name=f'Test {role.title()}', role=role)
+            db.add(operator); db.flush()
+            seeded[f'operator_{role}'] = operator.id
+            db.add(m.OperatorSession(operator_id=operator.id, token_hash=digest(f'ops-{role}'), expires_at=m.now() + timedelta(days=1)))
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()

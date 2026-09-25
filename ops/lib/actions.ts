@@ -2,8 +2,7 @@
 
 import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
-import { ApiError, get, patch, post, postFile, put } from './api';
-import { missingProfileFields, REQUIRED_PROFILE_FIELDS } from './supplier';
+import { ApiError, del, get, patch, post, postFile, postFiles, put } from './api';
 import type { SupplierDetail } from './types';
 import { requireSession } from './session';
 
@@ -405,7 +404,7 @@ export async function updateSupplierVerification(_: ActionResult | null, formDat
 
 
 const CATEGORY_UNITS: Record<string, string> = { broilers:'bird', local_chicken:'bird', layers:'bird', eggs:'tray', goats:'animal', cattle:'animal', chicken_meat:'kg', beef:'kg', goat_meat:'kg' };
-const MAX_SUPPLIER_PHOTOS = 8;
+const PHOTO_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
 const SUPPLIER_TEXT_FIELDS = ['public_alias', 'legal_name', 'alternate_phone', 'region', 'district', 'general_area',
   'preferred_contact_method', 'primary_category', 'production_frequency', 'operating_notes',
   'internal_pickup_address', 'pickup_instructions'] as const;
@@ -419,7 +418,7 @@ async function saveSupplierProfile(id: string, change: (profile: SupplierProfile
     public_alias: supplier.public_alias, legal_name: supplier.legal_name, alternate_phone: supplier.alternate_phone,
     region: supplier.region, district: supplier.district, general_area: supplier.general_area,
     categories: supplier.categories, primary_category: supplier.primary_category ?? supplier.categories[0],
-    production_profile: supplier.production_profile, evidence_photos: supplier.evidence_photos ?? [],
+    production_profile: supplier.production_profile,
     production_frequency: supplier.production_frequency, internal_pickup_address: supplier.internal_pickup_address,
     pickup_instructions: supplier.pickup_instructions, omoterra_pickup: supplier.omoterra_pickup,
     supplier_transport: supplier.supplier_transport, supply_forms: supplier.supply_forms,
@@ -429,7 +428,7 @@ async function saveSupplierProfile(id: string, change: (profile: SupplierProfile
   await put(`/ops/suppliers/${id}`, profile);
 }
 
-type SupplierProfilePayload = Omit<SupplierDetail, 'id' | 'status' | 'phone' | 'alias_approved' | 'completed_supplies_count' | 'internal_notes' | 'verification' | 'reviewed_by_actor' | 'reviewed_at' | 'approved_by_actor' | 'approved_at' | 'suspended_by_actor' | 'suspended_at' | 'created_at' | 'batches' | 'batch_verifications' | 'name' | 'listings' | 'settlements'>;
+type SupplierProfilePayload = Omit<SupplierDetail, 'evidence_photos' | 'photos' | 'video' | 'video_upload_enabled' | 'id' | 'status' | 'phone' | 'alias_approved' | 'completed_supplies_count' | 'internal_notes' | 'verification' | 'reviewed_by_actor' | 'reviewed_at' | 'approved_by_actor' | 'approved_at' | 'suspended_by_actor' | 'suspended_at' | 'created_at' | 'batches' | 'batch_verifications' | 'name' | 'listings' | 'settlements' | 'farm_latitude' | 'farm_longitude' | 'farm_map_url'>;
 
 export async function updateSupplierSection(_: ActionResult | null, formData: FormData) {
   const read = (key: string) => String(formData.get(key) ?? '').trim();
@@ -473,26 +472,60 @@ export async function updateSupplierSection(_: ActionResult | null, formData: Fo
 export async function addSupplierPhotos(_: ActionResult | null, formData: FormData) {
   const id = String(formData.get('id'));
   const files = formData.getAll('photos').filter((file): file is File => file instanceof File && file.size > 0);
-  const existing = Number(formData.get('existing') ?? 0);
   if (!files.length) return { ok: false as const, error: 'Choose at least one photo.' };
-  if (existing + files.length > MAX_SUPPLIER_PHOTOS) {
-    return { ok: false as const, error: `A supplier can have up to ${MAX_SUPPLIER_PHOTOS} photos. Remove some before adding more.` };
-  }
+  if (files.some((file) => !PHOTO_TYPES.includes(file.type))) return { ok: false as const, error: 'Photos must be JPEG, PNG or WebP images.' };
   if (files.some((file) => file.size > 8 * 1024 * 1024)) return { ok: false as const, error: 'Each photo must be smaller than 8 MB.' };
-  return run(async () => {
-    const missing = missingProfileFields(await get<SupplierDetail>(`/ops/suppliers/${id}`));
-    if (missing.length) {
-      throw new ApiError(422, `Add ${missing.map((key) => REQUIRED_PROFILE_FIELDS[key].label.toLowerCase()).join(', ')} before adding photos.`);
-    }
-    const urls = await Promise.all(files.map((file) => postFile<{ url: string }>('/ops/suppliers/photos', file, randomUUID()).then((photo) => photo.url)));
-    await saveSupplierProfile(id, (profile) => { profile.evidence_photos = [...profile.evidence_photos, ...urls].slice(0, MAX_SUPPLIER_PHOTOS); });
-  }, ['/suppliers', `/suppliers/${id}`]);
+  return run(() => postFiles(`/ops/suppliers/${id}/photos`, 'files', files), ['/suppliers', `/suppliers/${id}`]);
 }
 
 export async function removeSupplierPhoto(_: ActionResult | null, formData: FormData) {
   const id = String(formData.get('id'));
-  const url = String(formData.get('url'));
-  return run(() => saveSupplierProfile(id, (profile) => {
-    profile.evidence_photos = profile.evidence_photos.filter((photo) => photo !== url);
-  }), ['/suppliers', `/suppliers/${id}`]);
+  const photo = String(formData.get('photo'));
+  return run(() => del(`/ops/suppliers/${id}/photos/${photo}`), ['/suppliers', `/suppliers/${id}`]);
+}
+
+// One video per supplier: "add" creates it (the backend answers 409 if one
+// already exists) and "replace" overwrites the existing record in place.
+export async function saveSupplierVideo(_: ActionResult | null, formData: FormData) {
+  const id = String(formData.get('id'));
+  const mode = formData.get('mode') === 'replace' ? 'replace' : 'add';
+  const body = { youtube_url: String(formData.get('youtube_url') ?? '').trim(), title: String(formData.get('title') ?? '').trim() };
+  if (!body.youtube_url) return { ok: false as const, error: 'Paste the YouTube link for the video.' };
+  const result = await run(() => mode === 'add' ? post(`/ops/suppliers/${id}/video`, body) : put(`/ops/suppliers/${id}/video`, body), [`/suppliers/${id}`]);
+  if (!result.ok && result.error === 'Supplier already has a video.') {
+    return { ok: false as const, error: 'This supplier already has a video. Replace the existing video instead.' };
+  }
+  return result;
+}
+
+export async function deleteSupplierVideo(_: ActionResult | null, formData: FormData) {
+  const id = String(formData.get('id'));
+  return run(() => del(`/ops/suppliers/${id}/video`), [`/suppliers/${id}`]);
+}
+
+function tanzanianPhone(raw: string) {
+  const digits = raw.replace(/[\s-]/g, '');
+  if (/^0[67]\d{8}$/.test(digits)) return '+255' + digits.slice(1);
+  if (/^255[67]\d{8}$/.test(digits)) return '+' + digits;
+  return digits;
+}
+
+// Staff management. The backend enforces that only admins can do this and
+// that at least one active admin always remains.
+export async function addOperator(_: ActionResult | null, formData: FormData) {
+  return run(() => post('/ops/operators', {
+    phone: tanzanianPhone(String(formData.get('phone') ?? '')),
+    name: String(formData.get('name') ?? '').trim(),
+    role: String(formData.get('role') ?? 'staff'),
+  }), ['/staff']);
+}
+
+export async function updateOperator(_: ActionResult | null, formData: FormData) {
+  const id = String(formData.get('id'));
+  const change: Record<string, unknown> = {};
+  const role = formData.get('role');
+  const active = formData.get('active');
+  if (role) change.role = String(role);
+  if (active !== null) change.active = String(active) === 'true';
+  return run(() => patch(`/ops/operators/${id}`, change), ['/staff']);
 }

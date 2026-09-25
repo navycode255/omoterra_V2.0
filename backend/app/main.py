@@ -5,22 +5,31 @@ from datetime import date, datetime, time, timedelta
 from zoneinfo import ZoneInfo
 from decimal import Decimal
 from typing import Optional, Union
-from fastapi import FastAPI, Depends, Header, Query, Request, HTTPException, UploadFile, File
+from fastapi import FastAPI, Depends, Header, Query, Request, HTTPException, UploadFile, File, Form
 from fastapi.responses import JSONResponse, FileResponse
 from pathlib import Path
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import select, delete, func
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import object_session
+import tempfile
+import secrets
+import hmac
 from . import models as m, contracts as c, services as s, auth
 from .db import database
 from .config import settings
 from .payments import DisabledPaymentProvider
-from .media import save_photo, validate_owned_media
-from . import inventory as inv, demand as dm
+from .media import save_photo, save_video, validate_owned_media
+from . import inventory as inv, demand as dm, video
+from . import notifications as notes, ratings
 
 
 @asynccontextmanager
 async def lifespan(app):
     settings().validate_runtime()
+    # Bring the database schema up to date before serving (see app/migrations.py).
+    from .migrations import apply_on_startup
+    apply_on_startup()
     yield
 
 
@@ -32,8 +41,10 @@ class DecimalResponse(JSONResponse):
 
 
 # Explicitly encode decimals before FastAPI's generic encoder.
-def result(value):
-    return JSONResponse(jsonable_encoder(value, custom_encoder={Decimal: str}))
+def result(value, status_code=200):
+    # A returned JSONResponse overrides the route's status_code, so creating
+    # endpoints that should answer 201 pass it here explicitly.
+    return JSONResponse(jsonable_encoder(value, custom_encoder={Decimal: str}), status_code=status_code)
 
 
 prefix = '/api/v1'
@@ -95,6 +106,92 @@ def logout(authorization: str = Header(), user=Depends(auth.current_user), db=De
     db.execute(delete(m.AuthSession).where(m.AuthSession.token_hash == auth.digest(authorization.removeprefix('Bearer '))))
 
 
+@app.delete(prefix + '/me', status_code=204)
+def delete_account(user=Depends(auth.current_user), db=Depends(database)):
+    """Anonymize and deactivate the account. Rows other records point to
+    (orders, settlements, listings already bought) are kept so that history,
+    payouts and audit trails stay intact; personal data on them is not — the
+    order/listing views never expose more than a supplier's approved alias
+    and a buyer's delivery snapshot, both already separate from this row."""
+    open_orders = db.scalar(select(func.count()).select_from(m.Order).where(
+        m.Order.buyer_id == user.id, m.Order.internal_status.notin_(['cancelled', 'completed', 'payment_failed'])))
+    if open_orders:
+        s.fail('You have an order in progress. Wait for it to finish or cancel it before deleting your account.')
+    pending_payouts = db.scalar(select(func.count()).select_from(m.Settlement).where(
+        m.Settlement.supplier_id == user.id, m.Settlement.status == 'pending'))
+    if pending_payouts:
+        s.fail('You have a payout Omoterra hasn’t settled yet. Contact Omoterra before deleting your account.')
+    live_stock = db.scalar(select(func.count()).select_from(m.Listing).where(
+        m.Listing.supplier_id == user.id, m.Listing.quantity_reserved > 0))
+    if live_stock:
+        s.fail('You have stock reserved for a buyer. Wait for that order to finish before deleting your account.')
+
+    db.execute(delete(m.AuthSession).where(m.AuthSession.user_id == user.id))
+    db.execute(delete(m.DeviceToken).where(m.DeviceToken.user_id == user.id))
+    profile = db.get(m.SupplierProfile, user.id)
+    if profile:
+        profile.legal_name, profile.alternate_phone = 'Deleted account', ''
+        profile.internal_pickup_address = profile.pickup_instructions = profile.operating_notes = ''
+        profile.farm_latitude = profile.farm_longitude = None
+        profile.farm_map_url = profile.public_alias = ''
+        profile.status = 'suspended'
+        profile.suspended_by_actor, profile.suspended_at = 'account-deleted', m.now()
+        for photo in _supplier_photos(db, user.id):
+            db.delete(photo)
+        video = db.scalar(select(m.SupplierVideo).where(m.SupplierVideo.supplier_id == user.id))
+        if video:
+            db.delete(video)
+        # Pending/rejected listings never reached a buyer; live ones without a
+        # reservation are pulled the same way a supplier suspension pulls them.
+        for listing in db.scalars(select(m.Listing).where(m.Listing.supplier_id == user.id)):
+            listing.listing_status = 'paused'
+    for address in db.scalars(select(m.Address).where(m.Address.user_id == user.id)):
+        address.deleted = True
+        address.recipient_name, address.phone, address.address_text = 'Deleted account', '', ''
+    user.name, user.region, user.buyer_type = '', '', None
+    # phone is VARCHAR(20) and carries the unique constraint that frees the
+    # real number for reuse; a short random suffix keeps this row unique
+    # without needing the full id.
+    user.phone = f'del:{secrets.token_hex(8)}'
+    user.roles = []
+    user.deleted, user.deleted_at = True, m.now()
+
+
+@app.get(prefix + '/notifications')
+def notification_inbox(user=Depends(auth.current_user), db=Depends(database)):
+    rows = db.scalars(select(m.Notification).where(m.Notification.user_id == user.id)
+        .order_by(m.Notification.created_at.desc()).limit(100)).all()
+    unread = db.scalar(select(func.count()).select_from(m.Notification).where(
+        m.Notification.user_id == user.id, m.Notification.read_at.is_(None)))
+    return result({'unread': unread, 'items': [notes.view(row) for row in rows]})
+
+
+@app.post(prefix + '/notifications/read')
+def read_notifications(data: c.NotificationsRead, user=Depends(auth.current_user), db=Depends(database)):
+    query = select(m.Notification).where(m.Notification.user_id == user.id, m.Notification.read_at.is_(None))
+    if not data.all:
+        query = query.where(m.Notification.id.in_(data.ids))
+    for row in db.scalars(query):
+        row.read_at = m.now()
+    db.flush()
+    return notification_inbox(user, db)
+
+
+@app.post(prefix + '/devices', status_code=204)
+def register_device(data: c.DeviceInput, user=Depends(auth.current_user), db=Depends(database)):
+    row = db.scalar(select(m.DeviceToken).where(m.DeviceToken.token == data.token).with_for_update())
+    if row:
+        # The same phone now belongs to whoever signed in on it last.
+        row.user_id, row.platform, row.last_seen_at = user.id, data.platform, m.now()
+    else:
+        db.add(m.DeviceToken(user_id=user.id, token=data.token, platform=data.platform))
+
+
+@app.post(prefix + '/devices/unregister', status_code=204)
+def unregister_device(data: c.DeviceInput, user=Depends(auth.current_user), db=Depends(database)):
+    db.execute(delete(m.DeviceToken).where(m.DeviceToken.token == data.token, m.DeviceToken.user_id == user.id))
+
+
 @app.get(prefix + '/addresses')
 def addresses(user=Depends(buyer), db=Depends(database)):
     rows = db.scalars(select(m.Address).where(m.Address.user_id == user.id, m.Address.deleted.is_(False))).all()
@@ -142,7 +239,8 @@ def listings(category: Optional[c.Category] = None, region: Optional[str] = None
     rows = db.scalars(query.order_by(m.Listing.created_at.desc()).limit(limit).with_for_update()).all()
     for row in rows:
         s.refresh_listing(db, row)
-    return result([s.buyer_listing(db, row) for row in rows if s.fresh(row) and row.quantity_available > 0])
+    reputations = {}
+    return result([s.buyer_listing(db, row, reputations=reputations) for row in rows if s.fresh(row) and row.quantity_available > 0])
 
 
 @app.get(prefix + '/listings/{id}')
@@ -212,9 +310,42 @@ def cancel_order(id: str, idempotency_key: str = Header(), user=Depends(buyer), 
     if not prior:
         if order.internal_status not in ['reserved', 'requested', 'supply_confirmed', 'cancelled']:
             s.fail('Collection has started. Contact Omoterra for cancellation help.')
-        s.advance(db, order, c.Progress(internal_status='cancelled'))
+        s.advance(db, order, c.Progress(internal_status='cancelled'), by_buyer=True)
         s.remember(db, key, fingerprint, order.id)
     return result(s.buyer_order(db, order))
+
+
+@app.post(prefix + '/orders/{id}/rating')
+def rate_order(id: str, data: c.RatingInput, user=Depends(buyer), db=Depends(database)):
+    order = s.owned(db, m.Order, id, user.id, 'buyer_id')
+    if order.internal_status not in ('delivered', 'completed'):
+        s.fail('You can rate an order once it has been delivered.')
+    rating = db.scalar(select(m.OrderRating).where(m.OrderRating.order_id == id).with_for_update())
+    if rating:
+        if not ratings.can_edit(rating):
+            s.fail(f'Ratings can be changed for {ratings.EDIT_DAYS} days after you give them.')
+        rating.stars, rating.comment = data.stars, data.comment
+    else:
+        rating = m.OrderRating(order_id=id, buyer_id=user.id, stars=data.stars, comment=data.comment)
+        db.add(rating)
+        db.flush()
+        categories = {s.category(db.get(m.Listing, item.listing_id).category)
+                      for item in db.scalars(select(m.OrderItem).where(m.OrderItem.order_id == id))}
+        for supplier_id in ratings.supplier_ids_for_order(db, id):
+            notes.notify(db, supplier_id, 'supplier', 'rating_new', f'New rating: {data.stars} of 5 stars',
+                f"A buyer rated their {', '.join(sorted(categories))} order {data.stars} of 5.", '/supplier-reviews')
+    db.flush()
+    return result(s.buyer_order(db, order))
+
+
+@app.get(prefix + '/supplier/reputation')
+def supplier_reputation(user=Depends(supplier), db=Depends(database)):
+    rows = db.scalars(select(m.OrderRating).where(
+        m.OrderRating.order_id.in_(ratings._supplier_orders(user.id)), m.OrderRating.hidden.is_(False))
+        .order_by(m.OrderRating.created_at.desc()).limit(50)).all()
+    # The supplier sees what was said, never who said it.
+    return result({**ratings.reputation(db, user.id), 'minimum_ratings': ratings.MIN_RATINGS,
+        'reviews': [ratings.rating_view(row, for_buyer=False) for row in rows]})
 
 
 @app.post(prefix + '/requirements')
@@ -263,17 +394,54 @@ def business(data: c.BusinessInput, idempotency_key: str = Header(), user=Depend
     return {'id': row.id, 'message': 'Your request has been received. An Omoterra team member will contact you.'}
 
 
-def _supplier_private_view(profile):
-    return {k: getattr(profile, k) for k in (
+def _supplier_private_view(profile, db=None):
+    view = {k: getattr(profile, k) for k in (
         'public_alias', 'legal_name', 'alternate_phone', 'internal_pickup_address',
-        'region', 'district', 'general_area', 'categories', 'primary_category', 'production_profile', 'evidence_photos',
+        'region', 'district', 'general_area', 'categories', 'primary_category', 'production_profile',
         'production_frequency', 'pickup_instructions', 'omoterra_pickup', 'supplier_transport',
-        'supply_forms', 'preferred_contact_method', 'operating_notes', 'status')}
+        'supply_forms', 'preferred_contact_method', 'operating_notes', 'status',
+        'farm_latitude', 'farm_longitude', 'farm_map_url')}
+    session = db or object_session(profile)
+    view['evidence_photos'] = [photo.image_url for photo in _supplier_photos(session, profile.user_id)]
+    return view
+
+
+def _supplier_photos(db, supplier_id):
+    return db.scalars(select(m.SupplierPhoto).where(m.SupplierPhoto.supplier_id == supplier_id)
+        .order_by(m.SupplierPhoto.created_at, m.SupplierPhoto.id)).all()
+
+
+def _add_supplier_photos(db, supplier_id, urls):
+    # Photos are only ever added through a profile save; removing one is its own
+    # explicit action (DELETE .../photos/{id}), so a stale list can't delete any.
+    existing = {photo.image_url for photo in _supplier_photos(db, supplier_id)}
+    for url in urls:
+        if url in existing:
+            continue
+        existing.add(url)
+        asset = db.get(m.MediaAsset, url.removeprefix('/media/'))
+        db.add(m.SupplierPhoto(supplier_id=supplier_id, media_id=asset.id if asset else None, image_url=url))
+    db.flush()
+
+
+def _photo_view(photo):
+    return {'id': photo.id, 'url': photo.image_url, 'created_at': photo.created_at}
+
+
+def _video_view(video):
+    if not video:
+        return None
+    return {k: getattr(video, k) for k in ('id', 'youtube_video_id', 'youtube_url', 'thumbnail_url', 'title',
+        'source', 'status', 'created_at', 'updated_at')}
 
 
 def _apply_supplier_profile(db, user, data, created_by='supplier'):
     validate_owned_media(db, data.evidence_photos, user.id, allow_unowned=(created_by == 'ops'))
-    values = data.model_dump(exclude={'name', 'current_batch', 'future_batches', 'phone', 'internal_notes', 'verification'})
+    values = data.model_dump(exclude={'name', 'current_batch', 'future_batches', 'phone', 'internal_notes', 'verification', 'evidence_photos'})
+    if not {'farm_latitude', 'farm_map_url'} & data.model_fields_set:
+        # A form that doesn't carry the farm pin must not erase a saved one.
+        for key in ('farm_latitude', 'farm_longitude', 'farm_map_url'):
+            values.pop(key)
     profile = db.get(m.SupplierProfile, user.id)
     if profile is None:
         profile = m.SupplierProfile(user_id=user.id, legal_name=values['legal_name'],
@@ -281,6 +449,8 @@ def _apply_supplier_profile(db, user, data, created_by='supplier'):
         db.add(profile)
     for key, value in values.items():
         setattr(profile, key, value)
+    db.flush()
+    _add_supplier_photos(db, user.id, data.evidence_photos)
     if not user.name:
         user.name = getattr(data, 'name', user.name)
     profile.status = 'under_review'
@@ -359,6 +529,7 @@ def add_stock(data: c.ListingInput, idempotency_key: str = Header(), user=Depend
     if not db.get(m.SupplierProfile, user.id):
         s.fail('Complete your supplier pickup details first.', 422)
     validate_owned_media(db, data.photos, user.id)
+    validate_owned_media(db, [data.video] if data.video else [], user.id, video=True)
     row = m.Listing(supplier_id=user.id, **data.model_dump())
     db.add(row)
     db.flush()
@@ -409,6 +580,32 @@ def update_stock(id: str, data: c.StockUpdate, idempotency_key: str = Header(), 
     return result(s.supplier_listing(row))
 
 
+@app.put(prefix + '/supplier/stock/{id}/media')
+def update_stock_media(id: str, data: c.StockMediaInput, user=Depends(supplier), db=Depends(database)):
+    s.commerce_lock(db)
+    row = s.owned(db, m.Listing, id, user.id, 'supplier_id', True)
+    if row.listing_status == 'rejected':
+        s.fail('This stock was not approved. Add it again with new photos.')
+    validate_owned_media(db, data.photos, user.id)
+    validate_owned_media(db, [data.video] if data.video else [], user.id, video=True)
+    if data.photos == row.photos and data.video == row.video:
+        return result(s.supplier_listing(row))
+    row.photos, row.video = list(data.photos), data.video
+    if row.approved_at is not None:
+        # Operations review every photo and video before buyers see it, so a
+        # media change takes approved stock back to review.
+        row.listing_status = 'pending_review'
+        row.approved_at = None
+    return result(s.supplier_listing(row))
+
+
+@app.post(prefix + '/media/video')
+async def upload_video(file: UploadFile = File(), user=Depends(auth.current_user), db=Depends(database)):
+    if 'supplier' not in user.roles:
+        s.fail('Only suppliers can upload stock videos.', 403)
+    return await save_video(db, user.id, file, settings().stock_video_max_bytes)
+
+
 def supplier_hold(db, hold):
     listing = db.get(m.Listing, hold.listing_id)
     order = db.get(m.Order, hold.order_id) if hold.order_id else None
@@ -448,6 +645,198 @@ def payout(id: str, user=Depends(supplier), db=Depends(database)):
     return result(s.payout_view(s.owned(db, m.Settlement, id, user.id, 'supplier_id'), True))
 
 
+@app.post(prefix + '/ops/auth/otp', dependencies=[Depends(auth.ops_service)])
+def ops_request_otp(data: c.Phone, db=Depends(database)):
+    operator = db.scalar(select(m.Operator).where(m.Operator.phone == data.phone))
+    if not operator or not operator.active:
+        s.fail('This number is not an active Omoterra operator. Ask an admin to add you.', 403)
+    return auth.start_otp(db, data.phone, purpose='ops')
+
+
+@app.post(prefix + '/ops/auth/verify', dependencies=[Depends(auth.ops_service)])
+def ops_verify_otp(data: c.Verify, db=Depends(database)):
+    return auth.start_operator_session(db, data.challenge_id, data.code)
+
+
+@app.post(prefix + '/ops/auth/logout', status_code=204)
+def ops_logout(x_operator_session: str = Header(default=''), operator=Depends(auth.ops), db=Depends(database)):
+    db.execute(delete(m.OperatorSession).where(m.OperatorSession.token_hash == auth.digest(x_operator_session)))
+
+
+SETUP_MINUTES = 15
+SETUP_MAX_FAILURES = 5  # wrong passphrases per 15 minutes before setup locks
+
+
+def _admin_count(db):
+    return db.scalar(select(func.count()).select_from(m.Operator).where(
+        m.Operator.role == 'admin', m.Operator.active.is_(True)))
+
+
+def _setup(db, token):
+    row = db.scalar(select(m.AdminSetup).where(m.AdminSetup.token_hash == auth.digest(token)).with_for_update())
+    if not row or row.completed_operator_id or row.expires_at <= m.now():
+        s.fail('Admin setup has expired. Start again with the passphrase.', 401)
+    return row
+
+
+@app.post(prefix + '/ops/setup/start', dependencies=[Depends(auth.ops_service)])
+def admin_setup_start(data: c.SetupStart, db=Depends(database)):
+    expected = settings().admin_setup_passphrase
+    if not expected:
+        s.fail('Admin setup is turned off on this server.', 403)
+    window = m.now() - timedelta(minutes=SETUP_MINUTES)
+    failures = db.scalar(select(func.count()).select_from(m.AdminSetupAttempt).where(
+        m.AdminSetupAttempt.created_at > window, m.AdminSetupAttempt.succeeded.is_(False)))
+    if failures >= SETUP_MAX_FAILURES:
+        s.fail('Too many wrong passphrases. Admin setup is locked for 15 minutes.', 429)
+    correct = hmac.compare_digest(expected.encode(), data.passphrase.encode())
+    db.add(m.AdminSetupAttempt(succeeded=correct))
+    if not correct:
+        db.commit()  # keep the failed attempt even though the request errors
+        s.fail('That passphrase is not right.', 403)
+    token = secrets.token_urlsafe(32)
+    needs_approval = _admin_count(db) > 0
+    db.add(m.AdminSetup(token_hash=auth.digest(token), needs_approval=needs_approval,
+        expires_at=m.now() + timedelta(minutes=SETUP_MINUTES)))
+    return {'setup_token': token, 'needs_approval': needs_approval, 'expires_in': SETUP_MINUTES * 60}
+
+
+@app.post(prefix + '/ops/setup/approve/otp', dependencies=[Depends(auth.ops_service)])
+def admin_setup_approval_code(data: c.SetupPhone, db=Depends(database)):
+    setup = _setup(db, data.setup_token)
+    admin = db.scalar(select(m.Operator).where(m.Operator.phone == data.phone))
+    if not admin or not admin.active or admin.role != 'admin':
+        s.fail('That number is not an active admin. Enter an existing admin’s phone.', 403)
+    setup.expires_at = max(setup.expires_at, m.now() + timedelta(minutes=5))
+    return auth.start_otp(db, data.phone, purpose='approve')
+
+
+@app.post(prefix + '/ops/setup/approve/verify', dependencies=[Depends(auth.ops_service)])
+def admin_setup_approve(data: c.SetupVerify, db=Depends(database)):
+    setup = _setup(db, data.setup_token)
+    phone = auth.consume_otp(db, data.challenge_id, data.code, 'approve')
+    admin = db.scalar(select(m.Operator).where(m.Operator.phone == phone))
+    if not admin or not admin.active or admin.role != 'admin':
+        s.fail('That number is no longer an active admin.', 403)
+    setup.approved_by = admin.id
+    return {'approved_by': admin.name}
+
+
+@app.post(prefix + '/ops/setup/admin/otp', dependencies=[Depends(auth.ops_service)])
+def admin_setup_new_admin_code(data: c.SetupAdmin, db=Depends(database)):
+    setup = _setup(db, data.setup_token)
+    # Re-checked now: an admin may have been created since setup started.
+    if not setup.approved_by and _admin_count(db) > 0:
+        s.fail('An existing admin must approve this first.', 403)
+    if db.scalar(select(m.Operator).where(m.Operator.phone == data.phone)):
+        s.fail('This number already has a dashboard account. An admin can make it an admin from Staff.', 409)
+    setup.new_name, setup.new_phone = data.name, data.phone
+    return auth.start_otp(db, data.phone, purpose='setup')
+
+
+@app.post(prefix + '/ops/setup/admin/verify', dependencies=[Depends(auth.ops_service)])
+def admin_setup_finish(data: c.SetupVerify, db=Depends(database)):
+    setup = _setup(db, data.setup_token)
+    phone = auth.consume_otp(db, data.challenge_id, data.code, 'setup')
+    if not setup.new_phone or phone != setup.new_phone:
+        s.fail('Confirm the phone number you entered for the new admin.', 400)
+    if not setup.approved_by and _admin_count(db) > 0:
+        s.fail('An existing admin must approve this first.', 403)
+    if db.scalar(select(m.Operator).where(m.Operator.phone == phone)):
+        s.fail('This number already has a dashboard account.', 409)
+    admin = m.Operator(phone=phone, name=setup.new_name, role='admin', created_by=setup.approved_by)
+    db.add(admin)
+    db.flush()
+    setup.completed_operator_id = admin.id
+    db.add(m.OpsAuditEntry(operator_id=setup.approved_by or admin.id, method='POST', path=f'{prefix}/ops/setup/admin/{admin.id}'))
+    return auth.issue_operator_session(db, admin)
+
+
+@app.get(prefix + '/ops/ratings')
+def ops_ratings(operator=Depends(auth.ops), db=Depends(database)):
+    rows = db.scalars(select(m.OrderRating).order_by(m.OrderRating.created_at.desc()).limit(200)).all()
+    out = []
+    for row in rows:
+        buyer_user = db.get(m.User, row.buyer_id)
+        suppliers = []
+        for supplier_id in ratings.supplier_ids_for_order(db, row.order_id):
+            profile = db.get(m.SupplierProfile, supplier_id)
+            suppliers.append({'id': supplier_id, 'name': (profile.public_alias or profile.legal_name) if profile else supplier_id})
+        out.append({**ratings.rating_view(row, for_buyer=False), 'order_id': row.order_id, 'hidden': row.hidden,
+            'hidden_by': _actor(db, row.hidden_by), 'buyer_name': buyer_user.name if buyer_user else '', 'suppliers': suppliers})
+    return result(out)
+
+
+@app.patch(prefix + '/ops/ratings/{id}')
+def ops_rating_visibility(id: str, data: c.RatingVisibility, operator=Depends(auth.ops), db=Depends(database)):
+    row = db.get(m.OrderRating, id)
+    if not row:
+        s.fail('Rating not found.', 404)
+    row.hidden, row.hidden_by = data.hidden, operator.id if data.hidden else None
+    return result({'id': id, 'hidden': row.hidden})
+
+
+@app.get(prefix + '/ops/me')
+def ops_me(operator=Depends(auth.ops)):
+    return auth.operator_view(operator)
+
+
+@app.get(prefix + '/ops/operators')
+def list_operators(operator=Depends(auth.ops), db=Depends(database)):
+    rows = db.scalars(select(m.Operator).order_by(m.Operator.active.desc(), m.Operator.name)).all()
+    return result([auth.operator_view(row) for row in rows])
+
+
+@app.post(prefix + '/ops/operators', status_code=201)
+def add_operator(data: c.OperatorInput, admin=Depends(auth.ops_admin), db=Depends(database)):
+    if db.scalar(select(m.Operator).where(m.Operator.phone == data.phone)):
+        s.fail('An operator with this phone number already exists.', 409)
+    row = m.Operator(phone=data.phone, name=data.name, role=data.role, created_by=admin.id)
+    db.add(row)
+    db.flush()
+    return result(auth.operator_view(row), 201)
+
+
+@app.patch(prefix + '/ops/operators/{id}')
+def update_operator(id: str, data: c.OperatorUpdate, admin=Depends(auth.ops_admin), db=Depends(database)):
+    row = db.scalar(select(m.Operator).where(m.Operator.id == id).with_for_update())
+    if not row:
+        s.fail('Operator not found.', 404)
+    losing_admin = row.role == 'admin' and row.active and (data.role == 'staff' or data.active is False)
+    if losing_admin:
+        admins = db.scalar(select(func.count()).select_from(m.Operator).where(
+            m.Operator.role == 'admin', m.Operator.active.is_(True)))
+        if admins <= 1:
+            s.fail('Keep at least one active admin. Make someone else an admin first.', 409)
+    for key, value in data.model_dump(exclude_none=True).items():
+        setattr(row, key, value)
+    if data.active is False:
+        # Removing someone signs them out everywhere, immediately.
+        db.execute(delete(m.OperatorSession).where(m.OperatorSession.operator_id == row.id))
+    db.flush()
+    return result(auth.operator_view(row))
+
+
+@app.get(prefix + '/ops/audit')
+def ops_audit(operator_id: Optional[str] = None, limit: int = Query(100, ge=1, le=500),
+              admin=Depends(auth.ops_admin), db=Depends(database)):
+    query = select(m.OpsAuditEntry, m.Operator.name).join(m.Operator, m.Operator.id == m.OpsAuditEntry.operator_id)
+    if operator_id:
+        query = query.where(m.OpsAuditEntry.operator_id == operator_id)
+    rows = db.execute(query.order_by(m.OpsAuditEntry.created_at.desc()).limit(limit)).all()
+    return result([{'id': entry.id, 'operator_id': entry.operator_id, 'operator_name': name,
+        'method': entry.method, 'path': entry.path.removeprefix(prefix), 'at': entry.created_at} for entry, name in rows])
+
+
+def _actor(db, value):
+    """Actor fields hold an operator id since per-operator sign-in; older
+    rows hold the literal 'ops'. Show a name where there is one."""
+    if not value:
+        return value
+    operator = db.get(m.Operator, value) if len(value) == 36 else None
+    return operator.name if operator else value
+
+
 @app.post(prefix + '/ops/listings/{id}/approve', dependencies=[Depends(auth.ops)])
 def approve(id: str, data: c.Approval, db=Depends(database)):
     s.commerce_lock(db)
@@ -466,6 +855,8 @@ def approve(id: str, data: c.Approval, db=Depends(database)):
     listing.confirmation_due_at = m.now() + timedelta(hours=settings().freshness_hours)
     # Operator must review alias AND all listing copy/media for identifying information.
     profile.public_alias, profile.alias_approved = data.public_alias, True
+    notes.notify(db, listing.supplier_id, 'supplier', 'stock_live', 'Your stock is live',
+        f'Omoterra approved your {s.category(listing.category)}. Buyers can now order it.', f'/stock/{listing.id}')
     return {'id': listing.id, 'status': listing.listing_status}
 
 
@@ -555,8 +946,13 @@ def convert_requirement_to_order(id: str, data: c.DemandOrderCreate, idempotency
         db.add(hold); db.flush()
         inv.movement(db, listing, 'hold_confirmed', (Decimal('0'), Decimal('0'), Decimal('0')),
             f'demand-order:{order.id}:item:{item.id}', 'Reserved for a confirmed buyer requirement')
+        notes.notify(db, batch.supplier_id, 'supplier', 'order_new', 'Your supply is booked',
+            f'{s.quantity(allocation.allocated_quantity)} {s.category(batch.category)} from your batch are booked for a buyer. Omoterra will arrange collection.',
+            f'/supplier-orders/{hold.id}')
     db.add(m.Payment(order_id=order.id, amount=total, method='pay_on_delivery', idempotency_key=key))
     demand.converted_order_id, demand.status = order.id, 'fulfilling'
+    notes.notify(db, buyer_id, 'buyer', 'request_ordered', 'Your request is now an order',
+        'Omoterra found supply for your request and confirmed your order.', f'/order/{order.id}')
     s.remember(db, key, fingerprint, order.id)
     return result(s.buyer_order(db, order))
 
@@ -596,7 +992,7 @@ def reconcile(id: str, data: c.Reconcile, idempotency_key: str = Header(), db=De
     return result({'id': payment.id, 'status': payment.status, 'amount': payment.amount, 'received_amount': payment.received_amount})
 
 
-@app.post(prefix + '/ops/settlements/{id}/pay', dependencies=[Depends(auth.ops)])
+@app.post(prefix + '/ops/settlements/{id}/pay', dependencies=[Depends(auth.ops_admin)])
 def pay_settlement(id: str, data: c.Reconcile, idempotency_key: str = Header(), db=Depends(database)):
     key, fingerprint, prior = s.replay(db, 'ops', 'settlement', idempotency_key, {'id': id, **data.model_dump()})
     row = db.get(m.Settlement, id)
@@ -606,6 +1002,8 @@ def pay_settlement(id: str, data: c.Reconcile, idempotency_key: str = Header(), 
         if row.status == 'paid' or row.total_payable != data.amount:
             s.fail('Settlement is already paid or the amount does not match.')
         row.status, row.paid_at, row.payment_reference = 'paid', m.now(), data.payment_reference
+        notes.notify(db, row.supplier_id, 'supplier', 'payout_paid', 'Payout sent',
+            f'Omoterra paid you TZS {row.total_payable:,.0f}. Reference: {data.payment_reference}.', f'/payouts/{row.id}')
         s.remember(db, key, fingerprint, id)
     return result(s.payout_view(row, True))
 
@@ -641,6 +1039,8 @@ def convert(id: str, data: c.Convert, idempotency_key: str = Header(), db=Depend
         s.fail('The reserved category and quantity must match the sourcing request.')
     order = s.checkout(db, row.buyer_id, data, idempotency_key, row.id)
     row.status, row.converted_order_id = 'converted', order.id
+    notes.notify(db, row.buyer_id, 'buyer', 'request_ordered', 'Your request is now an order',
+        'Omoterra found supply for your request and confirmed your order.', f'/order/{order.id}')
     s.remember(db, key, fingerprint, order.id)
     return result(s.buyer_order(db, order))
 
@@ -948,6 +1348,12 @@ def review_offer(id: str, data: c.OfferReview, idempotency_key: str = Header(), 
     else:
         offer.accepted_quantity = Decimal('0')
     offer.status, offer.reviewed_at = data.status, m.now()
+    title, body = {
+        'accepted': ('Supply offer accepted', f'Omoterra accepted your offer of {s.quantity(offer.offered_quantity)}.'),
+        'partially_accepted': ('Supply offer partly accepted', f'Omoterra accepted {s.quantity(offer.accepted_quantity)} of the {s.quantity(offer.offered_quantity)} you offered.'),
+        'rejected': ('Supply offer not accepted', 'Omoterra could not use your offer this time.'),
+    }[data.status]
+    notes.notify(db, offer.supplier_id, 'supplier', f'offer_{data.status}', title, body, f'/supplier-demand/{offer.demand_id}')
     s.remember(db, key, fingerprint, offer.id)
     return result(dm.offer_view(offer, True))
 
@@ -1120,12 +1526,12 @@ def photo(id: str, user=Depends(auth.current_user), db=Depends(database)):
     if asset.owner_id != user.id:
         # Only fresh, operator-reviewed listing photos cross the buyer boundary.
         approved = db.scalars(select(m.Listing).where(m.Listing.listing_status == 'live', m.Listing.confirmation_due_at > m.now())).all()
-        if 'buyer' not in user.roles or not any(f'/media/{id}' in row.photos for row in approved):
+        if 'buyer' not in user.roles or not any(f'/media/{id}' in [*row.photos, row.video] for row in approved):
             s.fail('Photo not found.', 404)
     path = Path(settings().media_directory) / asset.storage_name
     if not path.is_file():
         s.fail('Photo is unavailable. Please upload it again.', 404)
-    return FileResponse(path, media_type='image/jpeg', headers={'Cache-Control': 'private, no-store'})
+    return FileResponse(path, media_type=asset.content_type, headers={'Cache-Control': 'private, no-store'})
 
 
 @app.get(prefix + '/ops/listings', dependencies=[Depends(auth.ops)])
@@ -1164,7 +1570,7 @@ def ops_photo(id: str, db=Depends(database)):
     asset = db.get(m.MediaAsset, id)
     if not asset or not (Path(settings().media_directory) / asset.storage_name).is_file():
         s.fail('Photo not found.', 404)
-    return FileResponse(Path(settings().media_directory) / asset.storage_name, media_type='image/jpeg', headers={'Cache-Control': 'private, no-store'})
+    return FileResponse(Path(settings().media_directory) / asset.storage_name, media_type=asset.content_type, headers={'Cache-Control': 'private, no-store'})
 
 
 @app.get(prefix + '/ops/orders', dependencies=[Depends(auth.ops)])
@@ -1225,6 +1631,10 @@ def review_listing(id: str, data: c.ListingReview, idempotency_key: str = Header
         # Checkout holds are released, but confirmed orders remain reserved for ops to resolve.
         for hold in db.scalars(select(m.StockReservation).where(m.StockReservation.listing_id == id, m.StockReservation.status == 'active')):
             s.release(db, hold, listing, 'released')
+        title, body = (('Stock not approved', f'Omoterra did not approve your {s.category(listing.category)}. Contact Omoterra to find out why.')
+            if data.status == 'rejected' else
+            ('Stock paused', f'Omoterra paused your {s.category(listing.category)}. Buyers can’t order it until it is live again.'))
+        notes.notify(db, listing.supplier_id, 'supplier', f'stock_{data.status}', title, body, f'/stock/{listing.id}')
         s.remember(db, key, fingerprint, id)
     return {'id': id, 'status': listing.listing_status}
 
@@ -1620,16 +2030,22 @@ def ops_supplier(id: str, db=Depends(database)):
         'district': profile.district, 'general_area': profile.general_area,
         'categories': profile.categories, 'primary_category': profile.primary_category,
         'production_profile': profile.production_profile, 'production_frequency': profile.production_frequency,
-        'evidence_photos': profile.evidence_photos,
+        'photos': [_photo_view(photo) for photo in _supplier_photos(db, id)],
+        'evidence_photos': [photo.image_url for photo in _supplier_photos(db, id)],
+        'video': _video_view(db.scalar(select(m.SupplierVideo).where(m.SupplierVideo.supplier_id == id))),
+        'video_upload_enabled': video.publisher().enabled,
         'internal_pickup_address': profile.internal_pickup_address,
         'pickup_instructions': profile.pickup_instructions, 'omoterra_pickup': profile.omoterra_pickup,
         'supplier_transport': profile.supplier_transport, 'supply_forms': profile.supply_forms,
         'preferred_contact_method': profile.preferred_contact_method,
         'operating_notes': profile.operating_notes, 'internal_notes': profile.internal_notes,
+        'farm_latitude': profile.farm_latitude, 'farm_longitude': profile.farm_longitude,
+        'farm_map_url': profile.farm_map_url,
+        'reputation': ratings.reputation(db, id),
         'status': profile.status, 'verification': profile.verification,
-        'reviewed_by_actor': profile.reviewed_by_actor, 'reviewed_at': profile.reviewed_at,
-        'approved_by_actor': profile.approved_by_actor, 'approved_at': profile.approved_at,
-        'suspended_by_actor': profile.suspended_by_actor, 'suspended_at': profile.suspended_at,
+        'reviewed_by_actor': _actor(db, profile.reviewed_by_actor), 'reviewed_at': profile.reviewed_at,
+        'approved_by_actor': _actor(db, profile.approved_by_actor), 'approved_at': profile.approved_at,
+        'suspended_by_actor': _actor(db, profile.suspended_by_actor), 'suspended_at': profile.suspended_at,
         'created_at': user.created_at,
         'batches': [dm.batch_view(b, private=True) for b in batches],
         'batch_verifications': [{'batch_id': v.batch_id, **{k: getattr(v, k) for k in (
@@ -1654,8 +2070,131 @@ def ops_update_supplier(id: str, data: c.SupplierProfileInput, db=Depends(databa
     return result({'id': id, 'status': profile.status})
 
 
-@app.patch(prefix + '/ops/suppliers/{id}/status', dependencies=[Depends(auth.ops)])
-def ops_supplier_status(id: str, data: c.SupplierStatusInput, db=Depends(database)):
+def _supplier_or_404(db, id):
+    profile = db.scalar(select(m.SupplierProfile).where(m.SupplierProfile.user_id == id).with_for_update())
+    if not profile:
+        s.fail('Supplier not found.', 404)
+    return profile
+
+
+@app.post(prefix + '/ops/suppliers/{id}/photos', status_code=201, dependencies=[Depends(auth.ops)])
+async def ops_add_supplier_photos(id: str, files: list[UploadFile] = File(), db=Depends(database)):
+    _supplier_or_404(db, id)
+    limit = settings().supplier_photo_limit
+    if len(_supplier_photos(db, id)) + len(files) > limit:
+        s.fail(f'A supplier can have up to {limit} photos. Remove some before adding more.', 422)
+    urls = []
+    for upload in files:
+        raw = await upload.read(settings().upload_max_bytes + 1)
+        if len(raw) > settings().upload_max_bytes:
+            s.fail('Each photo must be smaller than 8 MB.', 413)
+        urls.append(save_photo(db, None, raw)['url'])
+    _add_supplier_photos(db, id, urls)
+    return result({'photos': [_photo_view(photo) for photo in _supplier_photos(db, id)]}, 201)
+
+
+@app.delete(prefix + '/ops/suppliers/{id}/photos/{photo_id}', dependencies=[Depends(auth.ops)])
+def ops_delete_supplier_photo(id: str, photo_id: str, db=Depends(database)):
+    _supplier_or_404(db, id)
+    photo = db.scalar(select(m.SupplierPhoto).where(m.SupplierPhoto.id == photo_id, m.SupplierPhoto.supplier_id == id))
+    if not photo:
+        s.fail('That photo has already been removed.', 404)
+    db.delete(photo)
+    db.flush()
+    return result({'photos': [_photo_view(row) for row in _supplier_photos(db, id)]})
+
+
+def _supplier_video(db, id):
+    return db.scalar(select(m.SupplierVideo).where(m.SupplierVideo.supplier_id == id).with_for_update())
+
+
+def _save_video(db, id, current, fields, replace):
+    """Create the supplier's one video, or overwrite it in place when replacing.
+    The UNIQUE(supplier_id) constraint backs this up if two requests race."""
+    if current and not replace:
+        s.fail('Supplier already has a video.', 409)
+    if current:
+        for key, value in fields.items():
+            setattr(current, key, value)
+        current.updated_at = m.now()
+        row = current
+    else:
+        row = m.SupplierVideo(supplier_id=id, **fields)
+        db.add(row)
+    try:
+        with db.begin_nested():
+            db.flush()
+    except IntegrityError:
+        s.fail('Supplier already has a video.', 409)
+    return row
+
+
+@app.get(prefix + '/ops/suppliers/{id}/video', dependencies=[Depends(auth.ops)])
+def ops_supplier_video(id: str, db=Depends(database)):
+    _supplier_or_404(db, id)
+    return result({'video': _video_view(_supplier_video(db, id)), 'upload_enabled': video.publisher().enabled})
+
+
+@app.post(prefix + '/ops/suppliers/{id}/video', status_code=201, dependencies=[Depends(auth.ops)])
+def ops_add_supplier_video(id: str, data: c.SupplierVideoInput, db=Depends(database)):
+    _supplier_or_404(db, id)
+    fields = {**video.youtube_urls(video.youtube_id(data.youtube_url)), 'title': data.title, 'source': 'link', 'status': 'ready'}
+    return result({'video': _video_view(_save_video(db, id, _supplier_video(db, id), fields, replace=False))}, 201)
+
+
+@app.put(prefix + '/ops/suppliers/{id}/video', dependencies=[Depends(auth.ops)])
+def ops_replace_supplier_video(id: str, data: c.SupplierVideoInput, db=Depends(database)):
+    _supplier_or_404(db, id)
+    fields = {**video.youtube_urls(video.youtube_id(data.youtube_url)), 'title': data.title, 'source': 'link', 'status': 'ready'}
+    return result({'video': _video_view(_save_video(db, id, _supplier_video(db, id), fields, replace=True))})
+
+
+@app.post(prefix + '/ops/suppliers/{id}/video/upload', status_code=201, dependencies=[Depends(auth.ops)])
+async def ops_upload_supplier_video(id: str, file: UploadFile = File(), title: str = Form(default='', max_length=120),
+        replace: bool = Form(default=False), db=Depends(database)):
+    publisher = video.publisher()
+    if not publisher.enabled:
+        # Refuse before reading the body: nothing is stored when no channel is connected.
+        raise HTTPException(503, 'Video uploads are not switched on yet. Paste a YouTube link instead.')
+    _supplier_or_404(db, id)
+    current = _supplier_video(db, id)
+    if current and not replace:
+        s.fail('Supplier already has a video.', 409)
+    if (file.content_type or '').split(';')[0] not in video.ACCEPTED_UPLOAD_TYPES:
+        s.fail('Upload an MP4, MOV, WebM or 3GP video.', 422)
+    limit = settings().video_upload_max_bytes
+    with tempfile.NamedTemporaryFile(suffix='.upload') as temporary:
+        size = 0
+        while chunk := await file.read(1024 * 1024):
+            size += len(chunk)
+            if size > limit:
+                s.fail(f'The video must be smaller than {limit // (1024 * 1024)} MB.', 413)
+            temporary.write(chunk)
+        temporary.flush()
+        published = publisher.publish(Path(temporary.name), title, id)
+    fields = {**video.youtube_urls(published.youtube_video_id), 'title': title, 'source': 'upload', 'status': published.status}
+    return result({'video': _video_view(_save_video(db, id, current, fields, replace=True))}, 200 if current else 201)
+
+
+@app.delete(prefix + '/ops/suppliers/{id}/video', dependencies=[Depends(auth.ops)])
+def ops_delete_supplier_video(id: str, db=Depends(database)):
+    _supplier_or_404(db, id)
+    current = _supplier_video(db, id)
+    if not current:
+        s.fail('This supplier has no video.', 404)
+    db.delete(current)
+    return result({'video': None})
+
+
+SUPPLIER_STATUS_NOTES = {
+    'approved': ('You’re approved as a supplier', 'Your Omoterra supplier account is ready. Add stock so buyers can order it.'),
+    'rejected': ('Registration needs an update', 'Omoterra couldn’t approve your supplier registration yet. Contact Omoterra to find out what to update.'),
+    'suspended': ('Supplier account paused', 'Your supplier account is paused and your stock is hidden from buyers. Contact Omoterra for help.'),
+}
+
+
+@app.patch(prefix + '/ops/suppliers/{id}/status')
+def ops_supplier_status(id: str, data: c.SupplierStatusInput, operator=Depends(auth.ops), db=Depends(database)):
     profile = db.scalar(select(m.SupplierProfile).where(m.SupplierProfile.user_id == id).with_for_update())
     if not profile:
         s.fail('Supplier not found.', 404)
@@ -1671,16 +2210,19 @@ def ops_supplier_status(id: str, data: c.SupplierStatusInput, db=Depends(databas
             'production_seen', 'pickup_access_checked')
         if not all(profile.verification.get(check) is True for check in required_checks):
             s.fail('Complete the supplier verification checklist before approval.', 422)
-        profile.approved_by_actor = profile.reviewed_by_actor = 'ops'
+        profile.approved_by_actor = profile.reviewed_by_actor = operator.id
         profile.approved_at = profile.reviewed_at = m.now()
     elif data.status == 'suspended':
-        profile.suspended_by_actor = 'ops'
+        profile.suspended_by_actor = operator.id
         profile.suspended_at = m.now()
         for listing in db.scalars(select(m.Listing).where(m.Listing.supplier_id == id, m.Listing.listing_status == 'live')):
             listing.listing_status = 'paused'
     elif data.status in ('rejected', 'under_review'):
-        profile.reviewed_by_actor = 'ops'
+        profile.reviewed_by_actor = operator.id
         profile.reviewed_at = m.now()
+    if data.status != profile.status and data.status in SUPPLIER_STATUS_NOTES:
+        title, body = SUPPLIER_STATUS_NOTES[data.status]
+        notes.notify(db, id, 'supplier', f'supplier_{data.status}', title, body, '/supplier')
     profile.status = data.status
     if data.notes:
         profile.internal_notes = data.notes
@@ -1688,8 +2230,8 @@ def ops_supplier_status(id: str, data: c.SupplierStatusInput, db=Depends(databas
         'approved_at': profile.approved_at, 'suspended_at': profile.suspended_at})
 
 
-@app.patch(prefix + '/ops/suppliers/{id}/verification', dependencies=[Depends(auth.ops)])
-def ops_supplier_verification(id: str, data: c.SupplierVerificationInput, db=Depends(database)):
+@app.patch(prefix + '/ops/suppliers/{id}/verification')
+def ops_supplier_verification(id: str, data: c.SupplierVerificationInput, operator=Depends(auth.ops), db=Depends(database)):
     profile = db.scalar(select(m.SupplierProfile).where(m.SupplierProfile.user_id == id).with_for_update())
     if not profile:
         s.fail('Supplier not found.', 404)
@@ -1698,7 +2240,7 @@ def ops_supplier_verification(id: str, data: c.SupplierVerificationInput, db=Dep
     if set(data.checks) - allowed:
         s.fail('Choose a valid verification item.', 422)
     profile.verification = {**profile.verification, **data.checks}
-    profile.reviewed_by_actor = 'ops'
+    profile.reviewed_by_actor = operator.id
     profile.reviewed_at = m.now()
     if data.notes:
         profile.internal_notes = data.notes

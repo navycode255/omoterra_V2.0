@@ -1,11 +1,10 @@
 'use client';
 
-import Image from 'next/image';
 import { useRouter } from 'next/navigation';
 import { useActionState, useEffect, useRef, useState, useTransition, type ReactNode } from 'react';
 import { useFormStatus } from 'react-dom';
 import { Icons } from '@/components/icons';
-import { addSupplierPhotos, removeSupplierPhoto, updateSupplierSection, type ActionResult } from '@/lib/actions';
+import { updateSupplierSection, type ActionResult } from '@/lib/actions';
 import type { ApprovalGroup, ApprovalItem } from '@/lib/supplier';
 
 // The header "Edit supplier" button and the tabs live outside the cards, so they
@@ -142,52 +141,6 @@ export function SupplierTabs() {
       history.replaceState(null, '', `#${anchor}`);
     }}><TabIcon size={20}/>{label}</a>)}
   </nav>;
-}
-
-function mediaSource(photo: string) {
-  return `/media/${photo.split('/').pop()}`;
-}
-
-function RemovePhoto({ id, photo }: { id: string; photo: string }) {
-  const [state, action, pending] = useActionState(removeSupplierPhoto, null);
-  return <form action={action} className="photo-remove-form">
-    <input type="hidden" name="id" value={id}/><input type="hidden" name="url" value={photo}/>
-    <button type="submit" className="photo-remove" aria-label="Remove photo" disabled={pending} title={state && !state.ok ? state.error : 'Remove photo'}>×</button>
-  </form>;
-}
-
-export function SupplierPhotos({ id, photos, max }: { id: string; photos: string[]; max: number }) {
-  const input = useRef<HTMLInputElement>(null);
-  const form = useRef<HTMLFormElement>(null);
-  const [state, action, pending] = useActionState(async (previous: ActionResult | null, formData: FormData) => {
-    const result = await addSupplierPhotos(previous, formData);
-    if (input.current) input.current.value = '';
-    return result;
-  }, null);
-  const full = photos.length >= max;
-  const choose = () => input.current?.click();
-
-  return <section className="supplier-detail-card photo-card" id="photos">
-    <header>
-      <span className="section-title"><Icons.image size={23}/>Farm and supply photos</span>
-      {!full && <button type="button" className="add-photos-button" onClick={choose} disabled={pending}><Icons.camera size={18}/>{pending ? 'Uploading…' : 'Add photos'}</button>}
-    </header>
-    <form ref={form} action={action} hidden>
-      <input type="hidden" name="id" value={id}/><input type="hidden" name="existing" value={photos.length}/>
-      <input ref={input} type="file" name="photos" accept="image/jpeg,image/png,image/webp" multiple onChange={() => form.current?.requestSubmit()}/>
-    </form>
-    <div className="supplier-photos">
-      {photos.map((photo) => <figure key={photo}>
-        <a href={mediaSource(photo)} target="_blank" rel="noreferrer"><Image src={mediaSource(photo)} width={260} height={240} alt="Supplier stock or farm" unoptimized/></a>
-        <RemovePhoto id={id} photo={photo}/>
-      </figure>)}
-      {!full && <button type="button" className="add-photo-tile" onClick={choose} disabled={pending}>
-        {pending ? <span className="add-photo-spinner" aria-hidden="true"/> : <Icons.plus size={22}/>}
-        <span>{pending ? 'Uploading…' : 'Add photos'}</span>
-      </button>}
-    </div>
-    <p className="photo-hint">{state && !state.ok ? <span className="inline-error" role="alert">{state.error}</span> : `Stock, farm or pickup area · ${photos.length} of ${max} · JPEG, PNG or WebP up to 8 MB`}</p>
-  </section>;
 }
 
 function scrollToCard(element: HTMLElement) {

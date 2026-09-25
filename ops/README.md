@@ -32,9 +32,13 @@ variables:
 OMOTERRA_API_URL=https://omoterra.jopex.co.tz/api/v1
 OMOTERRA_APP_URL=https://omoterra.jopex.co.tz
 OMOTERRA_OPS_TOKEN=<same value as the backend>
-OMOTERRA_DASHBOARD_PASSPHRASE=<strong operator passphrase>
-OMOTERRA_DASHBOARD_SECRET=<long random signing secret>
 ```
+
+Admins register from the sign-in screen: **Admin setup** asks for the setup
+passphrase (`OMOTERRA_ADMIN_SETUP_PASSPHRASE` in the backend `.env`), then, if an
+admin already exists, that admin's phone code, then the new admin's own phone
+code. Admins add everyone else from **Team → Staff**. See the backend's
+`CPANEL_API_DEPLOYMENT.md` (step 5).
 
 After deployment, verify that `https://omoterra.jopex.co.tz/health` responds
 successfully, then build and start the dashboard:
@@ -55,28 +59,29 @@ the operations token must never be sent to the browser.
 | Variable | Purpose |
 | --- | --- |
 | `OMOTERRA_API_URL` | Base URL of the backend, including `/api/v1` |
-| `OMOTERRA_OPS_TOKEN` | Shared operations secret; must match the backend |
-| `OMOTERRA_DASHBOARD_PASSPHRASE` | What operators type to sign in |
-| `OMOTERRA_DASHBOARD_SECRET` | Random string signing the session cookie |
+| `OMOTERRA_OPS_TOKEN` | The dashboard server's backend credential; must match the backend |
 
 ## How access works
 
-The backend authenticates operations requests with a single shared
-`X-Ops-Token` header rather than per-user accounts. That token is read from the
-server environment and attached in `lib/api.ts`, which is `server-only` — it is
-never sent to the browser and never appears in a client bundle.
-
-Operators sign in with a passphrase, which mints an HTTP-only, signed session
-cookie. Every page and every Server Action calls `requireSession()` independently,
+Each operator has their own account. They sign in with their phone number and a
+one-time code; the backend issues them a session token, kept in an HTTP-only
+cookie. Every backend call carries two headers, both added in `lib/api.ts`
+(`server-only`): `X-Ops-Token`, the dashboard server's own credential, which
+never reaches the browser, and `X-Operator-Session`, which identifies the person.
+Every page and every Server Action calls `requireSession()` independently,
 because Server Actions are reachable by direct POST regardless of which page
 rendered the form.
+
+Admins additionally manage staff and record supplier payouts. Every change is
+written to an audit trail (Team → Activity) in the same transaction as the
+change itself, and supplier approvals and suspensions are recorded under the
+operator's name. Removing someone signs them out immediately.
 
 Listing and collection photos are ops-authenticated on the backend, so they are
 proxied through `/media/[id]`, which also requires a dashboard session.
 
-Because access is a shared passphrase rather than individual accounts, the
-backend records no per-operator audit trail. Deployment should place both the
-backend's `/ops/*` routes and this dashboard behind restricted network access.
+Deployment should still place the backend's `/ops/*` routes behind restricted
+network access where the host allows it.
 
 ## Boundaries this dashboard respects
 

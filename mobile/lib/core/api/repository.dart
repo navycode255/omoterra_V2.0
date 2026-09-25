@@ -242,6 +242,25 @@ class LocalRepository implements OmoterraRepository {
 
   @override
   Future<dynamic> read(String path, [Map<String, dynamic>? query]) async {
+    if (path == '/supplier/reputation') {
+      return {
+        'rating': 4.6,
+        'ratings': 12,
+        'deliveries': 18,
+        'quality_passed': 97,
+        'minimum_ratings': 3,
+        'reviews': [
+          {
+            'id': 'preview-review-1',
+            'stars': 5,
+            'comment': 'Healthy birds and collected on time.',
+            'created_at': DateTime.now()
+                .subtract(const Duration(days: 3))
+                .toIso8601String(),
+          },
+        ],
+      };
+    }
     if (path == '/notifications') {
       return {
         'unread': 1,

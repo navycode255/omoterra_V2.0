@@ -7,6 +7,7 @@ from sqlalchemy import select, text
 from . import models as m
 from .config import settings
 from . import inventory as inv
+from . import notifications as notes
 
 STATUS = {
     'requested': 'confirmed', 'supply_confirmed': 'confirmed', 'reserved': 'confirmed',
@@ -158,10 +159,52 @@ def checkout(db, buyer, data, key, sourcing_id=None):
     hold.order_id = order.id
     inv.movement(db, listing, 'hold_confirmed', inv.balances(listing), f'hold:{hold.id}:confirmed')
     remember(db, scoped, fingerprint, order.id)
+    notes.notify(db, listing.supplier_id, 'supplier', 'order_new', 'New order for your stock',
+        f'A buyer ordered {quantity(hold.quantity)} {category(listing.category)}. Omoterra will arrange collection.',
+        f'/supplier-orders/{hold.id}')
     return order
 
 
-def advance(db, order, data):
+def quantity(value):
+    return format(Decimal(value).normalize(), 'f')
+
+
+def category(value):
+    return value.replace('_', ' ')
+
+
+BUYER_UPDATES = {
+    'supply_confirmed': ('Stock secured', 'Omoterra has secured the stock for your order.'),
+    'pickup_scheduled': ('Order being prepared', 'Collection from the farm is scheduled.'),
+    'in_transit': ('Order on the way', 'Your order has left for delivery.'),
+    'delivered': ('Order delivered', 'Your order was delivered. Tap to rate it and help other buyers choose.'),
+    'cancelled': ('Order cancelled', 'Your order was cancelled and its reserved stock released.'),
+    'payment_failed': ('Payment failed', 'Payment for your order failed, so its reservation was released.'),
+}
+
+
+def _notify_order_update(db, order, target, holds, by_buyer):
+    if target in BUYER_UPDATES and not (by_buyer and target == 'cancelled'):
+        title, body = BUYER_UPDATES[target]
+        notes.notify(db, order.buyer_id, 'buyer', f'order_{target}', title, body, f'/order/{order.id}')
+    if target not in ('pickup_scheduled', 'delivered', 'cancelled', 'payment_failed'):
+        return
+    for hold in holds:
+        listing = db.get(m.Listing, hold.listing_id)
+        what = f'{quantity(hold.quantity)} {category(listing.category)}'
+        if target == 'pickup_scheduled':
+            when = f' on {order.expected_collection_date}' if order.expected_collection_date else ''
+            notes.notify(db, listing.supplier_id, 'supplier', 'collection_scheduled', 'Collection scheduled',
+                f'Omoterra will collect {what}{when}.', f'/supplier-orders/{hold.id}')
+        elif target == 'delivered':
+            notes.notify(db, listing.supplier_id, 'supplier', 'supply_delivered', 'Supply delivered',
+                f'Your {category(listing.category)} reached the buyer. Omoterra is preparing your payout.', '/payouts')
+        else:
+            notes.notify(db, listing.supplier_id, 'supplier', 'order_cancelled', 'Order cancelled',
+                f'An order for {what} was cancelled. The stock is available again.', f'/stock/{listing.id}')
+
+
+def advance(db, order, data, by_buyer=False):
     commerce_lock(db)
     target = data.internal_status
     if data.expected_collection_date is not None:
@@ -276,21 +319,30 @@ def advance(db, order, data):
                 request.status = 'completed'
     if target in ACTIVITY:
         order.activity = [*order.activity, {'label': ACTIVITY[target], 'at': m.now().isoformat()}]
+    _notify_order_update(db, order, target, holds, by_buyer)
     db.flush()
     return order
 
 
-def buyer_listing(db, listing, detail=False):
-    result = {k: getattr(listing, k) for k in ['id', 'category', 'unit_type', 'region', 'photos', 'specs', 'buyer_price_per_unit']}
+def buyer_listing(db, listing, detail=False, reputations=None):
+    from . import ratings
+    result = {k: getattr(listing, k) for k in ['id', 'category', 'unit_type', 'region', 'photos', 'video', 'specs', 'buyer_price_per_unit']}
     result['quantity_available'] = listing.quantity_available
+    # One lookup per supplier per request, however many of their listings show.
+    cache = reputations if reputations is not None else {}
+    if listing.supplier_id not in cache:
+        cache[listing.supplier_id] = ratings.reputation(db, listing.supplier_id)
+    reputation = cache[listing.supplier_id]
+    result['supplier_rating'] = {'rating': reputation['rating'], 'ratings': reputation['ratings']}
     if detail:
         profile = db.get(m.SupplierProfile, listing.supplier_id)
-        result['supplier'] = {'public_alias': profile.public_alias if profile and profile.alias_approved else 'Omoterra supply partner', 'region': listing.region, 'approval': 'Omoterra Approved'}
+        result['supplier'] = {'public_alias': profile.public_alias if profile and profile.alias_approved else 'Omoterra supply partner', 'region': listing.region, 'approval': 'Omoterra Approved',
+            'reputation': reputation}
     return result
 
 
 def supplier_listing(listing):
-    result = {k: getattr(listing, k) for k in ['id', 'category', 'unit_type', 'region', 'photos', 'specs', 'farmer_asking_price_per_unit', 'quantity_total', 'quantity_reserved', 'quantity_sold', 'listing_status', 'confirmation_due_at']}
+    result = {k: getattr(listing, k) for k in ['id', 'category', 'unit_type', 'region', 'photos', 'video', 'specs', 'farmer_asking_price_per_unit', 'quantity_total', 'quantity_reserved', 'quantity_sold', 'listing_status', 'confirmation_due_at']}
     result['quantity_available'] = listing.quantity_available
     return result
 
@@ -306,6 +358,10 @@ def buyer_order(db, order):
     for item in db.scalars(select(m.OrderItem).where(m.OrderItem.order_id == order.id)):
         listing = db.get(m.Listing, item.listing_id)
         result['items'].append({'id': item.id, 'category': listing.category, 'unit_type': listing.unit_type, 'quantity': item.quantity, 'unit_price': item.unit_price, 'subtotal': item.subtotal})
+    from . import ratings
+    rating = db.scalar(select(m.OrderRating).where(m.OrderRating.order_id == order.id))
+    result['rating'] = ratings.rating_view(rating) if rating else None
+    result['can_rate'] = order.internal_status in ('delivered', 'completed') and (rating is None or ratings.can_edit(rating))
     return result
 
 
