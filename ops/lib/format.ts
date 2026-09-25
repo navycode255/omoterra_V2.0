@@ -57,11 +57,15 @@ export function tzs(value: string | null | undefined) {
   return amount === '—' ? amount : `TZS ${amount}`;
 }
 
+// Pages render on the server (UTC on Netlify), so times are pinned to the
+// operators' own clock rather than the host's.
+const TIME_ZONE = 'Africa/Dar_es_Salaam';
+
 export function date(value: string | null | undefined) {
   if (!value) return '—';
   const parsed = new Date(value);
   if (Number.isNaN(parsed.getTime())) return value;
-  return parsed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric' });
+  return parsed.toLocaleDateString('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: TIME_ZONE });
 }
 
 export function dateTime(value: string | null | undefined) {
@@ -73,6 +77,7 @@ export function dateTime(value: string | null | undefined) {
     month: 'short',
     hour: '2-digit',
     minute: '2-digit',
+    timeZone: TIME_ZONE,
   });
 }
 

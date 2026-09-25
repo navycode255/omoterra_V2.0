@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 from contextlib import asynccontextmanager
-from datetime import date, timedelta
+from datetime import date, datetime, time, timedelta
+from zoneinfo import ZoneInfo
 from decimal import Decimal
 from typing import Optional, Union
 from fastapi import FastAPI, Depends, Header, Query, Request, HTTPException, UploadFile, File
@@ -1414,6 +1415,115 @@ def ops_summary(db=Depends(database)):
             'settlements_pending': len(db.scalars(select(m.Settlement).where(
                 m.Settlement.status == 'pending')).all()),
         },
+    })
+
+
+# Operations run on Tanzanian time: month buckets and date ranges on the
+# dashboard follow the local calendar, not UTC.
+EAT = ZoneInfo('Africa/Dar_es_Salaam')
+OPEN_BATCH = ('growing', 'ready', 'partially_reserved', 'fully_reserved', 'pending_review')
+
+
+def _local_day(value: date):
+    return datetime.combine(value, time.min, tzinfo=EAT)
+
+
+def _buyer_label(db, order):
+    if order.buyer_id:
+        profile = db.scalar(select(m.BuyerProfile).where(m.BuyerProfile.user_id == order.buyer_id))
+        if profile and profile.business_name:
+            return profile.business_name
+        user = db.get(m.User, order.buyer_id)
+        if user:
+            return user.name or user.phone
+    return 'Managed order'
+
+
+@app.get(prefix + '/ops/dashboard', dependencies=[Depends(auth.ops)])
+def ops_dashboard(start: Optional[date] = None, end: Optional[date] = None, year: Optional[int] = None, db=Depends(database)):
+    today = m.now().astimezone(EAT).date()
+    start = start or today.replace(day=1)
+    end = end or today
+    if end < start:
+        s.fail('The end date must be on or after the start date.', 422)
+    year = year or today.year
+    since, until = _local_day(start), _local_day(end + timedelta(days=1))
+
+    profiles = db.scalars(select(m.SupplierProfile)).all()
+    users = {u.id: u for u in db.scalars(select(m.User).where(m.User.id.in_([p.user_id for p in profiles])))} if profiles else {}
+    batches = db.scalars(select(m.SupplierBatch)).all()
+    open_orders = db.scalars(select(m.Order).where(m.Order.internal_status.notin_(
+        ['delivered', 'completed', 'cancelled', 'payment_failed']))).all()
+    pending_settlements = db.scalars(select(m.Settlement).where(m.Settlement.status == 'pending')).all()
+
+    # Supplies recorded: stock listings and production batches suppliers submit.
+    trend = [0] * 12
+    year_start, year_end = _local_day(date(year, 1, 1)), _local_day(date(year + 1, 1, 1))
+    for model in (m.Listing, m.SupplierBatch):
+        for created in db.scalars(select(model.created_at).where(model.created_at >= year_start, model.created_at < year_end)):
+            trend[created.astimezone(EAT).month - 1] += 1
+
+    batch_status = {'live': 0, 'pending': 0, 'completed': 0}
+    for batch in batches:
+        if batch.status == 'completed':
+            batch_status['completed'] += 1
+        elif batch.status in OPEN_BATCH:
+            batch_status['live' if batch.approved_at else 'pending'] += 1
+
+    period_orders = [o for o in db.scalars(select(m.Order).where(m.Order.created_at >= since, m.Order.created_at < until))
+        if o.internal_status not in ('cancelled', 'payment_failed')]
+    margin = Decimal('0')
+    for order in period_orders:
+        for item in db.scalars(select(m.OrderItem).where(m.OrderItem.order_id == order.id)):
+            margin += (item.unit_price - item.payout_snapshot) * item.quantity
+
+    joined = sorted((p for p in profiles if since <= users[p.user_id].created_at < until),
+        key=lambda p: users[p.user_id].created_at, reverse=True)
+    recent_orders = db.scalars(select(m.Order).where(m.Order.created_at >= since, m.Order.created_at < until)
+        .order_by(m.Order.created_at.desc()).limit(5)).all()
+
+    alias = {p.user_id: p.public_alias or p.legal_name for p in profiles}
+    activity = []
+    for p in profiles:
+        activity.append({'kind': 'supplier_registered', 'at': users[p.user_id].created_at, 'title': 'New supplier registered', 'detail': alias[p.user_id], 'href': f'/suppliers/{p.user_id}'})
+        if p.approved_at:
+            activity.append({'kind': 'supplier_approved', 'at': p.approved_at, 'title': 'Supplier approved', 'detail': alias[p.user_id], 'href': f'/suppliers/{p.user_id}'})
+        if p.suspended_at:
+            activity.append({'kind': 'supplier_suspended', 'at': p.suspended_at, 'title': 'Supplier suspended', 'detail': alias[p.user_id], 'href': f'/suppliers/{p.user_id}'})
+        if p.reviewed_at and p.reviewed_at not in (p.approved_at, p.suspended_at):
+            activity.append({'kind': 'supplier_status', 'at': p.reviewed_at, 'title': 'Supplier status updated', 'detail': f"{alias[p.user_id]} \u2192 {p.status.replace('_', ' ').capitalize()}", 'href': f'/suppliers/{p.user_id}'})
+    for order in db.scalars(select(m.Order).where(m.Order.created_at >= since, m.Order.created_at < until)):
+        activity.append({'kind': 'order_created', 'at': order.created_at, 'title': 'Order created', 'detail': _buyer_label(db, order), 'href': f'/orders/{order.id}'})
+    for batch in batches:
+        activity.append({'kind': 'batch_created', 'at': batch.created_at, 'title': 'Production batch created', 'detail': f"{alias.get(batch.supplier_id, 'Supplier')} \u00b7 {batch.category.replace('_', ' ').capitalize()}", 'href': '/batches'})
+    for listing in db.scalars(select(m.Listing).where(m.Listing.created_at >= since, m.Listing.created_at < until)):
+        activity.append({'kind': 'stock_submitted', 'at': listing.created_at, 'title': 'Stock submitted', 'detail': f"{alias.get(listing.supplier_id, 'Supplier')} \u00b7 {listing.category.replace('_', ' ').capitalize()}", 'href': f'/supply/{listing.id}'})
+    for settlement in db.scalars(select(m.Settlement).where(m.Settlement.paid_at >= since, m.Settlement.paid_at < until)):
+        activity.append({'kind': 'settlement_paid', 'at': settlement.paid_at, 'title': 'Supplier paid', 'detail': alias.get(settlement.supplier_id, 'Supplier'), 'href': '/settlements'})
+    activity = sorted((a for a in activity if since <= a['at'] < until), key=lambda a: a['at'], reverse=True)
+
+    return result({
+        'period': {'start': start, 'end': end},
+        'kpis': {
+            'active_suppliers': sum(1 for p in profiles if p.status not in ('rejected', 'suspended')),
+            'approved_suppliers': sum(1 for p in profiles if p.status == 'approved'),
+            'active_batches': sum(1 for b in batches if b.status in OPEN_BATCH),
+            'open_orders': len(open_orders),
+            'pending_settlements': sum((r.total_payable for r in pending_settlements), Decimal('0')),
+            'pending_settlement_count': len(pending_settlements),
+        },
+        'trading': {
+            'orders': len(period_orders),
+            'sales': sum((o.total_amount for o in period_orders), Decimal('0')),
+            'gross_margin': margin,
+        },
+        'supply_trend': {'year': year, 'months': trend},
+        'batch_status': batch_status,
+        'recent_suppliers': [{'id': p.user_id, 'name': alias[p.user_id], 'region': p.region, 'district': p.district,
+            'status': p.status, 'joined_at': users[p.user_id].created_at} for p in joined[:5]],
+        'recent_orders': [{'id': o.id, 'buyer': _buyer_label(db, o), 'internal_status': o.internal_status,
+            'total_amount': o.total_amount, 'created_at': o.created_at} for o in recent_orders],
+        'recent_activity': activity[:6],
     })
 
 

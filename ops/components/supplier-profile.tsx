@@ -6,6 +6,7 @@ import { useActionState, useEffect, useRef, useState, useTransition, type ReactN
 import { useFormStatus } from 'react-dom';
 import { Icons } from '@/components/icons';
 import { addSupplierPhotos, removeSupplierPhoto, updateSupplierSection, type ActionResult } from '@/lib/actions';
+import type { ApprovalGroup, ApprovalItem } from '@/lib/supplier';
 
 // The header "Edit supplier" button and the tabs live outside the cards, so they
 // talk to them through this window event instead of shared state.
@@ -37,7 +38,7 @@ export function EditableCard({ id, section, icon, title, anchor, className = '',
     return () => window.removeEventListener(EDIT_EVENT, open);
   }, [section]);
 
-  return <section className={`supplier-detail-card ${className}`} id={anchor} data-editing={editing}>
+  return <section className={`supplier-detail-card ${className}`} id={anchor ?? `card-${section}`} data-editing={editing}>
     <header>
       <span className="section-title">{icon}{title}</span>
       {!editing && <button type="button" className="card-edit" onClick={() => setEditing(true)}><Icons.edit size={18}/>Edit</button>}
@@ -187,4 +188,81 @@ export function SupplierPhotos({ id, photos, max }: { id: string; photos: string
     </div>
     <p className="photo-hint">{state && !state.ok ? <span className="inline-error" role="alert">{state.error}</span> : `Stock, farm or pickup area · ${photos.length} of ${max} · JPEG, PNG or WebP up to 8 MB`}</p>
   </section>;
+}
+
+function scrollToCard(element: HTMLElement) {
+  window.scrollTo({ top: element.getBoundingClientRect().top + window.scrollY - headerBottom() - GAP_BELOW_HEADER, behavior: 'smooth' });
+}
+
+// Explains what approval needs, from the same rules the backend enforces, and
+// takes the operator straight to whichever card still needs work.
+export function ApprovalGuide({ groups, status }: { groups: ApprovalGroup[]; status: string }) {
+  const [open, setOpen] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  const dialog = useRef<HTMLDivElement>(null);
+  const items = groups.flatMap((group) => group.items);
+  const done = items.filter((item) => item.done).length;
+  const remaining = items.length - done;
+  const approved = status === 'approved';
+
+  useEffect(() => {
+    if (!open) return;
+    dialog.current?.focus();
+    const close = (event: MouseEvent | KeyboardEvent) => {
+      if (event instanceof KeyboardEvent ? event.key === 'Escape' : !box.current?.contains(event.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', close);
+    document.addEventListener('keydown', close);
+    return () => { document.removeEventListener('mousedown', close); document.removeEventListener('keydown', close); };
+  }, [open]);
+
+  const fix = (item: ApprovalItem) => {
+    setOpen(false);
+    if (item.target === 'verification') {
+      const card = document.getElementById('verification');
+      if (card) scrollToCard(card);
+      window.setTimeout(() => document.querySelector<HTMLInputElement>(`#verification input[name="${item.key}"]`)?.focus({ preventScroll: true }), 450);
+      return;
+    }
+    const card = document.getElementById(item.target === 'details' ? 'details' : `card-${item.target}`);
+    if (card) scrollToCard(card);
+    window.dispatchEvent(new CustomEvent(EDIT_EVENT, { detail: item.target }));
+    // Focus the missing field once the card's editor has opened.
+    const field = item.key === 'production_profile' ? 'capacity_' : item.key;
+    window.setTimeout(() => card?.querySelector<HTMLElement>(`form.section-form [name^="${field}"]`)?.focus({ preventScroll: true }), 450);
+  };
+
+  return <div className="approval-guide" ref={box}>
+    <button type="button" className="approval-info" aria-haspopup="dialog" aria-expanded={open} aria-label="What is needed to approve this supplier" onClick={() => setOpen((value) => !value)} data-ready={remaining === 0}>
+      <Icons.info size={20}/>
+    </button>
+    <button type="button" className="approval-summary" onClick={() => setOpen(true)} data-ready={remaining === 0}>
+      {approved ? 'Meets all approval requirements' : remaining === 0 ? 'Ready to approve' : `${remaining} ${remaining === 1 ? 'item' : 'items'} left before approval`}
+    </button>
+    {open && <div className="approval-popover" role="dialog" aria-modal="false" aria-labelledby="approval-title" ref={dialog} tabIndex={-1}>
+      <header>
+        <div><h2 id="approval-title">Approval requirements</h2><p>Omoterra can approve a supplier once every item below is complete.</p></div>
+        <button type="button" className="approval-close" aria-label="Close" onClick={() => setOpen(false)}><Icons.close size={18}/></button>
+      </header>
+      <div className="approval-progress" aria-label={`${done} of ${items.length} complete`}>
+        <i><b style={{ width: `${(done / items.length) * 100}%` }}/></i><span>{done} of {items.length} complete</span>
+      </div>
+      <div className="approval-groups">{groups.map((group) => {
+        const groupDone = group.items.filter((item) => item.done).length;
+        return <section key={group.title}>
+          <h3>{group.title}<span>{groupDone}/{group.items.length}</span></h3>
+          <ul>{[...group.items].sort((a, b) => Number(a.done) - Number(b.done)).map((item) => <li key={item.key} data-done={item.done}>
+            <span className="approval-mark" aria-hidden="true">{item.done ? <Icons.checkCircle size={18}/> : <i/>}</span>
+            <span className="approval-copy"><strong>{item.label}</strong><small>{item.hint}</small></span>
+            {item.done ? <span className="sr-only">Complete</span> : <button type="button" onClick={() => fix(item)}>{item.target === 'verification' ? 'Check' : 'Add'}</button>}
+          </li>)}</ul>
+        </section>;
+      })}</div>
+      <footer data-ready={remaining === 0}>{approved
+        ? 'This supplier is approved.'
+        : remaining === 0
+          ? 'Everything is in place. Choose Approved from the status menu.'
+          : 'Verification checks are saved with Save checklist in the Supplier verification card.'}</footer>
+    </div>}
+  </div>;
 }

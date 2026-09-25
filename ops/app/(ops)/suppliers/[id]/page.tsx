@@ -2,15 +2,14 @@ import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Icons } from '@/components/icons';
 import { SupplierStatusControl, SupplierVerificationForm } from '@/components/supplier-controls';
-import { EditableCard, EditSupplierButton, SupplierPhotos, SupplierTabs } from '@/components/supplier-profile';
+import { ApprovalGuide, EditableCard, EditSupplierButton, SupplierPhotos, SupplierTabs } from '@/components/supplier-profile';
 import { Empty, Status } from '@/components/ui';
 import { ApiError, get } from '@/lib/api';
 import { category, date, listingTone, phone, quantity, reference, titleCase, tzs } from '@/lib/format';
-import { missingProfileFields, type RequiredProfileField } from '@/lib/supplier';
+import { approvalRequirements, missingProfileFields, type RequiredProfileField } from '@/lib/supplier';
 import type { SupplierDetail } from '@/lib/types';
 
 const CATEGORY_KEYS = ['broilers','local_chicken','layers','eggs','goats','cattle','chicken_meat','beef','goat_meat'];
-const REQUIRED_CHECKS = ['phone_confirmed', 'identity_reviewed', 'location_confirmed', 'production_seen', 'pickup_access_checked'];
 const MAX_PHOTOS = 8;
 const SECTION_FIELDS: Record<string, RequiredProfileField[]> = {
   details: ['public_alias', 'legal_name', 'region', 'district'],
@@ -32,7 +31,8 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
   let supplier: SupplierDetail;
   try { supplier = await get<SupplierDetail>(`/ops/suppliers/${id}`); }
   catch (error) { if (error instanceof ApiError && error.status === 404) notFound(); throw error; }
-  const canApprove = REQUIRED_CHECKS.every((check) => supplier.verification[check] === true);
+  const approval = approvalRequirements(supplier);
+  const canApprove = approval.every((group) => group.items.every((item) => item.done));
   const photos = supplier.evidence_photos ?? [];
   const missing = missingProfileFields(supplier);
   const categoryChoices = (withCapacity: boolean) => <div className="category-editor">
@@ -59,7 +59,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
       <div className="supplier-identity">
         <div className="supplier-mark"><Icons.home size={34}/></div>
         <div><h1>{supplier.public_alias}</h1><p>{supplier.legal_name}<i/> {phone(supplier.phone)}<i/> {supplier.region}</p></div>
-        <div className="supplier-head-actions"><SupplierStatusControl id={supplier.id} status={supplier.status} canApprove={canApprove}/><EditSupplierButton/><button className="icon-button" type="button" aria-label="More supplier actions"><Icons.more size={22}/></button></div>
+        <div className="supplier-head-actions"><SupplierStatusControl id={supplier.id} status={supplier.status} canApprove={canApprove} guide={<ApprovalGuide groups={approval} status={supplier.status}/>}/><EditSupplierButton/><button className="icon-button" type="button" aria-label="More supplier actions"><Icons.more size={22}/></button></div>
       </div>
       <SupplierTabs/>
     </div>

@@ -101,3 +101,41 @@ def test_cancel_releases_reserved_stock_exactly(client, sessions, seeded):
         assert listing.quantity_reserved == 0
         assert listing.quantity_sold == 0
         assert listing.quantity_available == 10
+
+
+def test_dashboard_aggregates_kpis_trend_batches_and_activity(client, sessions, seeded):
+    from datetime import date, timedelta
+    from app import models as m
+    order(sessions, seeded)
+    today = date.today()
+    with sessions.begin() as db:
+        common = dict(supplier_id=seeded['supplier'], category='broilers', initial_quantity=100, current_quantity=100,
+            expected_ready_date=(today + timedelta(days=10)).isoformat())
+        db.add_all([m.SupplierBatch(**common, status='growing', approved_at=m.now()),
+            m.SupplierBatch(**common, status='growing'),
+            m.SupplierBatch(**common, status='completed', approved_at=m.now()),
+            m.SupplierBatch(**common, status='cancelled')])
+    body = ops(client, '/dashboard').json()
+    assert body['kpis']['active_suppliers'] == 1 and body['kpis']['approved_suppliers'] == 1
+    assert body['kpis']['active_batches'] == 2
+    assert body['kpis']['open_orders'] == 1
+    assert body['batch_status'] == {'live': 1, 'pending': 1, 'completed': 1}
+    # Supplies recorded this month: the seeded listing plus the four batches.
+    assert body['supply_trend']['months'][today.month - 1] == 5
+    assert body['trading']['orders'] == 1
+    assert Decimal(body['trading']['gross_margin']) == Decimal('12000.00')
+    assert body['recent_orders'][0]['buyer'] == 'Buyer Test'
+    assert body['recent_suppliers'][0]['name'] == 'Green Pastures'
+    kinds = [row['kind'] for row in body['recent_activity']]
+    assert 'order_created' in kinds and 'batch_created' in kinds
+    assert len(body['recent_activity']) <= 6
+
+
+def test_dashboard_period_excludes_older_records_and_rejects_reversed_range(client, sessions, seeded):
+    order(sessions, seeded)
+    body = ops(client, '/dashboard?start=2020-01-01&end=2020-01-31').json()
+    assert body['trading']['orders'] == 0
+    assert body['recent_orders'] == [] and body['recent_suppliers'] == [] and body['recent_activity'] == []
+    # Current-state figures do not depend on the chosen period.
+    assert body['kpis']['open_orders'] == 1
+    assert ops(client, '/dashboard?start=2020-02-01&end=2020-01-01').status_code == 422

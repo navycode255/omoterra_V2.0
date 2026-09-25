@@ -281,3 +281,22 @@ export interface Summary {
     settlements_pending: number;
   };
 }
+
+export interface DashboardActivity {
+  kind: 'supplier_registered' | 'supplier_approved' | 'supplier_suspended' | 'supplier_status' | 'order_created' | 'batch_created' | 'stock_submitted' | 'settlement_paid';
+  at: string;
+  title: string;
+  detail: string;
+  href: string;
+}
+
+export interface Dashboard {
+  period: { start: string; end: string };
+  kpis: { active_suppliers: number; approved_suppliers: number; active_batches: number; open_orders: number; pending_settlements: string; pending_settlement_count: number };
+  trading: { orders: number; sales: string; gross_margin: string };
+  supply_trend: { year: number; months: number[] };
+  batch_status: { live: number; pending: number; completed: number };
+  recent_suppliers: { id: string; name: string; region: string; district: string; status: SupplierRow['status']; joined_at: string }[];
+  recent_orders: { id: string; buyer: string; internal_status: InternalStatus; total_amount: string; created_at: string }[];
+  recent_activity: DashboardActivity[];
+}
