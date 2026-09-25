@@ -15,6 +15,14 @@ class PendingSupplierHomeRepository extends LocalRepository {
   }
 }
 
+class NoBatchesRepository extends LocalRepository {
+  @override
+  Future<dynamic> read(String path, [Map<String, dynamic>? query]) async {
+    if (path == '/supplier/batches') return [];
+    return super.read(path, query);
+  }
+}
+
 class FailingSupplierHomeRepository extends LocalRepository {
   final Set<String> failingPaths;
   FailingSupplierHomeRepository({this.failingPaths = const {}});
@@ -37,18 +45,37 @@ Widget host(Widget child) => ProviderScope(
     child: MaterialApp(theme: omoterraTheme(), home: Scaffold(body: child)));
 
 void main() {
-  testWidgets('supplier home offers sales records and stock registration',
+  testWidgets('supplier home leaves stock and reservations to the bottom nav',
       (tester) async {
     await tester.pumpWidget(host(const SupplierHome()));
     await tester.pump(const Duration(seconds: 1));
     expect(tester.takeException(), isNull);
     expect(find.text('Grow Beyond\nthe Farm'), findsOneWidget);
     expect(find.text('Sales Records'), findsOneWidget);
-    expect(find.text('Add Stock'), findsOneWidget);
+    expect(find.text('Payouts'), findsOneWidget);
+    expect(find.text('Add Stock'), findsNothing);
+    expect(find.text('Reservations'), findsNothing);
+    expect(find.widgetWithText(SupplierTile, 'My Stock'), findsNothing);
     expect(tester.getTopLeft(find.text('Market Demand')).dy,
-        lessThan(tester.getTopLeft(find.text('Add Stock')).dy));
-    expect(tester.getTopLeft(find.text('Add Stock')).dy,
-        lessThan(tester.getTopLeft(find.text('Sales Records')).dy));
+        lessThan(tester.getTopLeft(find.text('Payouts')).dy));
+    expect(tester.getTopLeft(find.text('Payouts')).dy,
+        tester.getTopLeft(find.text('Sales Records')).dy);
+    expect(find.text('Track completed earnings'), findsNothing);
+  });
+
+  testWidgets('supplier home has no add-production prompt without batches',
+      (tester) async {
+    await tester.pumpWidget(ProviderScope(
+        overrides: [
+          repositoryProvider.overrideWithValue(NoBatchesRepository())
+        ],
+        child: MaterialApp(
+            theme: omoterraTheme(),
+            home: const Scaffold(body: SupplierHome()))));
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.takeException(), isNull);
+    expect(find.text('Add your current production'), findsNothing);
+    expect(find.text('Market Demand'), findsOneWidget);
   });
 
   testWidgets('under-review home skips unavailable supplier feature requests',
@@ -168,6 +195,21 @@ void main() {
 
     final scaffold = tester.widget<Scaffold>(find.byType(Scaffold).first);
     expect(scaffold.extendBodyBehindAppBar, isTrue);
+    // Home is the one supplier screen that lets back leave the app.
+    expect(find.byWidgetPredicate((w) => w is PopScope), findsNothing);
+  });
+
+  testWidgets('back from a supplier tab returns Home instead of exiting',
+      (tester) async {
+    await tester.pumpWidget(ProviderScope(
+        overrides: [repositoryProvider.overrideWithValue(LocalRepository())],
+        child: MaterialApp(
+            theme: omoterraTheme(),
+            home: const AppShell(path: '/stock', child: SizedBox()))));
+    await tester.pump();
+    final guard = tester
+        .widget<PopScope>(find.byWidgetPredicate((w) => w is PopScope).first);
+    expect(guard.canPop, isFalse);
   });
 
   testWidgets('quick stats keep stock units separate', (tester) async {

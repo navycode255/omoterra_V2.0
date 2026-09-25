@@ -16,7 +16,7 @@ class WelcomeScreen extends ConsumerWidget {
     // haze rather than at a cut line.
     return ExitOnBack(
         child: Scaffold(
-        body: Stack(fit: StackFit.expand, children: [
+            body: Stack(fit: StackFit.expand, children: [
       // The photograph runs well past the panel's top edge so the panel's
       // gradient dissolves over the image itself rather than over bare
       // background, which would still read as a cut.
@@ -39,39 +39,41 @@ class WelcomeScreen extends ConsumerWidget {
                           gradient: LinearGradient(
                               begin: Alignment.topCenter,
                               end: Alignment.bottomCenter,
-                              stops: const [0, .18, .40, 1],
+                              stops: const [
+                            0,
+                            .18,
+                            .40,
+                            1
+                          ],
                               colors: [
-                                OColors.background.withValues(alpha: 0),
-                                OColors.background.withValues(alpha: .70),
-                                OColors.background,
-                                OColors.background,
-                              ])),
-                      child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(s.welcomeTitle,
-                                textAlign: TextAlign.center,
-                                style:
-                                    Theme.of(context).textTheme.headlineMedium),
-                            const SizedBox(height: 10),
-                            Text(s.welcomeBody,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                    color: OColors.secondary, height: 1.5)),
-                            const SizedBox(height: 26),
-                            // One button, because there is one auth path: the
-                            // OTP creates the account if the number is new and
-                            // signs in if it already exists. A separate
-                            // "I already have an account" would lead to the
-                            // very same screen.
-                            OmoterraButton(s.getStarted,
-                                onPressed: () => context.push('/phone')),
-                            const SizedBox(height: 12),
-                            Text(s.signInHint,
-                                textAlign: TextAlign.center,
-                                style: const TextStyle(
-                                    fontSize: 13, color: OColors.secondary)),
-                          ]))))),
+                            OColors.background.withValues(alpha: 0),
+                            OColors.background.withValues(alpha: .70),
+                            OColors.background,
+                            OColors.background,
+                          ])),
+                      child: Column(mainAxisSize: MainAxisSize.min, children: [
+                        Text(s.welcomeTitle,
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.headlineMedium),
+                        const SizedBox(height: 10),
+                        Text(s.welcomeBody,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                color: OColors.secondary, height: 1.5)),
+                        const SizedBox(height: 26),
+                        // One button, because there is one auth path: the
+                        // OTP creates the account if the number is new and
+                        // signs in if it already exists. A separate
+                        // "I already have an account" would lead to the
+                        // very same screen.
+                        OmoterraButton(s.getStarted,
+                            onPressed: () => context.push('/phone')),
+                        const SizedBox(height: 12),
+                        Text(s.signInHint,
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                                fontSize: 13, color: OColors.secondary)),
+                      ]))))),
     ])));
   }
 }

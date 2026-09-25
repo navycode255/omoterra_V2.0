@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/widgets.dart';
 import '../../shared/models/domain.dart';
 import '../api/repository.dart';
+import '../notifications/notifications.dart';
 
 final sessionProvider =
     AsyncNotifierProvider<SessionController, AppUser?>(SessionController.new);
@@ -180,6 +181,8 @@ class SessionController extends AsyncNotifier<AppUser?> {
 
   Future<void> logout() async {
     try {
+      // Stop this phone receiving the account's pushes before signing out.
+      await ref.read(pushProvider).stop();
       await ref.read(repositoryProvider).write('/auth/logout', {});
     } finally {
       await storage.delete(key: 'session');

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 import '../theme/motion.dart';
+import 'back_navigation.dart';
 
 /// Route-owned animation: no second entrance around the shell's Navigator.
 GoRoute omoterraRoute({
@@ -13,7 +14,10 @@ GoRoute omoterraRoute({
       pageBuilder: (context, state) {
         final reducedMotion = MediaQuery.disableAnimationsOf(context);
         // Hero flights paint above the route clip and would mix both pages.
-        final child = HeroMode(enabled: false, child: builder(context, state));
+        final child = HeroMode(
+            enabled: false,
+            child: RouteBackGuard(
+                path: state.uri.path, child: builder(context, state)));
         if (!animate || reducedMotion) {
           return NoTransitionPage<void>(key: state.pageKey, child: child);
         }

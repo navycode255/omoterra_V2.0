@@ -12,7 +12,10 @@ import 'package:omoterra/features/authentication/screens.dart';
 void main() {
   testWidgets('splash and welcome load the supplied photographs',
       (tester) async {
-    for (final screen in <Widget>[const SplashScreen(), const WelcomeScreen()]) {
+    for (final screen in <Widget>[
+      const SplashScreen(),
+      const WelcomeScreen()
+    ]) {
       await tester.pumpWidget(ProviderScope(
           overrides: [stringsProvider.overrideWithValue(const Strings('en'))],
           child: MaterialApp(theme: omoterraTheme(), home: screen)));
@@ -27,8 +30,7 @@ void main() {
     }
   });
 
-  testWidgets('splash shows the designed headline and tagline',
-      (tester) async {
+  testWidgets('splash shows the designed headline and tagline', (tester) async {
     await tester.pumpWidget(ProviderScope(
         overrides: [stringsProvider.overrideWithValue(const Strings('en'))],
         child: const MaterialApp(home: SplashScreen())));
@@ -55,6 +57,7 @@ void main() {
         .map((i) => i.image)
         .whereType<AssetImage>()
         .where((a) => a.assetName == 'assets/images/logo.png');
-    expect(logos, isNotEmpty, reason: 'splash must show assets/images/logo.png');
+    expect(logos, isNotEmpty,
+        reason: 'splash must show assets/images/logo.png');
   });
 }

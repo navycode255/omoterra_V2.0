@@ -34,6 +34,17 @@ void main() {
         'Maili Moja farm road');
     await tester.tap(find.text('Continue'));
     await tester.pumpAndSettle();
+    // The exact farm location is required, not just the typed directions.
+    expect(find.textContaining('Add the farm location'), findsOneWidget);
+    await tester.enterText(find.byKey(const Key('farm_map_link')),
+        'Maili Moja Farm https://www.google.com/maps/place/Maili+Moja/@-6.78,38.9,15z/data=!3d-6.781234!4d38.912345');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pump();
+    expect(find.text('-6.781234, 38.912345'), findsOneWidget);
+    await tester.scrollUntilVisible(find.text('Continue'), 300,
+        scrollable: find.byType(Scrollable).first);
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
     expect(find.text('Current production'), findsNWidgets(2));
 
     await tester.tap(find.text('Continue'));
@@ -45,6 +56,7 @@ void main() {
     expect(find.text('JM Poultry Supply'), findsOneWidget);
     expect(find.textContaining('Broilers'), findsOneWidget);
     expect(find.textContaining('reviewed by Omoterra'), findsOneWidget);
+    expect(find.text('-6.781234, 38.912345'), findsOneWidget);
 
     tester.view.resetPhysicalSize();
     tester.view.resetDevicePixelRatio();

@@ -25,33 +25,33 @@ class SplashScreen extends ConsumerWidget {
           child: SizedBox.expand()),
       SafeArea(
           child: Column(children: [
-            const SizedBox(height: 64),
-            // The supplied logo carries its own tagline, so the headline sits
-            // below it rather than repeating the brand line.
-            const Padding(
-                padding: EdgeInsets.symmetric(horizontal: 40),
-                child: BrandMark(size: 46)),
-            const SizedBox(height: 18),
-            Text(s.splashHeadline,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    fontSize: 24,
-                    height: 1.25,
-                    fontWeight: FontWeight.w700,
-                    color: OColors.forest)),
-            const Spacer(),
-            Text(s.splashTagline,
-                textAlign: TextAlign.center,
-                style: const TextStyle(
-                    color: Colors.white, fontSize: 14, height: 1.5)),
-            const SizedBox(height: 22),
-            const SizedBox(
-                width: 22,
-                height: 22,
-                child: CircularProgressIndicator(
-                    strokeWidth: 2, color: Colors.white)),
-            const SizedBox(height: 40),
-          ]))
+        const SizedBox(height: 64),
+        // The supplied logo carries its own tagline, so the headline sits
+        // below it rather than repeating the brand line.
+        const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 40),
+            child: BrandMark(size: 46)),
+        const SizedBox(height: 18),
+        Text(s.splashHeadline,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                fontSize: 24,
+                height: 1.25,
+                fontWeight: FontWeight.w700,
+                color: OColors.forest)),
+        const Spacer(),
+        Text(s.splashTagline,
+            textAlign: TextAlign.center,
+            style: const TextStyle(
+                color: Colors.white, fontSize: 14, height: 1.5)),
+        const SizedBox(height: 22),
+        const SizedBox(
+            width: 22,
+            height: 22,
+            child:
+                CircularProgressIndicator(strokeWidth: 2, color: Colors.white)),
+        const SizedBox(height: 40),
+      ]))
     ]));
   }
 }

@@ -40,10 +40,12 @@ _$SupplyListingImpl _$$SupplyListingImplFromJson(Map<String, dynamic> json) =>
               ?.map((e) => e as String)
               .toList() ??
           const [],
+      video: json['video'] as String?,
       specs: json['specs'] as Map<String, dynamic>? ?? const {},
       price: decimalString(json['buyer_price_per_unit']),
       available: decimalString(json['quantity_available']),
       supplier: json['supplier'] as Map<String, dynamic>?,
+      supplierRating: json['supplier_rating'] as Map<String, dynamic>?,
     );
 
 Map<String, dynamic> _$$SupplyListingImplToJson(_$SupplyListingImpl instance) =>
@@ -53,10 +55,12 @@ Map<String, dynamic> _$$SupplyListingImplToJson(_$SupplyListingImpl instance) =>
       'unit_type': instance.unitType,
       'region': instance.region,
       'photos': instance.photos,
+      'video': instance.video,
       'specs': instance.specs,
       'buyer_price_per_unit': instance.price,
       'quantity_available': instance.available,
       'supplier': instance.supplier,
+      'supplier_rating': instance.supplierRating,
     };
 
 _$ReservationImpl _$$ReservationImplFromJson(Map<String, dynamic> json) =>
@@ -97,6 +101,8 @@ _$BuyerOrderImpl _$$BuyerOrderImplFromJson(Map<String, dynamic> json) =>
               .toList() ??
           const [],
       message: json['message'] as String?,
+      rating: json['rating'] as Map<String, dynamic>?,
+      canRate: json['can_rate'] as bool? ?? false,
     );
 
 Map<String, dynamic> _$$BuyerOrderImplToJson(_$BuyerOrderImpl instance) =>
@@ -111,4 +117,6 @@ Map<String, dynamic> _$$BuyerOrderImplToJson(_$BuyerOrderImpl instance) =>
       'items': instance.items,
       'activity': instance.activity,
       'message': instance.message,
+      'rating': instance.rating,
+      'can_rate': instance.canRate,
     };

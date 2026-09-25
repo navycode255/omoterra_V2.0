@@ -29,12 +29,15 @@ class SupplyListing with _$SupplyListing {
     @JsonKey(name: 'unit_type') required String unitType,
     required String region,
     @Default([]) List<String> photos,
+    String? video,
     @Default({}) Map<String, dynamic> specs,
     @JsonKey(name: 'buyer_price_per_unit', fromJson: decimalString)
     required String price,
     @JsonKey(name: 'quantity_available', fromJson: decimalString)
     required String available,
     Map<String, dynamic>? supplier,
+    // {rating, ratings}: rating is null until the supplier has enough ratings.
+    @JsonKey(name: 'supplier_rating') Map<String, dynamic>? supplierRating,
   }) = _SupplyListing;
   factory SupplyListing.fromJson(Map<String, dynamic> json) =>
       _$SupplyListingFromJson(json);
@@ -68,6 +71,8 @@ class BuyerOrder with _$BuyerOrder {
     @Default([]) List<Map<String, dynamic>> items,
     @Default([]) List<Map<String, dynamic>> activity,
     String? message,
+    Map<String, dynamic>? rating,
+    @JsonKey(name: 'can_rate') @Default(false) bool canRate,
   }) = _BuyerOrder;
   factory BuyerOrder.fromJson(Map<String, dynamic> json) =>
       _$BuyerOrderFromJson(json);

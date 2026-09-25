@@ -3,9 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/api/repository.dart';
 import '../../core/auth/session.dart';
+import '../../core/routing/back_navigation.dart';
 import '../../core/theme/theme.dart';
 import '../../shared/widgets/components.dart';
 import '../../shared/widgets/data_form.dart';
+import '../../shared/widgets/farm_location.dart';
 import '../../shared/widgets/photo_picker.dart';
 
 class RoleRegistrationScreen extends ConsumerWidget {
@@ -88,7 +90,7 @@ class SupplierOnboardingWizard extends ConsumerStatefulWidget {
 }
 
 class _SupplierOnboardingWizardState
-    extends ConsumerState<SupplierOnboardingWizard> {
+    extends ConsumerState<SupplierOnboardingWizard> with StepBackHistory {
   final _form = GlobalKey<FormState>();
   final _fields = <String, TextEditingController>{};
   final _selected = <String>{}, _forms = <String>{'live'};
@@ -96,6 +98,7 @@ class _SupplierOnboardingWizardState
       _currentPhotos = <String>[],
       _futurePhotos = <String>[];
   int _step = 0;
+  FarmLocation? _farm;
   String? _error;
   bool _busy = false,
       _hasCurrent = false,
@@ -268,7 +271,10 @@ class _SupplierOnboardingWizardState
         ]);
       case 2:
         return Column(children: [
-          _text('internal_pickup_address', 'Exact pickup location (private)',
+          FarmLocationField(
+              value: _farm, onChanged: (v) => setState(() => _farm = v)),
+          _text('internal_pickup_address',
+              'Pickup directions / landmarks (private)',
               required: true, multiline: true),
           _text('pickup_instructions', 'Pickup instructions (optional)',
               multiline: true),
@@ -369,6 +375,7 @@ class _SupplierOnboardingWizardState
               _c('production_frequency').text.isEmpty
                   ? 'Not provided'
                   : _c('production_frequency').text),
+          _summary('Farm location', _farm?.label ?? ''),
           _summary('Pickup', _c('internal_pickup_address').text),
           _summary('Omoterra collection',
               _canCollect ? 'Available' : 'Not available'),
@@ -418,6 +425,11 @@ class _SupplierOnboardingWizardState
           return false;
         }
       }
+    }
+    if (_step == 2 && _farm == null) {
+      setState(() => _error =
+          'Add the farm location: paste a Google Maps link or pick it on the map.');
+      return false;
     }
     if (_step == 2 && _forms.isEmpty) {
       setState(() => _error = 'Choose at least one supply form.');
@@ -517,6 +529,7 @@ class _SupplierOnboardingWizardState
         'supply_forms': _forms.toList(),
         'preferred_contact_method': _contact,
         'operating_notes': _c('operating_notes').text.trim(),
+        ...?_farm?.toJson(),
         'current_batch': _hasCurrent
             ? _batch('current', _currentCategory, _currentForm, _currentAgeUnit)
             : null,
@@ -570,12 +583,7 @@ class _SupplierOnboardingWizardState
                       if (_step > 0)
                         Expanded(
                             child: OutlinedButton(
-                                onPressed: _busy
-                                    ? null
-                                    : () => setState(() {
-                                          _step--;
-                                          _error = null;
-                                        }),
+                                onPressed: _busy ? null : popStep,
                                 child: const Text('Back'))),
                       if (_step > 0) const SizedBox(width: 12),
                       Expanded(
@@ -587,6 +595,10 @@ class _SupplierOnboardingWizardState
                                       : () {
                                           if (_validStep()) {
                                             setState(() => _step++);
+                                            pushStep(() {
+                                              _step--;
+                                              _error = null;
+                                            });
                                           }
                                         },
                               child: Text(_busy

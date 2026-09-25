@@ -9,3 +9,4 @@ The example permits project reuse with attribution. Its original notice reads:
 > Feel free to use the code in your projects but do not forget to give me the credits adding my app (Flutter Animation Gallery) where you are gonna use it.
 
 Implementation: `lib/core/theme/motion.dart` and `lib/core/routing/animated_route.dart`.
+In-app credit: Account → Support → Open-source licenses (registered in `lib/main.dart`).

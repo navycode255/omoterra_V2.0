@@ -104,8 +104,7 @@ class LeafWatermark extends StatelessWidget {
       child: Opacity(
           opacity: opacity,
           child: CustomPaint(
-              size: Size(size, size),
-              painter: _LeafPainter(OColors.soft))));
+              size: Size(size, size), painter: _LeafPainter(OColors.soft))));
 }
 
 class _LeafPainter extends CustomPainter {

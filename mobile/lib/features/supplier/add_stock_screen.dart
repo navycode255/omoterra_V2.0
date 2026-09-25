@@ -4,10 +4,12 @@ import 'package:go_router/go_router.dart';
 import '../../core/api/repository.dart';
 import '../../core/auth/session.dart';
 import '../../core/l10n/strings.dart';
+import '../../core/routing/back_navigation.dart';
 import '../../core/theme/theme.dart';
 import '../../shared/widgets/components.dart';
 import '../../shared/widgets/data_form.dart';
 import '../../shared/widgets/photo_picker.dart';
+import '../../shared/widgets/stock_video.dart';
 
 class AddStockScreen extends ConsumerStatefulWidget {
   const AddStockScreen({super.key});
@@ -15,11 +17,13 @@ class AddStockScreen extends ConsumerStatefulWidget {
   ConsumerState<AddStockScreen> createState() => _AddStockState();
 }
 
-class _AddStockState extends ConsumerState<AddStockScreen> {
+class _AddStockState extends ConsumerState<AddStockScreen>
+    with StepBackHistory {
   String category = 'broilers';
   int step = 0;
   Map<String, dynamic>? preview;
   List<String> photos = [];
+  String? video;
   final controllers = <String, TextEditingController>{};
   final form = GlobalKey<FormState>();
   final key = newKey();
@@ -67,7 +71,9 @@ class _AddStockState extends ConsumerState<AddStockScreen> {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
             content: Text(
                 'Stock submitted — Omoterra will review it before it appears to buyers.')));
-        context.go('/stock/${row['id']}');
+        // Replace the form with the new stock so back returns to the list
+        // it was opened from, not to a submitted form.
+        context.pushReplacement('/stock/${row['id']}');
       }
     } catch (e) {
       if (mounted) setState(() => error = e);
@@ -211,12 +217,21 @@ class _AddStockState extends ConsumerState<AddStockScreen> {
                       const Text(
                           'Omoterra reviews your asking price before the stock becomes available to buyers.')
                     ],
-                    if (step == 3)
+                    if (step == 3) ...[
                       PhotoPicker(
                           photos: photos,
                           onChanged: (value) => setState(() => photos = value)),
+                      const SizedBox(height: 28),
+                      StockVideoPicker(
+                          video: video,
+                          onChanged: (value) => setState(() => video = value)),
+                    ],
                     if (step == 4) ...[
                       ProductImage(photos, category: category, height: 150),
+                      if (video != null) ...[
+                        const SizedBox(height: 10),
+                        StockVideoTile(video!),
+                      ],
                       const SizedBox(height: 16),
                       MoneySummary({
                         'Category': label(category),
@@ -254,15 +269,17 @@ class _AddStockState extends ConsumerState<AddStockScreen> {
                             'specs': {
                               for (final k in specKeys) k: field(k).text.trim()
                             },
-                            'photos': photos
+                            'photos': photos,
+                            'video': video,
                           };
                         }
                         step++;
                       });
+                      pushStep(() => step--);
                     }),
                     if (step > 0)
                       TextButton(
-                          onPressed: busy ? null : () => setState(() => step--),
+                          onPressed: busy ? null : popStep,
                           child: const Text('Back'))
                   ]));
         })

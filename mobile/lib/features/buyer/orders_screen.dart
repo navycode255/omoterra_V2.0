@@ -6,6 +6,7 @@ import '../../core/l10n/strings.dart';
 import '../../core/theme/theme.dart';
 import '../../shared/models/domain.dart';
 import '../../shared/widgets/components.dart';
+import '../../shared/widgets/rating.dart';
 import '../../shared/widgets/data_form.dart';
 
 class OrderConfirmation extends ConsumerWidget {
@@ -238,6 +239,15 @@ class OrderDetail extends ConsumerWidget {
                 const SizedBox(height: 16),
                 Surface(child: OrderProgress(order.status)),
                 if (order.message != null) ErrorState(order.message!),
+                if (order.canRate || order.rating != null) ...[
+                  const SizedBox(height: 16),
+                  RateOrderCard(
+                      orderId: id,
+                      rating: order.rating,
+                      canRate: order.canRate,
+                      onRated: () =>
+                          ref.invalidate(resourceProvider('/orders/$id'))),
+                ],
                 const SectionHeader('Order summary'),
                 MoneySummary({
                   for (final i in order.items)

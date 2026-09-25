@@ -156,19 +156,6 @@ class SupplierHome extends ConsumerWidget {
             }),
             ResourceView('/supplier/batches', builder: (data) {
               final batches = (data as List).cast<Map>();
-              if (batches.isEmpty) {
-                return ResourceView('/supplier/profile', builder: (profile) {
-                  if (profile == null) return const SizedBox.shrink();
-                  return SupplierTile(
-                    title: 'Add your current production',
-                    subtitle:
-                        'Tell us what you have growing or ready to supply',
-                    icon: Icons.add_circle_outline,
-                    prominent: true,
-                    onTap: () => context.push('/batches/new'),
-                  );
-                });
-              }
               final active = batches
                   .where((batch) => !['completed', 'cancelled', 'paused']
                       .contains(batch['status']))
@@ -212,46 +199,20 @@ class SupplierHome extends ConsumerWidget {
                       icon: Icons.storefront_outlined,
                       prominent: true,
                       onTap: () => context.go('/supplier-demand')),
-                  const SizedBox(height: 14),
-                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Expanded(
-                        child: SupplierTile(
-                            title: 'Add Stock',
-                            subtitle: 'Register livestock ready now',
-                            icon: Icons.add_circle,
-                            onTap: () => context.push('/stock/new'))),
-                    const SizedBox(width: 12),
-                    Expanded(
-                        child: SupplierTile(
-                            title: 'My Stock',
-                            subtitle: 'Listings and production batches',
-                            icon: Icons.inventory_2_outlined,
-                            onTap: () => context.go('/stock'))),
-                  ]),
                   const SizedBox(height: 12),
                   Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                    Expanded(
-                        child: SupplierTile(
-                            title: 'Reservations',
-                            subtitle: 'Supply secured for orders',
-                            icon: Icons.event_available_outlined,
-                            onTap: () => context.go('/supplier-orders'))),
-                    const SizedBox(width: 12),
                     Expanded(
                         child: SupplierTile(
                             title: 'Payouts',
-                            subtitle: 'Track completed earnings',
                             icon: Icons.payments_outlined,
                             onTap: () => context.push('/payouts'))),
+                    const SizedBox(width: 12),
+                    Expanded(
+                        child: SupplierTile(
+                            title: 'Sales Records',
+                            icon: Icons.receipt_long_outlined,
+                            onTap: () => context.push('/sales'))),
                   ]),
-                  const SizedBox(height: 12),
-                  SupplierTile(
-                      title: 'Sales Records',
-                      subtitle:
-                          'Review completed sales and transaction history',
-                      icon: Icons.receipt_long_outlined,
-                      prominent: true,
-                      onTap: () => context.push('/sales')),
                   const SizedBox(height: 12),
                   const _QuickStats(),
                 ]))),
@@ -323,26 +284,35 @@ class _SupplierStatusNotice extends StatelessWidget {
 }
 
 class SupplierTile extends StatelessWidget {
-  final String title, subtitle;
+  final String title;
+  final String? subtitle;
   final IconData icon;
   final VoidCallback onTap;
   final bool prominent;
   const SupplierTile(
       {super.key,
       required this.title,
-      required this.subtitle,
+      this.subtitle,
       required this.icon,
       required this.onTap,
       this.prominent = false});
   @override
   Widget build(BuildContext context) {
-    final copy =
-        Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+    // Stacked tiles center their copy under the centered icon; prominent
+    // tiles read left to right beside theirs.
+    final align =
+        prominent ? CrossAxisAlignment.start : CrossAxisAlignment.center;
+    final textAlign = prominent ? TextAlign.start : TextAlign.center;
+    final copy = Column(crossAxisAlignment: align, children: [
       Text(title,
+          textAlign: textAlign,
           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w800)),
-      const SizedBox(height: 3),
-      Text(subtitle,
-          style: const TextStyle(fontSize: 12, color: OColors.secondary)),
+      if (subtitle != null) ...[
+        const SizedBox(height: 3),
+        Text(subtitle!,
+            textAlign: textAlign,
+            style: const TextStyle(fontSize: 12, color: OColors.secondary)),
+      ],
     ]);
     return Material(
         color: Colors.white,
@@ -363,11 +333,10 @@ class SupplierTile extends StatelessWidget {
                         const Icon(Icons.chevron_right, color: OColors.forest),
                       ])
                     : Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                            Center(
-                                child: Icon(icon,
-                                    size: 34, color: const Color(0xFF006747))),
+                            Icon(icon,
+                                size: 34, color: const Color(0xFF006747)),
                             const SizedBox(height: 10),
                             copy,
                           ]))));

@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 import '../../core/theme/theme.dart';
 import '../../shared/widgets/components.dart';
 import '../../shared/widgets/data_form.dart';
+import '../../shared/widgets/stock_video.dart';
 import '../../shared/widgets/supply_art.dart';
 import 'inventory_screens.dart';
 
@@ -58,6 +59,10 @@ class StockDetail extends ConsumerWidget {
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
                   ProductImage(List<String>.from(row['photos']),
                       category: row['category'], height: 190),
+                  if (row['video'] != null) ...[
+                    const SizedBox(height: 10),
+                    StockVideoTile(row['video']),
+                  ],
                   const SizedBox(height: 20),
                   Text(label(row['category']),
                       style: Theme.of(context).textTheme.headlineMedium),
@@ -87,6 +92,12 @@ class StockDetail extends ConsumerWidget {
                       'Increase this batch with a receipt in history.',
                       'crate',
                       '/stock/$id/add'),
+                  _action(
+                      context,
+                      'Photos & video',
+                      'Add, change or remove what buyers see.',
+                      'crate',
+                      '/stock/$id/media'),
                   _action(
                       context,
                       'Stock history',

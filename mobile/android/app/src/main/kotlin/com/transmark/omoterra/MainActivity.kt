@@ -1,4 +1,4 @@
-package com.omoterra.omoterra
+package com.transmark.omoterra
 
 import io.flutter.embedding.android.FlutterActivity
 

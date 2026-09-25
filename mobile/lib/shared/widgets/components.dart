@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/repository.dart';
+import '../../core/routing/back_navigation.dart';
 import '../../core/theme/theme.dart';
 import '../models/domain.dart';
 import 'brand_image.dart';
+import 'rating.dart';
 import 'supply_art.dart';
 
 String label(String value) => value
@@ -459,13 +461,18 @@ class EmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Surface(
       color: OColors.pale,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      child: Column(crossAxisAlignment: CrossAxisAlignment.center, children: [
         const SupplyArt('crate', size: 70, surface: false),
         const SizedBox(height: 16),
-        Text(title, style: Theme.of(context).textTheme.titleLarge),
+        Text(title,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleLarge),
         const SizedBox(height: 8),
-        Text(message),
-        if (action != null) ...[const SizedBox(height: 24), action!]
+        Text(message, textAlign: TextAlign.center),
+        if (action != null) ...[
+          const SizedBox(height: 24),
+          SizedBox(width: double.infinity, child: action!)
+        ]
       ]));
 }
 
@@ -641,8 +648,12 @@ class ListingCard extends StatelessWidget {
                         const Icon(Icons.location_on_outlined,
                             size: 12, color: OColors.muted),
                         const SizedBox(width: 2),
-                        Text(listing.region,
-                            style: Theme.of(context).textTheme.bodySmall),
+                        Flexible(
+                            child: Text(listing.region,
+                                overflow: TextOverflow.ellipsis,
+                                style: Theme.of(context).textTheme.bodySmall)),
+                        const SizedBox(width: 8),
+                        RatingBadge(listing.supplierRating),
                       ]),
                       const SizedBox(height: 10),
                       // The whole card is already tappable (see the InkWell
@@ -858,7 +869,8 @@ class OmoterraAppBar extends StatelessWidget implements PreferredSizeWidget {
       elevation: elevation,
       actions: actions,
       leading: leading ??
-          (ModalRoute.of(context)?.canPop ?? false
+          (ModalRoute.of(context)?.canPop == true ||
+                  RouteBackGuard.fallbackOf(context) != null
               ? const Padding(
                   padding: EdgeInsets.only(left: 12), child: BackChevron())
               : null),

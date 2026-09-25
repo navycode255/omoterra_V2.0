@@ -12,9 +12,12 @@ import '../../features/supplier/inventory_screens.dart';
 import '../../shared/widgets/supply_art.dart';
 import '../../features/account/screens.dart';
 import '../../features/account/role_registration_screen.dart';
+import '../../features/account/delete_account_screen.dart';
+import '../../features/account/notifications_screen.dart';
 import '../../shared/widgets/components.dart';
 import '../theme/theme.dart';
 import 'animated_route.dart';
+import 'back_navigation.dart';
 
 String? routeGuard(String path,
     {required bool signedIn,
@@ -205,6 +208,12 @@ final routerProvider = Provider<GoRouter>((ref) {
         omoterraRoute(
             path: '/account/edit', builder: (_, __) => const ProfileScreen()),
         omoterraRoute(
+            path: '/notifications',
+            builder: (_, __) => const NotificationsScreen()),
+        omoterraRoute(
+            path: '/account/delete',
+            builder: (_, __) => const DeleteAccountScreen()),
+        omoterraRoute(
             path: '/addresses', builder: (_, __) => const AddressesScreen()),
         omoterraRoute(
             path: '/addresses/new',
@@ -221,6 +230,9 @@ final routerProvider = Provider<GoRouter>((ref) {
         omoterraRoute(
             path: '/stock/:id/sell',
             builder: (_, s) => RecordSaleScreen(s.pathParameters['id']!)),
+        omoterraRoute(
+            path: '/stock/:id/media',
+            builder: (_, s) => StockMediaScreen(s.pathParameters['id']!)),
         omoterraRoute(
             path: '/stock/:id/history',
             builder: (_, s) => StockHistoryScreen(s.pathParameters['id']!)),
@@ -308,9 +320,11 @@ class AppShell extends ConsumerWidget {
     final resourceFailures = ref.watch(resourceFailuresProvider);
     final showScreenError = resourceFailures.isNotEmpty && !onSupplierHome;
     final screenError = resourceFailures.values.firstOrNull;
-    // The tabbed screens are the root of the signed-in app, so the system
-    // back gesture should leave the app rather than be swallowed.
-    return ExitOnBack(
+    // Only the role homes let the system back gesture leave the app; every
+    // other tab steps back to Home. The guard sits on the shell page because
+    // go_router hands back to the root navigator when a tab has nothing to pop.
+    return RouteBackGuard(
+        path: path,
         child: Scaffold(
             // The hero can sit under the chrome on Home. Other supplier
             // screens reserve the same transparent chrome height so their
@@ -326,8 +340,11 @@ class AppShell extends ConsumerWidget {
                         // which would center it in the leftover space); the role
                         // switcher sits at the right with whatever room remains.
                         child: Row(children: [
-                          const BrandMark(size: 21),
+                          // On the narrowest phones the logo scales down
+                          // rather than pushing the bell and role pill off.
+                          const Flexible(child: BrandMark(size: 21)),
                           const Spacer(),
+                          const NotificationBell(),
                           _RoleSwitcher(supplier: supplier),
                         ])))),
             body: SafeArea(
@@ -391,56 +408,62 @@ class _BottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
-    final bar = PhysicalShape(
-      clipper: _DemandNavClipper(),
-      color: const Color(0xFFF1F7F4),
-      clipBehavior: Clip.antiAlias,
-      elevation: 3,
-      shadowColor: OColors.forest.withValues(alpha: .14),
-      child: SizedBox(
-        height: 80,
-        child: DecoratedBox(
-            decoration: BoxDecoration(
-                gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                  const Color(0xFFFCFEFC),
-                  const Color(0xFFEDF5F1)
-                ])),
-            child: CustomPaint(
-                painter: _NavLeavesPainter(),
-                child: Row(children: [
-                  _tab(0, Icons.home_outlined, Icons.home, 'Home'),
-                  _tab(
-                      1,
-                      supplier ? Icons.inventory_2_outlined : Icons.search,
-                      supplier ? Icons.inventory_2 : Icons.search,
-                      supplier ? 'Stock' : 'Explore'),
-                  const Spacer(),
-                  _tab(2, Icons.inventory_2_outlined, Icons.inventory_2,
-                      'Orders'),
-                  _tab(3, Icons.person_outline, Icons.person, 'Account'),
-                ]))),
-      ),
-    );
-    final demandButton = Material(
-      color: OColors.forest,
-      shape: const CircleBorder(),
-      elevation: 0,
-      child: InkWell(
-        customBorder: const CircleBorder(),
-        onTap: onDemand,
-        child: Container(
-          width: 56,
-          height: 56,
-          decoration: const BoxDecoration(shape: BoxShape.circle),
-          padding: const EdgeInsets.all(4),
-          child:
-              Image.asset('assets/icons/white-icon.png', fit: BoxFit.contain),
+    // A white surface on the light page, outlined and shadowed so its edge
+    // and the cradle around the demand button read clearly (a plain elevation
+    // shadow falls below the bar and left the top edge invisible).
+    final bar = CustomPaint(
+      painter: _NavSurfacePainter(),
+      child: ClipPath(
+        clipper: _DemandNavClipper(),
+        child: SizedBox(
+          height: 80,
+          child: CustomPaint(
+              painter: _NavLeavesPainter(),
+              child: Row(children: [
+                _tab(0, Icons.home_outlined, Icons.home, 'Home'),
+                _tab(
+                    1,
+                    supplier ? Icons.inventory_2_outlined : Icons.search,
+                    supplier ? Icons.inventory_2 : Icons.search,
+                    supplier ? 'Stock' : 'Explore'),
+                const Spacer(),
+                _tab(
+                    2, Icons.inventory_2_outlined, Icons.inventory_2, 'Orders'),
+                _tab(3, Icons.person_outline, Icons.person, 'Account'),
+              ])),
         ),
       ),
     );
+    // The button floats in the cradle with a soft light ring and its own
+    // shadow, as in the design.
+    final demandButton = Container(
+        padding: const EdgeInsets.all(3),
+        decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: const Color(0xFFE4EFE8),
+            boxShadow: [
+              BoxShadow(
+                  color: OColors.forest.withValues(alpha: .18),
+                  blurRadius: 8,
+                  offset: const Offset(0, 2)),
+            ]),
+        child: Material(
+          color: OColors.forest,
+          shape: const CircleBorder(),
+          elevation: 0,
+          child: InkWell(
+            customBorder: const CircleBorder(),
+            onTap: onDemand,
+            child: Container(
+              width: 56,
+              height: 56,
+              decoration: const BoxDecoration(shape: BoxShape.circle),
+              padding: const EdgeInsets.all(4),
+              child: Image.asset('assets/icons/white-icon.png',
+                  fit: BoxFit.contain),
+            ),
+          ),
+        ));
     return Padding(
       padding:
           EdgeInsets.fromLTRB(10, 0, 10, bottomInset > 0 ? bottomInset : 10),
@@ -451,7 +474,7 @@ class _BottomNav extends StatelessWidget {
           Positioned(
               left: 0,
               right: 0,
-              top: 0,
+              top: -3,
               child: Center(
                   child: Semantics(
                       button: true,
@@ -526,32 +549,70 @@ class _BottomNav extends StatelessWidget {
 }
 
 /// A single continuous navigation surface with a concave center cradle for
-/// the floating demand action.
+/// the floating demand action. The cradle leaves a visible gap around the
+/// button (radius 28 + ring 3, centred 16px into the bar).
+Path _navPath(Size size) {
+  const radius = 24.0;
+  final center = size.width / 2;
+  final path = Path()..moveTo(radius, 0);
+  path.lineTo(center - 60, 0);
+  path.cubicTo(center - 45, 0, center - 41, 5, center - 38, 16);
+  path.cubicTo(center - 34, 36, center - 20, 53, center, 53);
+  path.cubicTo(center + 20, 53, center + 34, 36, center + 38, 16);
+  path.cubicTo(center + 41, 5, center + 45, 0, center + 60, 0);
+  path.lineTo(size.width - radius, 0);
+  path.quadraticBezierTo(size.width, 0, size.width, radius);
+  path.lineTo(size.width, size.height - radius);
+  path.quadraticBezierTo(
+      size.width, size.height, size.width - radius, size.height);
+  path.lineTo(radius, size.height);
+  path.quadraticBezierTo(0, size.height, 0, size.height - radius);
+  path.lineTo(0, radius);
+  path.quadraticBezierTo(0, 0, radius, 0);
+  return path..close();
+}
+
 class _DemandNavClipper extends CustomClipper<Path> {
   @override
-  Path getClip(Size size) {
-    const radius = 24.0;
-    final center = size.width / 2;
-    final path = Path()..moveTo(radius, 0);
-    path.lineTo(center - 62, 0);
-    path.cubicTo(center - 42, 0, center - 36, 9, center - 31, 28);
-    path.cubicTo(center - 26, 43, center - 16, 50, center, 50);
-    path.cubicTo(center + 16, 50, center + 26, 43, center + 31, 28);
-    path.cubicTo(center + 36, 9, center + 42, 0, center + 62, 0);
-    path.lineTo(size.width - radius, 0);
-    path.quadraticBezierTo(size.width, 0, size.width, radius);
-    path.lineTo(size.width, size.height - radius);
-    path.quadraticBezierTo(
-        size.width, size.height, size.width - radius, size.height);
-    path.lineTo(radius, size.height);
-    path.quadraticBezierTo(0, size.height, 0, size.height - radius);
-    path.lineTo(0, radius);
-    path.quadraticBezierTo(0, 0, radius, 0);
-    return path..close();
+  Path getClip(Size size) => _navPath(size);
+  @override
+  bool shouldReclip(covariant _DemandNavClipper oldClipper) => false;
+}
+
+/// Shadow all round (strongest along the top edge and into the cradle),
+/// a white-to-mint fill and a hairline outline.
+class _NavSurfacePainter extends CustomPainter {
+  @override
+  void paint(Canvas canvas, Size size) {
+    final path = _navPath(size);
+    canvas.drawPath(
+        path.shift(const Offset(0, -2)),
+        Paint()
+          ..color = OColors.forest.withValues(alpha: .16)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 9));
+    canvas.drawPath(
+        path.shift(const Offset(0, 4)),
+        Paint()
+          ..color = OColors.forest.withValues(alpha: .10)
+          ..maskFilter = const MaskFilter.blur(BlurStyle.normal, 12));
+    canvas.drawPath(
+        path,
+        Paint()
+          ..shader = const LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [Colors.white, Color(0xFFF0F7F3)])
+              .createShader(Offset.zero & size));
+    canvas.drawPath(
+        path,
+        Paint()
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 1
+          ..color = const Color(0xFFD5E6DC));
   }
 
   @override
-  bool shouldReclip(covariant _DemandNavClipper oldClipper) => false;
+  bool shouldRepaint(covariant _NavSurfacePainter oldDelegate) => false;
 }
 
 class _NavLeavesPainter extends CustomPainter {

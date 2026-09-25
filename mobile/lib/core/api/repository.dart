@@ -29,13 +29,24 @@ abstract class OmoterraRepository {
       {String method = 'POST', String? key});
   Future<List<SupplyListing>> listings(Map<String, dynamic> query);
   Future<String> uploadPhoto(List<int> bytes);
+
+  /// Uploads a stock video from [path] (or [bytes] where there is no file
+  /// system, on web) and returns its `/media/…` URL.
+  Future<String> uploadVideo(
+      {String? path,
+      List<int>? bytes,
+      void Function(int sent, int total)? onProgress});
 }
 
 class ApiRepository implements OmoterraRepository {
   final Dio dio;
   ApiRepository(this.dio);
   Future<dynamic> _request(String path, String method,
-      {dynamic data, Map<String, dynamic>? query, String? key}) async {
+      {dynamic data,
+      Map<String, dynamic>? query,
+      String? key,
+      Duration? receiveTimeout,
+      ProgressCallback? onSendProgress}) async {
     if (apiUrl.isEmpty) {
       throw const ApiFailure(
           'Set API_BASE_URL to connect to Omoterra. No action has been submitted.');
@@ -45,7 +56,9 @@ class ApiRepository implements OmoterraRepository {
       final response = await dio.request(path,
           data: data,
           queryParameters: query,
-          options: Options(method: method, headers: {
+          onSendProgress: onSendProgress,
+          options:
+              Options(method: method, receiveTimeout: receiveTimeout, headers: {
             if (token != null) 'Authorization': 'Bearer $token',
             if (key != null) 'Idempotency-Key': key,
           }));
@@ -76,6 +89,22 @@ class ApiRepository implements OmoterraRepository {
     final response = await _request('/media', 'POST',
         data: FormData.fromMap(
             {'file': MultipartFile.fromBytes(bytes, filename: 'photo.jpg')}));
+    return response['url'] as String;
+  }
+
+  @override
+  Future<String> uploadVideo(
+      {String? path,
+      List<int>? bytes,
+      void Function(int sent, int total)? onProgress}) async {
+    final file = path != null
+        ? await MultipartFile.fromFile(path, filename: 'stock-video.mp4')
+        : MultipartFile.fromBytes(bytes!, filename: 'stock-video.mp4');
+    final response = await _request('/media/video', 'POST',
+        data: FormData.fromMap({'file': file}),
+        // The server is still writing the file after the last byte is sent.
+        receiveTimeout: const Duration(minutes: 2),
+        onSendProgress: onProgress);
     return response['url'] as String;
   }
 
@@ -196,6 +225,13 @@ class LocalRepository implements OmoterraRepository {
       throw const ApiFailure(_unavailable);
 
   @override
+  Future<String> uploadVideo(
+          {String? path,
+          List<int>? bytes,
+          void Function(int sent, int total)? onProgress}) async =>
+      throw const ApiFailure(_unavailable);
+
+  @override
   Future<List<SupplyListing>> listings(Map<String, dynamic> query) async =>
       _listings
           .where((e) =>
@@ -206,6 +242,25 @@ class LocalRepository implements OmoterraRepository {
 
   @override
   Future<dynamic> read(String path, [Map<String, dynamic>? query]) async {
+    if (path == '/notifications') {
+      return {
+        'unread': 1,
+        'items': [
+          {
+            'id': 'preview-note-1',
+            'role': 'buyer',
+            'kind': 'order_in_transit',
+            'title': 'Order on the way',
+            'body': 'Your order has left for delivery.',
+            'link': '/orders',
+            'read': false,
+            'created_at': DateTime.now()
+                .subtract(const Duration(minutes: 20))
+                .toIso8601String(),
+          },
+        ],
+      };
+    }
     if (path == '/config') {
       return {
         'payment_methods': ['pay_on_delivery'],

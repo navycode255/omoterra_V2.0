@@ -57,8 +57,7 @@ void main() {
       'OmoterraAppBar shows the chevron once pushed, and hides it at the root',
       (tester) async {
     await tester.pumpWidget(harness(const Scaffold(
-        appBar: OmoterraAppBar(title: Text('Root')),
-        body: SizedBox())));
+        appBar: OmoterraAppBar(title: Text('Root')), body: SizedBox())));
     await tester.pump();
     expect(find.byType(BackChevron), findsNothing);
 

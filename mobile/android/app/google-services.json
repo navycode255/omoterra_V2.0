@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "819675831893",
+    "project_id": "omoterra-tz",
+    "storage_bucket": "omoterra-tz.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:819675831893:android:ff95a71107062f699d7edc",
+        "android_client_info": {
+          "package_name": "com.transmark.omoterra"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD1KVibrIBHUo34a0t6b_nRSofmUYio1JI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

@@ -6,6 +6,8 @@ import '../../core/l10n/strings.dart';
 import '../../core/theme/theme.dart';
 import '../../shared/models/domain.dart';
 import '../../shared/widgets/components.dart';
+import '../../shared/widgets/rating.dart';
+import '../../shared/widgets/stock_video.dart';
 
 class ListingDetail extends ConsumerStatefulWidget {
   final String id;
@@ -88,148 +90,153 @@ class _ListingDetailState extends ConsumerState<ListingDetail> {
     final s = ref.s;
     return Scaffold(
         body: ResourceView('/listings/${widget.id}', builder: (data) {
-          final listing =
-              SupplyListing.fromJson(Map<String, dynamic>.from(data));
-          final count = num.tryParse(quantity.text) ?? 0;
-          final total = count * num.parse(listing.price);
-          return Column(children: [
-            Expanded(
-                child: ListView(padding: EdgeInsets.zero, children: [
-              // Full-bleed hero with floating controls, as drawn.
-              Stack(children: [
-                Hero(
-                    tag: listing.id,
-                    child: ProductImage(listing.photos,
-                        category: listing.category, height: 300)),
-                Positioned(
-                    top: MediaQuery.paddingOf(context).top + 8,
-                    left: 16,
-                    right: 16,
-                    child: Row(children: [
-                      _HeroButton(
-                          icon: Icons.arrow_back_ios_new,
-                          onTap: () => Navigator.of(context).maybePop()),
-                      const Spacer(),
-                      const _HeroButton(icon: Icons.favorite_border),
-                    ])),
-              ]),
-              Padding(
-                  padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
-                  child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(label(listing.category),
-                            style: Theme.of(context).textTheme.headlineMedium),
-                        const SizedBox(height: 8),
-                        Text('${tsh(listing.price)} / ${listing.unitType}',
-                            style: const TextStyle(
-                                fontSize: 24,
-                                fontWeight: FontWeight.w700,
-                                color: OColors.forest)),
-                        const SizedBox(height: 6),
-                        Row(children: [
-                          const Icon(Icons.check_circle,
-                              size: 15, color: OColors.positive),
-                          const SizedBox(width: 5),
-                          Text(s.omoterraApproved,
-                              style: const TextStyle(
-                                  fontSize: 12.5,
-                                  color: OColors.positive,
-                                  fontWeight: FontWeight.w600)),
-                        ]),
-                        const SizedBox(height: 8),
-                        Text(
-                            '${amount(listing.available)} ${listing.unitType} ${s.available} · ${listing.region}',
-                            style: const TextStyle(
-                                fontSize: 13, color: OColors.secondary)),
-                        const SizedBox(height: 18),
-                        _SupplierCard(
-                            alias: '${listing.supplier?['public_alias'] ?? 'Omoterra supply partner'}',
-                            region: listing.region,
-                            approved: s.omoterraApproved),
-                        const SizedBox(height: 20),
-                        Text(s.specifications,
-                            style: Theme.of(context).textTheme.titleMedium),
-                        const SizedBox(height: 10),
-                        _SpecTable(listing.specs),
-                        if (error != null) ErrorState(error!),
-                        if (hold != null) ...[
-                          const SizedBox(height: 12),
-                          Container(
-                              padding: const EdgeInsets.all(12),
-                              decoration: BoxDecoration(
-                                  color: OColors.soft,
-                                  borderRadius: BorderRadius.circular(12)),
-                              child: Row(children: [
-                                const Icon(Icons.lock_clock,
-                                    size: 17, color: OColors.forest),
-                                const SizedBox(width: 8),
-                                const Expanded(
-                                    child: Text('Stock reserved for 15 minutes.',
-                                        style: TextStyle(fontSize: 13))),
-                                TextButton(
-                                    onPressed: busy ? null : changeQuantity,
-                                    child: const Text('Change')),
-                              ])),
-                        ],
-                        const SizedBox(height: 8),
-                        Center(
-                            child: TextButton(
-                                onPressed: () => context.push('/request'),
-                                child: Text(s.needMore))),
-                        const SizedBox(height: 8),
-                      ])),
-            ])),
-            // Sticky quantity + Buy Now bar. Quantity and the total share the
-            // top row; Buy Now gets its own full-width row below rather than
-            // squeezing in beside them.
-            Container(
-                padding: EdgeInsets.fromLTRB(
-                    20, 14, 20, 14 + MediaQuery.paddingOf(context).bottom),
-                decoration: const BoxDecoration(
-                    color: Colors.white,
-                    border:
-                        Border(top: BorderSide(color: OColors.border))),
-                child: Column(children: [
-                  Row(children: [
-                    _Stepper(
-                        value: quantity.text,
-                        enabled: hold == null && !busy,
-                        onMinus: () => setState(() {
-                              final v = num.tryParse(quantity.text) ?? 1;
-                              quantity.text = (v > 1 ? v - 1 : 1).toString();
-                            }),
-                        onPlus: () => setState(() => quantity.text =
-                            ((num.tryParse(quantity.text) ?? 0) + 1)
-                                .toString())),
-                    const SizedBox(width: 12),
-                    // Expanded + FittedBox so a large total (a cow at
-                    // TZS 1,500,000, say) shrinks to fit next to the stepper
-                    // on a narrow phone instead of overflowing the row.
-                    Expanded(
-                        child: FittedBox(
-                            fit: BoxFit.scaleDown,
-                            alignment: Alignment.centerRight,
-                            child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.end,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(tsh(total),
-                                      style: const TextStyle(
-                                          fontSize: 17,
-                                          fontWeight: FontWeight.w700)),
-                                  Text(s.orderTotal,
-                                      style: const TextStyle(
-                                          fontSize: 11, color: OColors.muted)),
-                                ]))),
-                  ]),
-                  const SizedBox(height: 12),
-                  FilledButton(
-                      onPressed: busy ? null : () => reserve(checkout: true),
-                      child: Text(busy ? '…' : s.buyNow)),
+      final listing = SupplyListing.fromJson(Map<String, dynamic>.from(data));
+      final count = num.tryParse(quantity.text) ?? 0;
+      final total = count * num.parse(listing.price);
+      return Column(children: [
+        Expanded(
+            child: ListView(padding: EdgeInsets.zero, children: [
+          // Full-bleed hero with floating controls, as drawn.
+          Stack(children: [
+            Hero(
+                tag: listing.id,
+                child: ProductImage(listing.photos,
+                    category: listing.category, height: 300)),
+            Positioned(
+                top: MediaQuery.paddingOf(context).top + 8,
+                left: 16,
+                right: 16,
+                child: Row(children: [
+                  _HeroButton(
+                      icon: Icons.arrow_back_ios_new,
+                      onTap: () => Navigator.of(context).maybePop()),
+                  const Spacer(),
+                  const _HeroButton(icon: Icons.favorite_border),
                 ])),
-          ]);
-        }));
+          ]),
+          Padding(
+              padding: const EdgeInsets.fromLTRB(20, 20, 20, 0),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (listing.video != null) ...[
+                      StockVideoTile(listing.video!),
+                      const SizedBox(height: 16),
+                    ],
+                    Text(label(listing.category),
+                        style: Theme.of(context).textTheme.headlineMedium),
+                    const SizedBox(height: 8),
+                    Text('${tsh(listing.price)} / ${listing.unitType}',
+                        style: const TextStyle(
+                            fontSize: 24,
+                            fontWeight: FontWeight.w700,
+                            color: OColors.forest)),
+                    const SizedBox(height: 6),
+                    Row(children: [
+                      const Icon(Icons.check_circle,
+                          size: 15, color: OColors.positive),
+                      const SizedBox(width: 5),
+                      Text(s.omoterraApproved,
+                          style: const TextStyle(
+                              fontSize: 12.5,
+                              color: OColors.positive,
+                              fontWeight: FontWeight.w600)),
+                    ]),
+                    const SizedBox(height: 8),
+                    Text(
+                        '${amount(listing.available)} ${listing.unitType} ${s.available} · ${listing.region}',
+                        style: const TextStyle(
+                            fontSize: 13, color: OColors.secondary)),
+                    const SizedBox(height: 18),
+                    _SupplierCard(
+                        alias:
+                            '${listing.supplier?['public_alias'] ?? 'Omoterra supply partner'}',
+                        region: listing.region,
+                        approved: s.omoterraApproved),
+                    const SizedBox(height: 10),
+                    ReputationStrip(listing.supplier?['reputation']
+                        as Map<String, dynamic>?),
+                    const SizedBox(height: 20),
+                    Text(s.specifications,
+                        style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: 10),
+                    _SpecTable(listing.specs),
+                    if (error != null) ErrorState(error!),
+                    if (hold != null) ...[
+                      const SizedBox(height: 12),
+                      Container(
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                              color: OColors.soft,
+                              borderRadius: BorderRadius.circular(12)),
+                          child: Row(children: [
+                            const Icon(Icons.lock_clock,
+                                size: 17, color: OColors.forest),
+                            const SizedBox(width: 8),
+                            const Expanded(
+                                child: Text('Stock reserved for 15 minutes.',
+                                    style: TextStyle(fontSize: 13))),
+                            TextButton(
+                                onPressed: busy ? null : changeQuantity,
+                                child: const Text('Change')),
+                          ])),
+                    ],
+                    const SizedBox(height: 8),
+                    Center(
+                        child: TextButton(
+                            onPressed: () => context.push('/request'),
+                            child: Text(s.needMore))),
+                    const SizedBox(height: 8),
+                  ])),
+        ])),
+        // Sticky quantity + Buy Now bar. Quantity and the total share the
+        // top row; Buy Now gets its own full-width row below rather than
+        // squeezing in beside them.
+        Container(
+            padding: EdgeInsets.fromLTRB(
+                20, 14, 20, 14 + MediaQuery.paddingOf(context).bottom),
+            decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(top: BorderSide(color: OColors.border))),
+            child: Column(children: [
+              Row(children: [
+                _Stepper(
+                    value: quantity.text,
+                    enabled: hold == null && !busy,
+                    onMinus: () => setState(() {
+                          final v = num.tryParse(quantity.text) ?? 1;
+                          quantity.text = (v > 1 ? v - 1 : 1).toString();
+                        }),
+                    onPlus: () => setState(() => quantity.text =
+                        ((num.tryParse(quantity.text) ?? 0) + 1).toString())),
+                const SizedBox(width: 12),
+                // Expanded + FittedBox so a large total (a cow at
+                // TZS 1,500,000, say) shrinks to fit next to the stepper
+                // on a narrow phone instead of overflowing the row.
+                Expanded(
+                    child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        alignment: Alignment.centerRight,
+                        child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.end,
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Text(tsh(total),
+                                  style: const TextStyle(
+                                      fontSize: 17,
+                                      fontWeight: FontWeight.w700)),
+                              Text(s.orderTotal,
+                                  style: const TextStyle(
+                                      fontSize: 11, color: OColors.muted)),
+                            ]))),
+              ]),
+              const SizedBox(height: 12),
+              FilledButton(
+                  onPressed: busy ? null : () => reserve(checkout: true),
+                  child: Text(busy ? '…' : s.buyNow)),
+            ])),
+      ]);
+    }));
   }
 }
 
@@ -276,30 +283,28 @@ class _SupplierCard extends StatelessWidget {
         // an overflow on narrow phones once the alias/region text needed
         // most of the row's width.
         Expanded(
-            child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-              Text(alias,
-                  style: const TextStyle(
-                      fontWeight: FontWeight.w700, fontSize: 14)),
-              const SizedBox(height: 3),
-              Text(region,
-                  style: const TextStyle(
-                      fontSize: 12, color: OColors.secondary)),
-              const SizedBox(height: 6),
-              // Deliberately no contact control: buyers never reach suppliers direct.
-              Row(mainAxisSize: MainAxisSize.min, children: [
-                const Icon(Icons.verified, size: 15, color: OColors.positive),
-                const SizedBox(width: 4),
-                Flexible(
-                    child: Text(approved,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                            fontSize: 11,
-                            color: OColors.positive,
-                            fontWeight: FontWeight.w600))),
-              ]),
-            ])),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(alias,
+              style:
+                  const TextStyle(fontWeight: FontWeight.w700, fontSize: 14)),
+          const SizedBox(height: 3),
+          Text(region,
+              style: const TextStyle(fontSize: 12, color: OColors.secondary)),
+          const SizedBox(height: 6),
+          // Deliberately no contact control: buyers never reach suppliers direct.
+          Row(mainAxisSize: MainAxisSize.min, children: [
+            const Icon(Icons.verified, size: 15, color: OColors.positive),
+            const SizedBox(width: 4),
+            Flexible(
+                child: Text(approved,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                        fontSize: 11,
+                        color: OColors.positive,
+                        fontWeight: FontWeight.w600))),
+          ]),
+        ])),
       ]));
 }
 
@@ -320,8 +325,7 @@ class _SpecTable extends StatelessWidget {
             decoration: BoxDecoration(
                 border: last
                     ? null
-                    : const Border(
-                        bottom: BorderSide(color: OColors.border))),
+                    : const Border(bottom: BorderSide(color: OColors.border))),
             child: Row(children: [
               Expanded(
                   child: Text(label(row.value.key),
@@ -349,8 +353,7 @@ class _Stepper extends StatelessWidget {
           borderRadius: BorderRadius.circular(12),
           border: Border.all(color: OColors.border)),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        _StepButton(
-            icon: Icons.remove, onTap: enabled ? onMinus : null),
+        _StepButton(icon: Icons.remove, onTap: enabled ? onMinus : null),
         SizedBox(
             width: 34,
             child: Text(value,

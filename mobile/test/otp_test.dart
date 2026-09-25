@@ -14,12 +14,12 @@ const challenge = {
 };
 
 Widget harness() => ProviderScope(
-    overrides: [
-      stringsProvider.overrideWithValue(const Strings('en')),
-      repositoryProvider.overrideWithValue(LocalRepository()),
-    ],
-    child: MaterialApp(
-        theme: omoterraTheme(), home: const OtpScreen(challenge)));
+        overrides: [
+          stringsProvider.overrideWithValue(const Strings('en')),
+          repositoryProvider.overrideWithValue(LocalRepository()),
+        ],
+        child: MaterialApp(
+            theme: omoterraTheme(), home: const OtpScreen(challenge)));
 
 Future<void> tapDigit(WidgetTester tester, String digit) async {
   await tester.tap(find.widgetWithText(InkWell, digit).first);
@@ -46,8 +46,11 @@ void main() {
   });
 
   /// Text within the OTP boxes only, excluding the keypad's own digit labels.
-  Finder boxText(WidgetTester tester, String value) => find.byWidgetPredicate(
-      (w) => w is Text && w.data == value && w.style?.fontWeight == FontWeight.w700);
+  Finder boxText(WidgetTester tester, String value) =>
+      find.byWidgetPredicate((w) =>
+          w is Text &&
+          w.data == value &&
+          w.style?.fontWeight == FontWeight.w700);
 
   testWidgets('digits fill left to right and the cursor advances',
       (tester) async {
@@ -84,8 +87,7 @@ void main() {
     expect(find.text('—'), findsOneWidget);
   });
 
-  testWidgets('entering the final digit submits automatically',
-      (tester) async {
+  testWidgets('entering the final digit submits automatically', (tester) async {
     await tester.pumpWidget(harness());
     await tester.pump();
 

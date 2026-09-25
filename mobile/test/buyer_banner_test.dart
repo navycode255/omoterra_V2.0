@@ -7,8 +7,7 @@ import 'package:omoterra/features/buyer/screens.dart';
 
 Widget host(Widget child) => ProviderScope(
     overrides: [repositoryProvider.overrideWithValue(LocalRepository())],
-    child: MaterialApp(
-        theme: omoterraTheme(), home: Scaffold(body: child)));
+    child: MaterialApp(theme: omoterraTheme(), home: Scaffold(body: child)));
 
 void main() {
   testWidgets('the banner carries no overlaid text or button of its own',

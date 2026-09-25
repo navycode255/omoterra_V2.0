@@ -293,6 +293,12 @@ class _AccountState extends ConsumerState<AccountScreen> {
                           scale: scale,
                           onTap: () => context.push('/account/support')),
                       _AccountRow(
+                          title: 'Delete account',
+                          icon: Icons.delete_outline,
+                          danger: true,
+                          scale: scale,
+                          onTap: () => context.push('/account/delete')),
+                      _AccountRow(
                           title: 'Log out',
                           icon: Icons.logout,
                           danger: true,
@@ -619,6 +625,11 @@ class AccountInfoScreen extends StatelessWidget {
               title: const Text('Privacy notice'),
               trailing: const Icon(Icons.chevron_right),
               onTap: () => context.push('/account/privacy')),
+          ListTile(
+              title: const Text('Open-source licenses'),
+              trailing: const Icon(Icons.chevron_right),
+              onTap: () => showLicensePage(
+                  context: context, applicationName: 'Omoterra')),
         ],
         ResourceView('/config', builder: (config) {
           final text = page == 'support'
@@ -639,10 +650,5 @@ class AccountInfoScreen extends StatelessWidget {
                         : 'Please contact Omoterra for the current ${page == 'terms' ? 'terms of service' : 'privacy notice'} before placing an order.'),
               ]));
         }),
-        if (page == 'support')
-          Padding(
-              padding: const EdgeInsets.only(top: 24),
-              child: Text('Page animation: Flutter Animation Gallery',
-                  style: Theme.of(context).textTheme.bodySmall)),
       ]));
 }

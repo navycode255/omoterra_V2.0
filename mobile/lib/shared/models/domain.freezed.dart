@@ -312,12 +312,17 @@ mixin _$SupplyListing {
   String get unitType => throw _privateConstructorUsedError;
   String get region => throw _privateConstructorUsedError;
   List<String> get photos => throw _privateConstructorUsedError;
+  String? get video => throw _privateConstructorUsedError;
   Map<String, dynamic> get specs => throw _privateConstructorUsedError;
   @JsonKey(name: 'buyer_price_per_unit', fromJson: decimalString)
   String get price => throw _privateConstructorUsedError;
   @JsonKey(name: 'quantity_available', fromJson: decimalString)
   String get available => throw _privateConstructorUsedError;
-  Map<String, dynamic>? get supplier => throw _privateConstructorUsedError;
+  Map<String, dynamic>? get supplier =>
+      throw _privateConstructorUsedError; // {rating, ratings}: rating is null until the supplier has enough ratings.
+  @JsonKey(name: 'supplier_rating')
+  Map<String, dynamic>? get supplierRating =>
+      throw _privateConstructorUsedError;
 
   /// Serializes this SupplyListing to a JSON map.
   Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
@@ -341,12 +346,14 @@ abstract class $SupplyListingCopyWith<$Res> {
       @JsonKey(name: 'unit_type') String unitType,
       String region,
       List<String> photos,
+      String? video,
       Map<String, dynamic> specs,
       @JsonKey(name: 'buyer_price_per_unit', fromJson: decimalString)
       String price,
       @JsonKey(name: 'quantity_available', fromJson: decimalString)
       String available,
-      Map<String, dynamic>? supplier});
+      Map<String, dynamic>? supplier,
+      @JsonKey(name: 'supplier_rating') Map<String, dynamic>? supplierRating});
 }
 
 /// @nodoc
@@ -369,10 +376,12 @@ class _$SupplyListingCopyWithImpl<$Res, $Val extends SupplyListing>
     Object? unitType = null,
     Object? region = null,
     Object? photos = null,
+    Object? video = freezed,
     Object? specs = null,
     Object? price = null,
     Object? available = null,
     Object? supplier = freezed,
+    Object? supplierRating = freezed,
   }) {
     return _then(_value.copyWith(
       id: null == id
@@ -395,6 +404,10 @@ class _$SupplyListingCopyWithImpl<$Res, $Val extends SupplyListing>
           ? _value.photos
           : photos // ignore: cast_nullable_to_non_nullable
               as List<String>,
+      video: freezed == video
+          ? _value.video
+          : video // ignore: cast_nullable_to_non_nullable
+              as String?,
       specs: null == specs
           ? _value.specs
           : specs // ignore: cast_nullable_to_non_nullable
@@ -410,6 +423,10 @@ class _$SupplyListingCopyWithImpl<$Res, $Val extends SupplyListing>
       supplier: freezed == supplier
           ? _value.supplier
           : supplier // ignore: cast_nullable_to_non_nullable
+              as Map<String, dynamic>?,
+      supplierRating: freezed == supplierRating
+          ? _value.supplierRating
+          : supplierRating // ignore: cast_nullable_to_non_nullable
               as Map<String, dynamic>?,
     ) as $Val);
   }
@@ -429,12 +446,14 @@ abstract class _$$SupplyListingImplCopyWith<$Res>
       @JsonKey(name: 'unit_type') String unitType,
       String region,
       List<String> photos,
+      String? video,
       Map<String, dynamic> specs,
       @JsonKey(name: 'buyer_price_per_unit', fromJson: decimalString)
       String price,
       @JsonKey(name: 'quantity_available', fromJson: decimalString)
       String available,
-      Map<String, dynamic>? supplier});
+      Map<String, dynamic>? supplier,
+      @JsonKey(name: 'supplier_rating') Map<String, dynamic>? supplierRating});
 }
 
 /// @nodoc
@@ -455,10 +474,12 @@ class __$$SupplyListingImplCopyWithImpl<$Res>
     Object? unitType = null,
     Object? region = null,
     Object? photos = null,
+    Object? video = freezed,
     Object? specs = null,
     Object? price = null,
     Object? available = null,
     Object? supplier = freezed,
+    Object? supplierRating = freezed,
   }) {
     return _then(_$SupplyListingImpl(
       id: null == id
@@ -481,6 +502,10 @@ class __$$SupplyListingImplCopyWithImpl<$Res>
           ? _value._photos
           : photos // ignore: cast_nullable_to_non_nullable
               as List<String>,
+      video: freezed == video
+          ? _value.video
+          : video // ignore: cast_nullable_to_non_nullable
+              as String?,
       specs: null == specs
           ? _value._specs
           : specs // ignore: cast_nullable_to_non_nullable
@@ -497,6 +522,10 @@ class __$$SupplyListingImplCopyWithImpl<$Res>
           ? _value._supplier
           : supplier // ignore: cast_nullable_to_non_nullable
               as Map<String, dynamic>?,
+      supplierRating: freezed == supplierRating
+          ? _value._supplierRating
+          : supplierRating // ignore: cast_nullable_to_non_nullable
+              as Map<String, dynamic>?,
     ));
   }
 }
@@ -510,15 +539,19 @@ class _$SupplyListingImpl implements _SupplyListing {
       @JsonKey(name: 'unit_type') required this.unitType,
       required this.region,
       final List<String> photos = const [],
+      this.video,
       final Map<String, dynamic> specs = const {},
       @JsonKey(name: 'buyer_price_per_unit', fromJson: decimalString)
       required this.price,
       @JsonKey(name: 'quantity_available', fromJson: decimalString)
       required this.available,
-      final Map<String, dynamic>? supplier})
+      final Map<String, dynamic>? supplier,
+      @JsonKey(name: 'supplier_rating')
+      final Map<String, dynamic>? supplierRating})
       : _photos = photos,
         _specs = specs,
-        _supplier = supplier;
+        _supplier = supplier,
+        _supplierRating = supplierRating;
 
   factory _$SupplyListingImpl.fromJson(Map<String, dynamic> json) =>
       _$$SupplyListingImplFromJson(json);
@@ -541,6 +574,8 @@ class _$SupplyListingImpl implements _SupplyListing {
     return EqualUnmodifiableListView(_photos);
   }
 
+  @override
+  final String? video;
   final Map<String, dynamic> _specs;
   @override
   @JsonKey()
@@ -566,9 +601,22 @@ class _$SupplyListingImpl implements _SupplyListing {
     return EqualUnmodifiableMapView(value);
   }
 
+// {rating, ratings}: rating is null until the supplier has enough ratings.
+  final Map<String, dynamic>? _supplierRating;
+// {rating, ratings}: rating is null until the supplier has enough ratings.
+  @override
+  @JsonKey(name: 'supplier_rating')
+  Map<String, dynamic>? get supplierRating {
+    final value = _supplierRating;
+    if (value == null) return null;
+    if (_supplierRating is EqualUnmodifiableMapView) return _supplierRating;
+    // ignore: implicit_dynamic_type
+    return EqualUnmodifiableMapView(value);
+  }
+
   @override
   String toString() {
-    return 'SupplyListing(id: $id, category: $category, unitType: $unitType, region: $region, photos: $photos, specs: $specs, price: $price, available: $available, supplier: $supplier)';
+    return 'SupplyListing(id: $id, category: $category, unitType: $unitType, region: $region, photos: $photos, video: $video, specs: $specs, price: $price, available: $available, supplier: $supplier, supplierRating: $supplierRating)';
   }
 
   @override
@@ -583,11 +631,14 @@ class _$SupplyListingImpl implements _SupplyListing {
                 other.unitType == unitType) &&
             (identical(other.region, region) || other.region == region) &&
             const DeepCollectionEquality().equals(other._photos, _photos) &&
+            (identical(other.video, video) || other.video == video) &&
             const DeepCollectionEquality().equals(other._specs, _specs) &&
             (identical(other.price, price) || other.price == price) &&
             (identical(other.available, available) ||
                 other.available == available) &&
-            const DeepCollectionEquality().equals(other._supplier, _supplier));
+            const DeepCollectionEquality().equals(other._supplier, _supplier) &&
+            const DeepCollectionEquality()
+                .equals(other._supplierRating, _supplierRating));
   }
 
   @JsonKey(includeFromJson: false, includeToJson: false)
@@ -599,10 +650,12 @@ class _$SupplyListingImpl implements _SupplyListing {
       unitType,
       region,
       const DeepCollectionEquality().hash(_photos),
+      video,
       const DeepCollectionEquality().hash(_specs),
       price,
       available,
-      const DeepCollectionEquality().hash(_supplier));
+      const DeepCollectionEquality().hash(_supplier),
+      const DeepCollectionEquality().hash(_supplierRating));
 
   /// Create a copy of SupplyListing
   /// with the given fields replaced by the non-null parameter values.
@@ -627,12 +680,15 @@ abstract class _SupplyListing implements SupplyListing {
       @JsonKey(name: 'unit_type') required final String unitType,
       required final String region,
       final List<String> photos,
+      final String? video,
       final Map<String, dynamic> specs,
       @JsonKey(name: 'buyer_price_per_unit', fromJson: decimalString)
       required final String price,
       @JsonKey(name: 'quantity_available', fromJson: decimalString)
       required final String available,
-      final Map<String, dynamic>? supplier}) = _$SupplyListingImpl;
+      final Map<String, dynamic>? supplier,
+      @JsonKey(name: 'supplier_rating')
+      final Map<String, dynamic>? supplierRating}) = _$SupplyListingImpl;
 
   factory _SupplyListing.fromJson(Map<String, dynamic> json) =
       _$SupplyListingImpl.fromJson;
@@ -649,6 +705,8 @@ abstract class _SupplyListing implements SupplyListing {
   @override
   List<String> get photos;
   @override
+  String? get video;
+  @override
   Map<String, dynamic> get specs;
   @override
   @JsonKey(name: 'buyer_price_per_unit', fromJson: decimalString)
@@ -657,7 +715,11 @@ abstract class _SupplyListing implements SupplyListing {
   @JsonKey(name: 'quantity_available', fromJson: decimalString)
   String get available;
   @override
-  Map<String, dynamic>? get supplier;
+  Map<String, dynamic>?
+      get supplier; // {rating, ratings}: rating is null until the supplier has enough ratings.
+  @override
+  @JsonKey(name: 'supplier_rating')
+  Map<String, dynamic>? get supplierRating;
 
   /// Create a copy of SupplyListing
   /// with the given fields replaced by the non-null parameter values.
@@ -958,6 +1020,9 @@ mixin _$BuyerOrder {
   List<Map<String, dynamic>> get items => throw _privateConstructorUsedError;
   List<Map<String, dynamic>> get activity => throw _privateConstructorUsedError;
   String? get message => throw _privateConstructorUsedError;
+  Map<String, dynamic>? get rating => throw _privateConstructorUsedError;
+  @JsonKey(name: 'can_rate')
+  bool get canRate => throw _privateConstructorUsedError;
 
   /// Serializes this BuyerOrder to a JSON map.
   Map<String, dynamic> toJson() => throw _privateConstructorUsedError;
@@ -985,7 +1050,9 @@ abstract class $BuyerOrderCopyWith<$Res> {
       @JsonKey(name: 'delivery_address') Map<String, dynamic> address,
       List<Map<String, dynamic>> items,
       List<Map<String, dynamic>> activity,
-      String? message});
+      String? message,
+      Map<String, dynamic>? rating,
+      @JsonKey(name: 'can_rate') bool canRate});
 }
 
 /// @nodoc
@@ -1013,6 +1080,8 @@ class _$BuyerOrderCopyWithImpl<$Res, $Val extends BuyerOrder>
     Object? items = null,
     Object? activity = null,
     Object? message = freezed,
+    Object? rating = freezed,
+    Object? canRate = null,
   }) {
     return _then(_value.copyWith(
       id: null == id
@@ -1055,6 +1124,14 @@ class _$BuyerOrderCopyWithImpl<$Res, $Val extends BuyerOrder>
           ? _value.message
           : message // ignore: cast_nullable_to_non_nullable
               as String?,
+      rating: freezed == rating
+          ? _value.rating
+          : rating // ignore: cast_nullable_to_non_nullable
+              as Map<String, dynamic>?,
+      canRate: null == canRate
+          ? _value.canRate
+          : canRate // ignore: cast_nullable_to_non_nullable
+              as bool,
     ) as $Val);
   }
 }
@@ -1077,7 +1154,9 @@ abstract class _$$BuyerOrderImplCopyWith<$Res>
       @JsonKey(name: 'delivery_address') Map<String, dynamic> address,
       List<Map<String, dynamic>> items,
       List<Map<String, dynamic>> activity,
-      String? message});
+      String? message,
+      Map<String, dynamic>? rating,
+      @JsonKey(name: 'can_rate') bool canRate});
 }
 
 /// @nodoc
@@ -1103,6 +1182,8 @@ class __$$BuyerOrderImplCopyWithImpl<$Res>
     Object? items = null,
     Object? activity = null,
     Object? message = freezed,
+    Object? rating = freezed,
+    Object? canRate = null,
   }) {
     return _then(_$BuyerOrderImpl(
       id: null == id
@@ -1145,6 +1226,14 @@ class __$$BuyerOrderImplCopyWithImpl<$Res>
           ? _value.message
           : message // ignore: cast_nullable_to_non_nullable
               as String?,
+      rating: freezed == rating
+          ? _value._rating
+          : rating // ignore: cast_nullable_to_non_nullable
+              as Map<String, dynamic>?,
+      canRate: null == canRate
+          ? _value.canRate
+          : canRate // ignore: cast_nullable_to_non_nullable
+              as bool,
     ));
   }
 }
@@ -1164,10 +1253,13 @@ class _$BuyerOrderImpl implements _BuyerOrder {
       required final Map<String, dynamic> address,
       final List<Map<String, dynamic>> items = const [],
       final List<Map<String, dynamic>> activity = const [],
-      this.message})
+      this.message,
+      final Map<String, dynamic>? rating,
+      @JsonKey(name: 'can_rate') this.canRate = false})
       : _address = address,
         _items = items,
-        _activity = activity;
+        _activity = activity,
+        _rating = rating;
 
   factory _$BuyerOrderImpl.fromJson(Map<String, dynamic> json) =>
       _$$BuyerOrderImplFromJson(json);
@@ -1218,10 +1310,23 @@ class _$BuyerOrderImpl implements _BuyerOrder {
 
   @override
   final String? message;
+  final Map<String, dynamic>? _rating;
+  @override
+  Map<String, dynamic>? get rating {
+    final value = _rating;
+    if (value == null) return null;
+    if (_rating is EqualUnmodifiableMapView) return _rating;
+    // ignore: implicit_dynamic_type
+    return EqualUnmodifiableMapView(value);
+  }
+
+  @override
+  @JsonKey(name: 'can_rate')
+  final bool canRate;
 
   @override
   String toString() {
-    return 'BuyerOrder(id: $id, status: $status, paymentStatus: $paymentStatus, paymentMethod: $paymentMethod, total: $total, deliveryDate: $deliveryDate, address: $address, items: $items, activity: $activity, message: $message)';
+    return 'BuyerOrder(id: $id, status: $status, paymentStatus: $paymentStatus, paymentMethod: $paymentMethod, total: $total, deliveryDate: $deliveryDate, address: $address, items: $items, activity: $activity, message: $message, rating: $rating, canRate: $canRate)';
   }
 
   @override
@@ -1241,7 +1346,9 @@ class _$BuyerOrderImpl implements _BuyerOrder {
             const DeepCollectionEquality().equals(other._address, _address) &&
             const DeepCollectionEquality().equals(other._items, _items) &&
             const DeepCollectionEquality().equals(other._activity, _activity) &&
-            (identical(other.message, message) || other.message == message));
+            (identical(other.message, message) || other.message == message) &&
+            const DeepCollectionEquality().equals(other._rating, _rating) &&
+            (identical(other.canRate, canRate) || other.canRate == canRate));
   }
 
   @JsonKey(includeFromJson: false, includeToJson: false)
@@ -1257,7 +1364,9 @@ class _$BuyerOrderImpl implements _BuyerOrder {
       const DeepCollectionEquality().hash(_address),
       const DeepCollectionEquality().hash(_items),
       const DeepCollectionEquality().hash(_activity),
-      message);
+      message,
+      const DeepCollectionEquality().hash(_rating),
+      canRate);
 
   /// Create a copy of BuyerOrder
   /// with the given fields replaced by the non-null parameter values.
@@ -1289,7 +1398,9 @@ abstract class _BuyerOrder implements BuyerOrder {
       required final Map<String, dynamic> address,
       final List<Map<String, dynamic>> items,
       final List<Map<String, dynamic>> activity,
-      final String? message}) = _$BuyerOrderImpl;
+      final String? message,
+      final Map<String, dynamic>? rating,
+      @JsonKey(name: 'can_rate') final bool canRate}) = _$BuyerOrderImpl;
 
   factory _BuyerOrder.fromJson(Map<String, dynamic> json) =
       _$BuyerOrderImpl.fromJson;
@@ -1320,6 +1431,11 @@ abstract class _BuyerOrder implements BuyerOrder {
   List<Map<String, dynamic>> get activity;
   @override
   String? get message;
+  @override
+  Map<String, dynamic>? get rating;
+  @override
+  @JsonKey(name: 'can_rate')
+  bool get canRate;
 
   /// Create a copy of BuyerOrder
   /// with the given fields replaced by the non-null parameter values.

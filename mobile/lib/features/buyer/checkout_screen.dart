@@ -193,8 +193,7 @@ class _PaymentOption extends StatelessWidget {
                       width: selected ? 1.5 : 1)),
               child: Row(children: [
                 Icon(icon,
-                    size: 21,
-                    color: enabled ? OColors.forest : OColors.muted),
+                    size: 21, color: enabled ? OColors.forest : OColors.muted),
                 const SizedBox(width: 13),
                 Expanded(
                     child: Column(
