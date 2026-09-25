@@ -14,6 +14,20 @@ export class ApiError extends Error {
   }
 }
 
+// FastAPI sends either a message string or, for field validation, a list of
+// { loc, msg } entries. The first field error is shown with its field name.
+function errorDetail(parsed: unknown): string | null {
+  if (!parsed || typeof parsed !== 'object' || !('detail' in parsed)) return null;
+  const { detail } = parsed;
+  if (typeof detail === 'string') return detail;
+  if (!Array.isArray(detail) || !detail.length) return null;
+  const first = detail[0] as { loc?: unknown[]; msg?: unknown };
+  if (typeof first?.msg !== 'string') return null;
+  const message = first.msg.replace(/^Value error, /, '');
+  const field = Array.isArray(first.loc) ? first.loc.filter((part) => part !== 'body' && typeof part === 'string').pop() : undefined;
+  return field ? `${String(field).replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())}: ${message}` : message;
+}
+
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (!token) {
     throw new ApiError(500, 'We could not load this information just now. Please try again later.');
@@ -33,9 +47,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   try { parsed = body ? JSON.parse(body) : null; }
   catch { parsed = null; }
   if (!response.ok) {
-    const detail = parsed && typeof parsed === 'object' && 'detail' in parsed && typeof parsed.detail === 'string'
-      ? parsed.detail
-      : null;
+    const detail = errorDetail(parsed);
     const message = response.status === 401
       ? 'Your sign-in has expired. Please sign in again.'
       : response.status === 403

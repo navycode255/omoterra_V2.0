@@ -2,7 +2,9 @@
 
 import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
-import { ApiError, patch, post, postFile, put } from './api';
+import { ApiError, get, patch, post, postFile, put } from './api';
+import { missingProfileFields, REQUIRED_PROFILE_FIELDS } from './supplier';
+import type { SupplierDetail } from './types';
 import { requireSession } from './session';
 
 export type ActionResult = { ok: true } | { ok: false; error: string };
@@ -402,23 +404,95 @@ export async function updateSupplierVerification(_: ActionResult | null, formDat
 }
 
 
-export async function editSupplierProfile(_: ActionResult | null, formData: FormData) {
+const CATEGORY_UNITS: Record<string, string> = { broilers:'bird', local_chicken:'bird', layers:'bird', eggs:'tray', goats:'animal', cattle:'animal', chicken_meat:'kg', beef:'kg', goat_meat:'kg' };
+const MAX_SUPPLIER_PHOTOS = 8;
+const SUPPLIER_TEXT_FIELDS = ['public_alias', 'legal_name', 'alternate_phone', 'region', 'district', 'general_area',
+  'preferred_contact_method', 'primary_category', 'production_frequency', 'operating_notes',
+  'internal_pickup_address', 'pickup_instructions'] as const;
+
+// The backend only accepts the whole supplier profile. Each card edits one
+// section, so the current profile is read here and only that section's fields
+// are replaced; the other cards can never be overwritten with stale values.
+async function saveSupplierProfile(id: string, change: (profile: SupplierProfilePayload) => void) {
+  const supplier = await get<SupplierDetail>(`/ops/suppliers/${id}`);
+  const profile: SupplierProfilePayload = {
+    public_alias: supplier.public_alias, legal_name: supplier.legal_name, alternate_phone: supplier.alternate_phone,
+    region: supplier.region, district: supplier.district, general_area: supplier.general_area,
+    categories: supplier.categories, primary_category: supplier.primary_category ?? supplier.categories[0],
+    production_profile: supplier.production_profile, evidence_photos: supplier.evidence_photos ?? [],
+    production_frequency: supplier.production_frequency, internal_pickup_address: supplier.internal_pickup_address,
+    pickup_instructions: supplier.pickup_instructions, omoterra_pickup: supplier.omoterra_pickup,
+    supplier_transport: supplier.supplier_transport, supply_forms: supplier.supply_forms,
+    preferred_contact_method: supplier.preferred_contact_method || 'phone', operating_notes: supplier.operating_notes,
+  };
+  change(profile);
+  await put(`/ops/suppliers/${id}`, profile);
+}
+
+type SupplierProfilePayload = Omit<SupplierDetail, 'id' | 'status' | 'phone' | 'alias_approved' | 'completed_supplies_count' | 'internal_notes' | 'verification' | 'reviewed_by_actor' | 'reviewed_at' | 'approved_by_actor' | 'approved_at' | 'suspended_by_actor' | 'suspended_at' | 'created_at' | 'batches' | 'batch_verifications' | 'name' | 'listings' | 'settlements'>;
+
+export async function updateSupplierSection(_: ActionResult | null, formData: FormData) {
   const read = (key: string) => String(formData.get(key) ?? '').trim();
-  const categories = formData.getAll('categories').map(String);
-  const units: Record<string, string> = { broilers:'bird', local_chicken:'bird', layers:'bird', eggs:'tray', goats:'animal', cattle:'animal', chicken_meat:'kg', beef:'kg', goat_meat:'kg' };
-  const production_profile: Record<string, { capacity: string; unit: string; frequency: string }> = {};
-  for (const category of categories) {
-    const capacity = read(`capacity_${category}`);
-    if (capacity) production_profile[category] = { capacity, unit: units[category], frequency: read('production_frequency') };
+  const id = read('id');
+  const section = read('section');
+  if (formData.has('categories_field') && !formData.getAll('categories').length) {
+    return { ok: false as const, error: 'Choose at least one supply category.' };
   }
+  // Text fields are applied whenever the form sent them, so a card can also
+  // carry required fields from other cards that are still empty (the backend
+  // validates the whole profile, so an incomplete supplier could otherwise
+  // never be saved). Checkboxes are only applied by the card that owns them,
+  // because an unticked box is simply absent from the form.
+  return run(() => saveSupplierProfile(id, (profile) => {
+    for (const key of SUPPLIER_TEXT_FIELDS) {
+      if (formData.has(key)) Object.assign(profile, { [key]: read(key) });
+    }
+    if (!profile.preferred_contact_method) profile.preferred_contact_method = 'phone';
+    if (section === 'production') {
+      profile.omoterra_pickup = formData.get('omoterra_pickup') === 'on';
+      profile.supplier_transport = formData.get('supplier_transport') === 'on';
+      profile.supply_forms = formData.getAll('supply_forms').map(String);
+    }
+    if (formData.has('categories_field')) {
+      const categories = formData.getAll('categories').map(String);
+      const production_profile: SupplierProfilePayload['production_profile'] = {};
+      for (const category of categories) {
+        const capacity = read(`capacity_${category}`);
+        const existing = profile.production_profile[category]?.capacity;
+        if (capacity || (!formData.has(`capacity_${category}`) && existing)) {
+          production_profile[category] = { capacity: capacity || existing, unit: CATEGORY_UNITS[category], frequency: profile.production_frequency };
+        }
+      }
+      profile.categories = categories;
+      profile.production_profile = production_profile;
+    }
+    if (!profile.primary_category || !profile.categories.includes(profile.primary_category)) profile.primary_category = profile.categories[0];
+  }), ['/suppliers', `/suppliers/${id}`]);
+}
+
+export async function addSupplierPhotos(_: ActionResult | null, formData: FormData) {
   const id = String(formData.get('id'));
-  return run(() => put(`/ops/suppliers/${id}`, {
-    public_alias: read('public_alias'), legal_name: read('legal_name'), alternate_phone: read('alternate_phone'),
-    region: read('region'), district: read('district'), general_area: read('general_area'), categories,
-    primary_category: read('primary_category'), production_profile, evidence_photos: formData.getAll('evidence_photo_url').map(String),
-    production_frequency: read('production_frequency'), internal_pickup_address: read('internal_pickup_address'),
-    pickup_instructions: read('pickup_instructions'), omoterra_pickup: formData.get('omoterra_pickup') === 'on',
-    supplier_transport: formData.get('supplier_transport') === 'on', supply_forms: formData.getAll('supply_forms').map(String),
-    preferred_contact_method: read('preferred_contact_method') || 'phone', operating_notes: read('operating_notes'),
+  const files = formData.getAll('photos').filter((file): file is File => file instanceof File && file.size > 0);
+  const existing = Number(formData.get('existing') ?? 0);
+  if (!files.length) return { ok: false as const, error: 'Choose at least one photo.' };
+  if (existing + files.length > MAX_SUPPLIER_PHOTOS) {
+    return { ok: false as const, error: `A supplier can have up to ${MAX_SUPPLIER_PHOTOS} photos. Remove some before adding more.` };
+  }
+  if (files.some((file) => file.size > 8 * 1024 * 1024)) return { ok: false as const, error: 'Each photo must be smaller than 8 MB.' };
+  return run(async () => {
+    const missing = missingProfileFields(await get<SupplierDetail>(`/ops/suppliers/${id}`));
+    if (missing.length) {
+      throw new ApiError(422, `Add ${missing.map((key) => REQUIRED_PROFILE_FIELDS[key].label.toLowerCase()).join(', ')} before adding photos.`);
+    }
+    const urls = await Promise.all(files.map((file) => postFile<{ url: string }>('/ops/suppliers/photos', file, randomUUID()).then((photo) => photo.url)));
+    await saveSupplierProfile(id, (profile) => { profile.evidence_photos = [...profile.evidence_photos, ...urls].slice(0, MAX_SUPPLIER_PHOTOS); });
+  }, ['/suppliers', `/suppliers/${id}`]);
+}
+
+export async function removeSupplierPhoto(_: ActionResult | null, formData: FormData) {
+  const id = String(formData.get('id'));
+  const url = String(formData.get('url'));
+  return run(() => saveSupplierProfile(id, (profile) => {
+    profile.evidence_photos = profile.evidence_photos.filter((photo) => photo !== url);
   }), ['/suppliers', `/suppliers/${id}`]);
 }

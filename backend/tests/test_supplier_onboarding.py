@@ -144,3 +144,23 @@ def test_supplier_profile_validates_categories_capacity_weights_and_future_dates
     body = supplier_body()
     body['categories'] = []
     assert client.post('/api/v1/ops/suppliers', headers=ops_key('supplier-no-category'), json=body).status_code == 422
+
+
+def test_ops_supplier_photos_round_trip_through_profile_edits(client):
+    from io import BytesIO
+    from PIL import Image
+    created = client.post('/api/v1/ops/suppliers', headers=ops_key('supplier-photos-01'), json=supplier_body('+255712345611'))
+    assert created.is_success, created.text
+    supplier_id = created.json()['id']
+    raw = BytesIO()
+    Image.new('RGB', (40, 30), (40, 120, 60)).save(raw, 'JPEG')
+    photo = client.post('/api/v1/ops/suppliers/photos', headers=ops_key('supplier-photo-upload-01'),
+        files={'file': ('farm.jpg', raw.getvalue(), 'image/jpeg')})
+    assert photo.status_code == 200, photo.text
+    profile = {k: v for k, v in supplier_body().items() if k not in ('phone', 'name', 'internal_notes', 'verification', 'current_batch', 'future_batches')}
+    saved = client.put(f'/api/v1/ops/suppliers/{supplier_id}', headers=OPS, json={**profile, 'evidence_photos': [photo.json()['url']]})
+    assert saved.status_code == 200, saved.text
+    # The dashboard rebuilds the whole profile from this response before each
+    # section edit, so photos missing here would be wiped by the next save.
+    detail = client.get(f'/api/v1/ops/suppliers/{supplier_id}', headers=OPS).json()
+    assert detail['evidence_photos'] == [photo.json()['url']]

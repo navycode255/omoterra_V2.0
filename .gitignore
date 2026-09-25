@@ -21,3 +21,4 @@ mobile/android/.gradle/
 
 # Local Netlify build output
 .netlify/
+.gstack/

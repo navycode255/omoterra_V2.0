@@ -1510,6 +1510,7 @@ def ops_supplier(id: str, db=Depends(database)):
         'district': profile.district, 'general_area': profile.general_area,
         'categories': profile.categories, 'primary_category': profile.primary_category,
         'production_profile': profile.production_profile, 'production_frequency': profile.production_frequency,
+        'evidence_photos': profile.evidence_photos,
         'internal_pickup_address': profile.internal_pickup_address,
         'pickup_instructions': profile.pickup_instructions, 'omoterra_pickup': profile.omoterra_pickup,
         'supplier_transport': profile.supplier_transport, 'supply_forms': profile.supply_forms,
