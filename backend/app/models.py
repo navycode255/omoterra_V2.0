@@ -55,6 +55,9 @@ class SupplierProfile(Base):
     district: Mapped[str] = mapped_column(default='')
     general_area: Mapped[str] = mapped_column(default='')
     categories: Mapped[list] = mapped_column(JSON, default=list)
+    # How the supplier chose to be paid (contracts.PayoutMethod). No account
+    # numbers: those are asked for when a payout is due.
+    payout_methods: Mapped[list] = mapped_column(JSON, default=list)
     primary_category: Mapped[Optional[str]]
     production_profile: Mapped[dict] = mapped_column(JSON, default=dict)
     evidence_photos: Mapped[list] = mapped_column(JSON, default=list)

@@ -35,6 +35,8 @@ export function LoginForm() {
         <Link className="join-link" href="/login/reset">Forgot PIN?</Link>
         <Link className="join-link" href="/register">Register</Link>
       </div>
+      {/* Staff accounts are operators, not members: they have no PIN and sign in to the dashboard. */}
+      <p className="join-staff">Omoterra staff or admin? <Link className="join-link" href="/sign-in">Sign in to operations</Link></p>
     </Wizard>
   );
 }

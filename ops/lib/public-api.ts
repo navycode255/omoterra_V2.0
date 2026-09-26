@@ -33,7 +33,8 @@ export class PublicApiError extends Error {
 
 function failure(status: number, parsed: unknown): PublicApiError {
   const detail = parsed && typeof parsed === 'object' && 'detail' in parsed ? (parsed as { detail: unknown }).detail : null;
-  if (typeof detail === 'string' && status < 500) return new PublicApiError(status, detail);
+  // 503 carries a reason written for members (e.g. the code could not be texted).
+  if (typeof detail === 'string' && (status < 500 || status === 503)) return new PublicApiError(status, detail);
   if (Array.isArray(detail) && detail.length) {
     const first = detail[0] as { loc?: unknown[]; msg?: unknown };
     const field = Array.isArray(first.loc) ? first.loc.filter((part) => part !== 'body').join('.') : '';

@@ -58,7 +58,7 @@ export function PortalShell({ name, subtitle, avatar, nav, notices, unread, chil
         </div>
       </header>
       <nav className="portal-tabs" aria-label="Sections">
-        {nav.map((item) => <a key={item.href} href={item.href}>{item.label}</a>)}
+        {nav.map((item, at) => <a key={item.href} href={item.href} className={at === 0 ? 'is-active' : ''}>{item.label}</a>)}
       </nav>
       <div className="portal-body">
         <aside className="portal-sidebar" aria-label="Sections">

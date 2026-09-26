@@ -3,16 +3,18 @@
 import { useRouter } from 'next/navigation';
 import { useState, type ReactNode } from 'react';
 import { saveSupplierContact, type Contact } from '@/lib/portal-actions';
-import { Select, Text } from '@/components/register/wizard';
+import { Check, Field, Select, Text } from '@/components/register/wizard';
+import { PAYOUT_METHODS } from '@/lib/payout-methods';
+import { Fold, FoldTitle } from './fold';
 import { Icon, type IconName } from './icons';
 
 const contacts = [['phone', 'Phone call'], ['whatsapp', 'WhatsApp'], ['sms', 'Text message']] as const;
 
-// A panel card whose contact or pickup details the supplier can change in
-// place. Both kinds save the same endpoint, so each sends the other's values
+// A panel card whose contact, pickup or payout details the supplier can change
+// in place. All kinds save the same endpoint, so each sends the others' values
 // unchanged.
-export function EditableCard({ id, icon, title, kind, contact, children }: {
-  id?: string; icon: IconName; title: string; kind: 'contact' | 'pickup'; contact: Contact; children: ReactNode;
+export function EditableCard({ id, icon, title, summary, kind, contact, children }: {
+  id?: string; icon: IconName; title: string; summary?: string; kind: 'contact' | 'pickup' | 'payout'; contact: Contact; children: ReactNode;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(false);
@@ -24,6 +26,7 @@ export function EditableCard({ id, icon, title, kind, contact, children }: {
   const fieldError = (field: string) => (error?.field === field ? error.message : undefined);
 
   async function save() {
+    if (kind === 'payout' && !values.payout_methods.length) { setError({ message: 'Choose how you want to receive payouts.', field: 'payout_methods' }); return; }
     setBusy(true);
     try {
       const result = await saveSupplierContact(values);
@@ -38,14 +41,17 @@ export function EditableCard({ id, icon, title, kind, contact, children }: {
   }
 
   return (
-    <section id={id} className="portal-card">
-      <h2>
-        <Icon name={icon} />{title}
-        {!editing && <button type="button" className="portal-edit" onClick={() => { setValues(contact); setSaved(false); setEditing(true); }}>Edit</button>}
-      </h2>
+    <Fold id={id} open={editing} head={<FoldTitle icon={icon} title={title} summary={summary} />}
+      action={!editing && <button type="button" className="portal-edit" onClick={() => { setValues(contact); setSaved(false); setEditing(true); }}>Edit</button>}>
       {editing ? (
         <form className="portal-form" noValidate onSubmit={(event) => { event.preventDefault(); if (!busy) save(); }}>
-          {kind === 'contact' ? <>
+          {kind === 'payout' ? <Field id="payout_methods" label="How do you want to receive payouts?" error={fieldError('payout_methods')}>
+            <div className="join-chips">
+              {PAYOUT_METHODS.map(([key, label]) => <Check key={key} id={`edit-payout-${key}`} label={label} checked={values.payout_methods.includes(key)}
+                onChange={(on) => setValues((prior) => ({ ...prior, payout_methods: on ? [...prior.payout_methods, key] : prior.payout_methods.filter((item) => item !== key) }))} />)}
+            </div>
+            <p className="join-hint">We ask for your account details only when a payout is due.</p>
+          </Field> : kind === 'contact' ? <>
             <Text id={`${kind}-alternate_phone`} label="Alternate phone" optional type="tel" inputMode="tel" placeholder="0712 345 678"
               value={values.alternate_phone} onChange={set('alternate_phone')} error={fieldError('alternate_phone')} />
             <Select id={`${kind}-preferred_contact_method`} label="Preferred contact" options={contacts}
@@ -67,6 +73,6 @@ export function EditableCard({ id, icon, title, kind, contact, children }: {
         {children}
         {saved && <p className="portal-saved" role="status"><Icon name="check" />Saved</p>}
       </>}
-    </section>
+    </Fold>
   );
 }

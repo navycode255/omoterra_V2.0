@@ -30,6 +30,9 @@ Region = Annotated[str, BeforeValidator(canonical_region)]
 
 Category = Literal['broilers', 'local_chicken', 'layers', 'goats', 'cattle', 'chicken_meat', 'beef', 'goat_meat', 'eggs']
 Unit = Literal['bird', 'animal', 'kg', 'tray']
+# How a supplier wants to be paid. Account numbers are collected only when a
+# payout is due, never at registration.
+PayoutMethod = Literal['mpesa', 'mixx_by_yas', 'airtel_money', 'halopesa', 'bank_transfer']
 Money = Annotated[Decimal, Field(gt=0, max_digits=14, decimal_places=2)]
 Quantity = Annotated[Decimal, Field(gt=0, max_digits=14, decimal_places=3)]
 GOOGLE_DOMAIN = r'google\.(?:com|[a-z]{2})(?:\.[a-z]{2})?'
@@ -327,6 +330,12 @@ class SupplierProfileInput(Input):
     farm_latitude: Optional[Annotated[Decimal, Field(ge=-90, le=90, max_digits=9, decimal_places=6)]] = None
     farm_longitude: Optional[Annotated[Decimal, Field(ge=-180, le=180, max_digits=9, decimal_places=6)]] = None
     farm_map_url: str = Field(default='', max_length=500)
+    payout_methods: list[PayoutMethod] = Field(default_factory=list, max_length=5)
+
+    @field_validator('payout_methods')
+    @classmethod
+    def unique_payout_methods(cls, value):
+        return list(dict.fromkeys(value))
 
     @field_validator('farm_map_url')
     @classmethod
@@ -391,6 +400,8 @@ class SupplierContactInput(Input):
     preferred_contact_method: Literal['phone', 'whatsapp', 'sms'] = 'phone'
     internal_pickup_address: str = Field(min_length=3, max_length=500)
     pickup_instructions: str = Field(default='', max_length=1000)
+    # None leaves the saved choice as it is.
+    payout_methods: Optional[list[PayoutMethod]] = Field(default=None, min_length=1, max_length=5)
 
     @field_validator('alternate_phone')
     @classmethod
@@ -398,6 +409,11 @@ class SupplierContactInput(Input):
         if value and not re.fullmatch(r'\+255[67]\d{8}', value):
             raise ValueError(M('err.enter_alternate_tanzanian_mobile_number'))
         return value
+
+    @field_validator('payout_methods')
+    @classmethod
+    def unique_payout_methods(cls, value):
+        return None if value is None else list(dict.fromkeys(value))
 
 
 class SupplierStatusInput(Input):

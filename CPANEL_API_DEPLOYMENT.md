@@ -39,7 +39,18 @@ OMOTERRA_SEMA_SMS_TYPE=P          # P promotional, T transactional
 OMOTERRA_SEMA_URL=https://api.sema.co.tz/api/SendSMS
 ```
 
-The server refuses to start with `sema` if any of these is missing. Website
+The server refuses to start with `sema` if any of these is missing.
+
+The app reads `.env` beside the app first and `~/.env` second; a setting in the
+app's own `.env` wins. So if `~/omoterra_backend/.env` still says
+`OMOTERRA_SMS_PROVIDER=development`, codes stay on screen even when `~/.env`
+says `sema`. After editing, restart the app (settings are read at start). To see
+what is in effect, and to check the Sema login for free (balance check, no SMS):
+
+```
+cd ~/omoterra_backend && .venv/bin/python -m app.sms check
+.venv/bin/python -m app.sms test +2557XXXXXXXX   # sends one real SMS
+``` Website
 members sign in with phone + PIN (no SMS); a code is texted only when they
 register or reset a forgotten PIN. The app and staff sign-in still text a code
 each time. No payment adapter exists yet, so

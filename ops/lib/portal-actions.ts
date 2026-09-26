@@ -5,7 +5,7 @@ import { MEMBER_COOKIE } from '@/lib/member-cookie';
 import { tanzanianMobile } from '@/lib/phone';
 import { call, PublicApiError } from '@/lib/public-api';
 
-export type Contact = { alternate_phone: string; preferred_contact_method: string; internal_pickup_address: string; pickup_instructions: string };
+export type Contact = { alternate_phone: string; preferred_contact_method: string; internal_pickup_address: string; pickup_instructions: string; payout_methods: string[] };
 
 // Contact and pickup details: saved without a new review (PUT /supplier/contact).
 export async function saveSupplierContact(values: Contact): Promise<{ ok: true } | { ok: false; error: string; field?: string }> {
@@ -19,7 +19,9 @@ export async function saveSupplierContact(values: Contact): Promise<{ ok: true }
   try {
     await call('/supplier/contact', { method: 'PUT', token, body: {
       alternate_phone: phone, preferred_contact_method: values.preferred_contact_method,
-      internal_pickup_address: address, pickup_instructions: values.pickup_instructions.trim() } });
+      internal_pickup_address: address, pickup_instructions: values.pickup_instructions.trim(),
+      // Omitted when none is saved yet, which leaves the choice as it is.
+      payout_methods: values.payout_methods.length ? values.payout_methods : undefined } });
     return { ok: true };
   } catch (error) {
     if (error instanceof PublicApiError) return { ok: false, error: error.message, field: error.field };

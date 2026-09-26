@@ -551,7 +551,7 @@ def _supplier_private_view(profile, db=None):
         'supply_forms', 'preferred_contact_method', 'operating_notes', 'status',
         'farm_latitude', 'farm_longitude', 'farm_map_url',
         # Where the registration is in review, for the supplier's own timeline.
-        'alias_approved', 'submitted_at', 'reviewed_at', 'approved_at')}
+        'alias_approved', 'submitted_at', 'reviewed_at', 'approved_at', 'payout_methods')}
     session = db or object_session(profile)
     view['evidence_photos'] = [photo.image_url for photo in _supplier_photos(session, profile.user_id)]
     return view
@@ -593,6 +593,9 @@ def _apply_supplier_profile(db, user, data, created_by='supplier'):
         # A form that doesn't carry the farm pin must not erase a saved one.
         for key in ('farm_latitude', 'farm_longitude', 'farm_map_url'):
             values.pop(key)
+    if 'payout_methods' not in data.model_fields_set:
+        # Nor may one without payout options (the app, the staff form) erase those.
+        values.pop('payout_methods')
     profile = db.get(m.SupplierProfile, user.id)
     if profile is None:
         profile = m.SupplierProfile(user_id=user.id, legal_name=values['legal_name'],
@@ -657,7 +660,7 @@ def save_supplier_contact(data: c.SupplierContactInput, user=Depends(supplier), 
         s.fail('err.complete_supplier_registration_first', 422)
     if profile.internal_pickup_address != data.internal_pickup_address and profile.verification:
         profile.verification = {**profile.verification, 'location_confirmed': False, 'location_visited': False}
-    for key, value in data.model_dump().items():
+    for key, value in data.model_dump(exclude_none=True).items():
         setattr(profile, key, value)
     db.flush()
     return result(_supplier_private_view(profile))
@@ -2575,6 +2578,7 @@ def ops_supplier(id: str, db=Depends(database)):
         'pickup_instructions': profile.pickup_instructions, 'omoterra_pickup': profile.omoterra_pickup,
         'supplier_transport': profile.supplier_transport, 'supply_forms': profile.supply_forms,
         'preferred_contact_method': profile.preferred_contact_method,
+        'payout_methods': profile.payout_methods or [],
         'operating_notes': profile.operating_notes, 'internal_notes': profile.internal_notes,
         'farm_latitude': profile.farm_latitude, 'farm_longitude': profile.farm_longitude,
         'farm_map_url': profile.farm_map_url,

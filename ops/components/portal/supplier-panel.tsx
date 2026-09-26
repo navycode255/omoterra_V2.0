@@ -1,6 +1,8 @@
 import Link from 'next/link';
 import type { ReactNode } from 'react';
+import { payoutLabel } from '@/lib/payout-methods';
 import { EditableCard } from './editable-card';
+import { Fold, FoldTitle } from './fold';
 import { Icon, type IconName } from './icons';
 
 export type SupplierProfile = {
@@ -8,7 +10,7 @@ export type SupplierProfile = {
   region: string; district: string; general_area: string; internal_pickup_address: string; pickup_instructions: string;
   omoterra_pickup: boolean; supplier_transport: boolean; categories: string[]; primary_category: string;
   production_profile: Record<string, { capacity: string; unit: string }>; production_frequency: string; supply_forms: string[];
-  evidence_photos: string[]; submitted_at: string | null; approved_at: string | null;
+  evidence_photos: string[]; submitted_at: string | null; approved_at: string | null; payout_methods: string[];
 };
 export type Batch = {
   id: string; category: string; subtype: string; initial_quantity: string; expected_ready_date: string | null;
@@ -49,13 +51,8 @@ function Rows({ rows }: { rows: [string, ReactNode][] }) {
   return <dl className="portal-rows">{shown.map(([key, value]) => <div key={key}><dt>{key}</dt><dd>{value}</dd></div>)}</dl>;
 }
 
-function Card({ id, icon, title, children, wide }: { id?: string; icon: IconName; title: string; children: ReactNode; wide?: boolean }) {
-  return (
-    <section id={id} className={`portal-card${wide ? ' is-wide' : ''}`}>
-      <h2><Icon name={icon} />{title}</h2>
-      {children}
-    </section>
-  );
+function Card({ id, icon, title, summary, children }: { id?: string; icon: IconName; title: string; summary?: string; children: ReactNode }) {
+  return <Fold id={id} head={<FoldTitle icon={icon} title={title} summary={summary} />}>{children}</Fold>;
 }
 
 // Where the registration is: the supplier must always be able to see that
@@ -73,7 +70,7 @@ function Status({ profile, live }: { profile: SupplierProfile; live: number }) {
   const tone = approved ? 'is-approved' : ['rejected', 'suspended'].includes(profile.status) ? 'is-stopped' : 'is-review';
   const steps: [string, string, 'done' | 'current' | 'todo'][] = [
     ['Submitted', profile.submitted_at ? date.format(new Date(profile.submitted_at)) : 'Not yet', profile.submitted_at ? 'done' : 'current'],
-    ['Under review', approved ? 'Complete' : 'By Omoterra team', approved ? 'done' : profile.submitted_at ? 'current' : 'todo'],
+    ['Under review', approved ? 'Complete' : 'By Omoterra', approved ? 'done' : profile.submitted_at ? 'current' : 'todo'],
     ['Approved', profile.approved_at ? date.format(new Date(profile.approved_at)) : 'Pending', approved ? 'done' : 'todo'],
     ['Go live', live ? 'Live' : 'Pending', live ? 'done' : approved ? 'current' : 'todo'],
   ];
@@ -131,12 +128,15 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
   }).join(', ');
   const digits = supportPhone.replace(/\D/g, '');
   const contact = { alternate_phone: profile.alternate_phone, preferred_contact_method: profile.preferred_contact_method,
-    internal_pickup_address: profile.internal_pickup_address, pickup_instructions: profile.pickup_instructions };
+    internal_pickup_address: profile.internal_pickup_address, pickup_instructions: profile.pickup_instructions,
+    payout_methods: profile.payout_methods ?? [] };
+  const forms = profile.supply_forms.map((key) => FORMS[key] ?? key).join(', ');
+  const methods = contact.payout_methods.map(payoutLabel).join(', ');
   return (
     <>
       <section className="portal-hero" id="overview">
         <div>
-          <p>Welcome to Omoterra,</p>
+          <p>Welcome to Omoterra</p>
           <h1>{profile.public_alias || profile.legal_name}<span className="portal-leaf"><Icon name="leaf" /></span></h1>
         </div>
         <div className="portal-hero-art" style={{ backgroundImage: `url(${categoryImage(profile.primary_category)})` }} role="img" aria-label={`${label(profile.primary_category)} on a farm`} />
@@ -144,6 +144,7 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
 
       <Status profile={profile} live={live} />
 
+      <h2 className="portal-section-title">Quick stats</h2>
       <div className="portal-stats">
         <Stat icon="box" title="Stock submitted" value={stockValue} note={stockNote} locked={false} />
         <Stat icon="cart" title="Live listings" value={String(live)} locked={!approved} />
@@ -151,45 +152,32 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
         <Stat icon="coins" title="Payouts" value={`TZS ${number.format(paid)}`} locked={!approved} />
       </div>
 
-      <div className="portal-grid" id="profile">
-        <EditableCard icon="user" title="Profile" kind="contact" contact={contact}>
-          <Rows rows={[['Farm / supplier name', profile.public_alias], ['Legal / full name', profile.legal_name], ['Phone number', phone],
-            ['Alternate phone', profile.alternate_phone], ['Preferred contact', CONTACT[profile.preferred_contact_method] ?? profile.preferred_contact_method]]} />
-        </EditableCard>
-        <Card icon="farm" title="Supply details">
-          <Rows rows={[['Main category', label(profile.primary_category)], ['Products', products], ['Production cycle', profile.production_frequency],
-            ['Supply type', profile.supply_forms.map((key) => FORMS[key] ?? key).join(', ')],
-            ['Transport', [profile.omoterra_pickup && 'Omoterra can collect', profile.supplier_transport && 'Own transport'].filter(Boolean).join(' · ')]]} />
-          <p className="portal-note">Farm name, region and products are checked by Omoterra. To change them, <a href="#help">contact support</a>.</p>
-        </Card>
-        <EditableCard icon="pin" title="Location" kind="pickup" contact={contact}>
-          <Rows rows={[['Region', profile.region], ['District', profile.district], ['General area', profile.general_area],
-            ['Pickup location', profile.internal_pickup_address], ['Pickup instructions', profile.pickup_instructions]]} />
-        </EditableCard>
-      </div>
-
-      <Card id="stock" icon="box" title="Submitted stock" wide>
+      <section id="stock" className="portal-card portal-stock">
+        <h2><Icon name="box" />Submitted stock</h2>
         {batches.length ? (
           <ul className="portal-batches">
             {batches.map((batch) => {
               const quantity = Number(batch.initial_quantity);
               const weight = batch.expected_min_weight_kg || batch.expected_max_weight_kg
-                ? [batch.expected_min_weight_kg, batch.expected_max_weight_kg].filter(Boolean).map((kg) => number.format(Number(kg))).join(' – ') + ' kg' : '—';
+                ? [batch.expected_min_weight_kg, batch.expected_max_weight_kg].filter(Boolean).map((kg) => number.format(Number(kg))).join(' – ') + ' kg' : '';
               const reviewed = !!batch.approved_at;
+              const amount = `${number.format(quantity)} ${units(batch.category, quantity)}`;
               return (
-                <li key={batch.id}>
+                <Fold key={batch.id} as="li" className="portal-batch" head={<>
                   <span className="portal-batch-photo" style={{ backgroundImage: `url(${batch.photos[0] ? media(batch.photos[0]) : categoryImage(batch.category)})` }} />
-                  <div className="portal-batch-name">
+                  <span className="portal-batch-name">
                     <b>{label(batch.category)}{batch.subtype && <small> · {batch.subtype}</small>}</b>
-                    <span className={`portal-badge ${reviewed ? 'is-approved' : 'is-review'}`}>{reviewed ? (batch.status === 'ready' ? 'Ready' : 'Verified') : 'Awaiting Omoterra review'}</span>
-                  </div>
+                    <span className="portal-batch-meta">{[amount, weight].filter(Boolean).join(' · ')}</span>
+                    <span className={`portal-badge ${reviewed ? 'is-approved' : 'is-review'}`}>{reviewed ? (batch.status === 'ready' ? 'Ready' : 'Verified') : 'Awaiting review'}</span>
+                  </span>
+                </>}>
                   <div className="portal-batch-facts">
-                    <span><b>{number.format(quantity)} {units(batch.category, quantity)}</b><small>Quantity</small></span>
-                    <span><b>{weight}</b><small>Expected weight</small></span>
+                    <span><b>{amount}</b><small>Quantity</small></span>
+                    <span><b>{weight || '—'}</b><small>Expected weight</small></span>
                     <span><b>{readiness(batch.expected_ready_date)}</b><small>{batch.expected_ready_date ? date.format(new Date(batch.expected_ready_date)) : 'Availability'}</small></span>
                     {batch.asking_price_per_unit && <span><b>TZS {number.format(Number(batch.asking_price_per_unit))}</b><small>Asking price / {CATEGORY[batch.category]?.[1] ?? 'unit'} · {FORMS[batch.form] ?? batch.form}</small></span>}
                   </div>
-                </li>
+                </Fold>
               );
             })}
           </ul>
@@ -200,30 +188,49 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
             {profile.evidence_photos.map((url) => <img key={url} src={media(url)} alt="Farm photo" loading="lazy" />)}
           </div>
         )}
-      </Card>
+      </section>
+
+      <div className="portal-grid" id="profile">
+        <EditableCard icon="user" title="Profile" summary={profile.public_alias || profile.legal_name} kind="contact" contact={contact}>
+          <Rows rows={[['Farm / supplier name', profile.public_alias], ['Legal / full name', profile.legal_name], ['Phone number', phone],
+            ['Alternate phone', profile.alternate_phone], ['Preferred contact', CONTACT[profile.preferred_contact_method] ?? profile.preferred_contact_method]]} />
+        </EditableCard>
+        <Card icon="farm" title="Supply details" summary={[label(profile.primary_category), profile.production_frequency, forms].filter(Boolean).join(' • ')}>
+          <Rows rows={[['Main category', label(profile.primary_category)], ['Products', products], ['Production cycle', profile.production_frequency],
+            ['Supply type', forms],
+            ['Transport', [profile.omoterra_pickup && 'Omoterra can collect', profile.supplier_transport && 'Own transport'].filter(Boolean).join(' · ')]]} />
+          <p className="portal-note">Farm name, region and products are checked by Omoterra. To change them, <a href="#help">contact support</a>.</p>
+        </Card>
+        <EditableCard icon="pin" title="Location" summary={[profile.region, profile.district].filter(Boolean).join(', ')} kind="pickup" contact={contact}>
+          <Rows rows={[['Region', profile.region], ['District', profile.district], ['General area', profile.general_area],
+            ['Pickup location', profile.internal_pickup_address], ['Pickup instructions', profile.pickup_instructions]]} />
+        </EditableCard>
+      </div>
 
       <div className="portal-grid is-two">
-        <Card id="orders" icon="orders" title="Orders">
+        <Card id="orders" icon="orders" title="Orders" summary={approved ? `${orders.length} order${orders.length === 1 ? '' : 's'}` : 'Open after approval'}>
           <p className="portal-empty">{approved
             ? orders.length ? `You have ${orders.length} order${orders.length === 1 ? '' : 's'}. Manage them in the Omoterra app.` : 'No orders yet. Orders for your live stock appear here.'
             : 'Orders open once the Omoterra team approves your account.'}</p>
         </Card>
-        <Card id="payouts" icon="coins" title="Payouts">
+        <EditableCard id="payouts" icon="coins" title="Payouts" summary={methods || 'Payout method not chosen'} kind="payout" contact={contact}>
+          <Rows rows={[['Receive payouts by', methods || 'Not chosen yet']]} />
           <p className="portal-empty">{approved
             ? payouts.length ? `TZS ${number.format(paid)} paid across ${payouts.filter((row) => row.status === 'paid').length} payout(s).` : 'No payouts yet. Payouts follow completed orders.'
-            : 'Payouts start after approval and your first completed order.'}</p>
-        </Card>
+            : 'Payouts start after approval and your first completed order. We ask for your account details when a payout is due.'}</p>
+        </EditableCard>
       </div>
 
-      <Card id="help" icon="help" title="Help & support" wide>
+      <section id="help" className="portal-card portal-help-card">
+        <h2><Icon name="help" />Help & support</h2>
         {digits ? (
           <div className="portal-help">
             <p>Questions about your review? Talk to the Omoterra team.</p>
-            <a className="button button-light" href={`tel:+${digits}`}><Icon name="phone" />Call {supportPhone}</a>
+            <a className="button button-light" href={`tel:+${digits}`}><Icon name="phone" />Call<span className="portal-wide-only"> {supportPhone}</span></a>
             <a className="button button-outline" href={`https://wa.me/${digits}`}><Icon name="chat" />WhatsApp</a>
           </div>
         ) : <p className="portal-empty">The Omoterra team will contact you on {phone} about your review.</p>}
-      </Card>
+      </section>
     </>
   );
 }

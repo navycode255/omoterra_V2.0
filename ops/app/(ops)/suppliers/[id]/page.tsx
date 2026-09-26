@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import { payoutLabel } from '@/lib/payout-methods';
 import { notFound } from 'next/navigation';
 import { Icons } from '@/components/icons';
 import { SupplierStatusControl, SupplierVerificationForm } from '@/components/supplier-controls';
@@ -75,7 +76,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
     <main className="supplier-detail-workspace" id="overview">
       <div className="supplier-card-grid">
         <EditableCard id={supplier.id} section="details" extras={extrasFor('details')} anchor="details" icon={<Icons.clipboard size={22}/>} title="Supplier details"
-          view={<Details items={[["Farm / supplier alias", supplier.public_alias], ["Legal name", supplier.legal_name], ["Primary phone", phone(supplier.phone)], ["Alternate phone", phone(supplier.alternate_phone)], ["Joined", date(supplier.created_at)], ["Region", supplier.region || '—'], ["District", supplier.district || '—'], ["General area", supplier.general_area || '—'], ["Preferred contact", titleCase(supplier.preferred_contact_method)]]}/>}
+          view={<Details items={[["Farm / supplier alias", supplier.public_alias], ["Legal name", supplier.legal_name], ["Primary phone", phone(supplier.phone)], ["Alternate phone", phone(supplier.alternate_phone)], ["Joined", date(supplier.created_at)], ["Region", supplier.region || '—'], ["District", supplier.district || '—'], ["General area", supplier.general_area || '—'], ["Preferred contact", titleCase(supplier.preferred_contact_method)], ["Payouts by", supplier.payout_methods?.length ? supplier.payout_methods.map(payoutLabel).join(', ') : 'Not chosen']]}/>}
           fields={<div className="grid-2">
             <Field label="Farm / supplier alias" name="public_alias"><input className="input" id="edit_public_alias" name="public_alias" defaultValue={supplier.public_alias} required minLength={2}/></Field>
             <Field label="Legal / full name" name="legal_name"><input className="input" id="edit_legal_name" name="legal_name" defaultValue={supplier.legal_name} required minLength={2}/></Field>

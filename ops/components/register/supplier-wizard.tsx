@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, type ReactNode } from 'react';
+import { PAYOUT_METHODS, payoutLabel } from '@/lib/payout-methods';
 import { tanzanianMobile } from '@/lib/phone';
 import { registerSupplier } from '@/lib/registration';
 import { Check, Done, Field, Select, Text, useAccount, Wizard, type Errors } from './wizard';
@@ -26,7 +27,7 @@ const PUBLIC_REGION = /\d|@|https?:\/\/|www\./i;
 
 // Which step shows each field the backend may reject.
 const STEP_OF: Record<string, number> = {
-  phone: 0, name: 1, public_alias: 1, legal_name: 1, alternate_phone: 1, preferred_contact_method: 1,
+  phone: 0, name: 1, public_alias: 1, legal_name: 1, alternate_phone: 1, preferred_contact_method: 1, payout_methods: 1,
   region: 2, district: 2, general_area: 2, internal_pickup_address: 2, pickup_instructions: 2,
   categories: 3, primary_category: 3, production_profile: 3, production_frequency: 3, supply_forms: 3, operating_notes: 3,
   current_batch: 4, future_batches: 4, evidence_photos: 5,
@@ -53,7 +54,7 @@ export function SupplierWizard() {
   const account = useAccount('supplier');
   const [step, setStep] = useState(0);
   const [values, setValues] = useState({
-    public_alias: '', legal_name: '', alternate_phone: '', preferred_contact_method: 'phone',
+    public_alias: '', legal_name: '', alternate_phone: '', preferred_contact_method: 'phone', payout_methods: [] as string[],
     region: '', district: '', general_area: '', internal_pickup_address: '', pickup_instructions: '',
     omoterra_pickup: false, supplier_transport: false,
     categories: [] as string[], capacity: {} as Record<string, string>, primary_category: '',
@@ -106,6 +107,7 @@ export function SupplierWizard() {
       length('public_alias', 2, 120, 'Enter the farm or supplier name.');
       length('legal_name', 2, 150, 'Enter your legal or full name.');
       if (v.alternate_phone.trim() && !tanzanianMobile(v.alternate_phone)) next.alternate_phone = 'Enter a Tanzanian mobile number, e.g. 0712 345 678.';
+      if (!v.payout_methods.length) next.payout_methods = 'Choose how you want to receive payouts.';
     }
     if (at === 2) {
       length('region', 2, 80, 'Enter your region.');
@@ -166,6 +168,7 @@ export function SupplierWizard() {
       production_frequency: v.production_frequency.trim(), internal_pickup_address: v.internal_pickup_address.trim(),
       pickup_instructions: v.pickup_instructions.trim(), omoterra_pickup: v.omoterra_pickup, supplier_transport: v.supplier_transport,
       supply_forms: v.supply_forms, preferred_contact_method: v.preferred_contact_method, operating_notes: v.operating_notes.trim(),
+      payout_methods: v.payout_methods,
       current_batch: current.enabled ? batchPayload(current) : null,
       future_batches: future.enabled ? [batchPayload(future)] : [],
     };
@@ -263,6 +266,13 @@ export function SupplierWizard() {
         <Text id="legal_name" label="Legal / full name" autoComplete="name" value={v.legal_name} onChange={set('legal_name')} error={errors.legal_name ?? errors.name} />
         <Text id="alternate_phone" label="Alternate phone" optional type="tel" inputMode="tel" value={v.alternate_phone} onChange={set('alternate_phone')} error={errors.alternate_phone} />
         <Select id="preferred_contact_method" label="Preferred contact" options={contacts} value={v.preferred_contact_method} onChange={set('preferred_contact_method')} error={errors.preferred_contact_method} />
+        <Field id="payout_methods" label="How do you want to receive payouts?" error={errors.payout_methods}>
+          <div className="join-chips" id="payout_methods">
+            {PAYOUT_METHODS.map(([key, label]) => <Check key={key} id={`payout-${key}`} label={label} checked={v.payout_methods.includes(key)}
+              onChange={(checked) => set('payout_methods')(toggle(v.payout_methods, key, checked))} />)}
+          </div>
+          <p className="join-hint">We ask for your account details only when your first payout is due.</p>
+        </Field>
       </>}
       {step === 2 && <>
         <div className="join-grid">
@@ -317,7 +327,8 @@ export function SupplierWizard() {
       {step === 6 && <div className="join-review-wrap">
         {section('Account', 0, row('Phone', account.verified?.phone))}
         {section('Supplier details', 1, <>{row('Farm / supplier name', v.public_alias)}{row('Legal / full name', v.legal_name)}
-          {row('Alternate phone', v.alternate_phone)}{row('Preferred contact', labelOf(contacts, v.preferred_contact_method))}</>)}
+          {row('Alternate phone', v.alternate_phone)}{row('Preferred contact', labelOf(contacts, v.preferred_contact_method))}
+          {row('Payouts', v.payout_methods.map(payoutLabel).join(', '))}</>)}
         {section('Location', 2, <>{row('Region', v.region)}{row('District', v.district)}{row('General area', v.general_area)}
           {row('Exact pickup location', v.internal_pickup_address)}{row('Pickup instructions', v.pickup_instructions)}
           {row('Omoterra can collect', v.omoterra_pickup ? 'Yes' : 'No')}{row('I can arrange transport', v.supplier_transport ? 'Yes' : 'No')}</>)}

@@ -119,7 +119,7 @@ export default function MarketingHome() {
           <p>List your stock with Omoterra and we bring the buyers, collection and payment.</p>
           <Link className="button button-primary" href="/register/supplier">Register as Supplier</Link>
         </div>
-        <div className="supplier-photo" role="img" aria-label="Farmer holding a young calf on a Tanzanian farm" />
+        <div className="supplier-photo" role="img" aria-label="A healthy hen on a green Tanzanian farm" />
       </section>
 
       <section className="process-section">

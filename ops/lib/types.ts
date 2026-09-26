@@ -208,6 +208,7 @@ export interface SupplierBatch { id: string; category: string; subtype: string; 
 
 export interface SupplierDetail extends Omit<SupplierRow, 'live_listings' | 'pending_listings' | 'pending_settlement_total'> {
   alternate_phone: string;
+  payout_methods?: string[];
   general_area: string;
   primary_category: string | null;
   evidence_photos: string[];
