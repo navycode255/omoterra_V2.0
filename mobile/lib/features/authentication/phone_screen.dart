@@ -110,12 +110,7 @@ class _PhoneState extends ConsumerState<PhoneScreen> {
                         OmoterraButton(s.continueLabel,
                             busy: busy, onPressed: submit),
                         const SizedBox(height: 14),
-                        Text(s.terms,
-                            textAlign: TextAlign.center,
-                            style: const TextStyle(
-                                fontSize: 12,
-                                color: OColors.muted,
-                                height: 1.5)),
+                        _Consent(s),
                       ]))),
           NumberPad(
             visible: keypadVisible,
@@ -277,4 +272,32 @@ class _FlagPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// "By continuing you agree to our Terms of Use and Privacy Policy", with both
+/// documents one tap away before the member has signed in.
+class _Consent extends StatelessWidget {
+  final Strings s;
+  const _Consent(this.s);
+  @override
+  Widget build(BuildContext context) {
+    const style = TextStyle(fontSize: 12, color: OColors.muted, height: 1.5);
+    WidgetSpan link(String key, String label) => WidgetSpan(
+        alignment: PlaceholderAlignment.baseline,
+        baseline: TextBaseline.alphabetic,
+        child: InkWell(
+            key: Key('consent_$key'),
+            onTap: () => context.push('/legal/$key'),
+            child: Text(label,
+                style: style.copyWith(
+                    color: OColors.forest, fontWeight: FontWeight.w700))));
+    return Text.rich(
+        TextSpan(style: style, children: [
+          TextSpan(text: '${s.agreeLead}\n'),
+          link('terms', s.termsOfUse),
+          TextSpan(text: ' ${s.and} '),
+          link('privacy', s.privacyPolicy),
+        ]),
+        textAlign: TextAlign.center);
+  }
 }

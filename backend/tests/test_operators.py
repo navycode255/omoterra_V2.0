@@ -2,14 +2,25 @@ from sqlalchemy import select, func
 from app import models as m
 from app.operators import add_operator
 from test_commerce import headers
+import pytest
+from app.config import settings
 
 SERVICE = {'X-Ops-Token': 'test-operator-secret'}
 ADMIN = {**SERVICE, 'X-Operator-Session': 'ops-admin'}
 STAFF = {**SERVICE, 'X-Operator-Session': 'ops-staff'}
+PASS = 'staff-pass-123'
+
+
+@pytest.fixture(autouse=True)
+def staff_passphrase():
+    # Staff codes (set or reset a PIN) need the staff passphrase first.
+    saved, settings().staff_passphrase = settings().staff_passphrase, PASS
+    yield
+    settings().staff_passphrase = saved
 
 
 def sign_in(client, phone):
-    challenge = client.post('/api/v1/ops/auth/otp', headers=SERVICE, json={'phone': phone})
+    challenge = client.post('/api/v1/ops/auth/otp', headers=SERVICE, json={'phone': phone, 'passphrase': PASS})
     assert challenge.status_code == 200, challenge.text
     body = challenge.json()
     return client.post('/api/v1/ops/auth/verify', headers=SERVICE,
@@ -25,7 +36,7 @@ def test_operator_signs_in_with_phone_code_and_gets_their_own_session(client):
 
 
 def test_unknown_number_cannot_request_an_ops_code(client):
-    response = client.post('/api/v1/ops/auth/otp', headers=SERVICE, json={'phone': '+255719999999'})
+    response = client.post('/api/v1/ops/auth/otp', headers=SERVICE, json={'phone': '+255719999999', 'passphrase': PASS})
     assert response.status_code == 403
 
 
@@ -35,7 +46,7 @@ def test_service_token_alone_no_longer_opens_ops(client):
 
 
 def test_app_and_ops_codes_cannot_open_each_other(client):
-    ops_code = client.post('/api/v1/ops/auth/otp', headers=SERVICE, json={'phone': '+255710000001'}).json()
+    ops_code = client.post('/api/v1/ops/auth/otp', headers=SERVICE, json={'phone': '+255710000001', 'passphrase': PASS}).json()
     as_app = client.post('/api/v1/auth/verify', json={'challenge_id': ops_code['challenge_id'], 'code': ops_code['development_code']})
     assert as_app.status_code == 400
     app_code = client.post('/api/v1/auth/otp', json={'phone': '+255712345678'}).json()
@@ -76,7 +87,7 @@ def test_admin_adds_and_removes_staff(client, seeded):
     assert removed.status_code == 200
     # Removal signs them out immediately.
     assert client.get('/api/v1/ops/me', headers=STAFF).status_code == 401
-    assert client.post('/api/v1/ops/auth/otp', headers=SERVICE, json={'phone': '+255710000002'}).status_code == 403
+    assert client.post('/api/v1/ops/auth/otp', headers=SERVICE, json={'phone': '+255710000002', 'passphrase': PASS}).status_code == 403
 
 
 def test_the_last_admin_cannot_be_removed_or_demoted(client, seeded):

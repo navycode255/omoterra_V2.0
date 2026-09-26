@@ -77,9 +77,21 @@ class Strings {
   String get phoneTooShort => _t('Enter all 9 digits of your number.',
       'Weka tarakimu zote 9 za namba yako.');
   String get continueLabel => _t('Continue', 'Endelea');
-  String get terms => _t(
-      'By continuing you agree to our\nTerms and Privacy Policy',
-      'Kwa kuendelea unakubali\nMasharti na Sera ya Faragha');
+  String get agreeLead =>
+      _t('By continuing you agree to our', 'Kwa kuendelea unakubali');
+  String get and => _t('and', 'na');
+  String get termsOfUse => _t('Terms of Use', 'Masharti ya Matumizi');
+  String get privacyPolicy => _t('Privacy Policy', 'Sera ya Faragha');
+  String get omoterraLegal => _t('Omoterra legal', 'Sheria za Omoterra');
+  String lastUpdated(String date) =>
+      _t('Last updated $date', 'Imesasishwa $date');
+  String get legalEnglishOnly => _t('',
+      'Maandishi haya yanapatikana kwa Kiingereza kwa sasa. Wasiliana na Omoterra kama unahitaji maelezo kwa Kiswahili.');
+  String get legalQuestions =>
+      _t('Questions or requests', 'Maswali au maombi');
+  String operatedBy(String name, String address) => _t(
+      'Omoterra is operated by $name, $address.',
+      'Omoterra inaendeshwa na $name, $address.');
   String get otpTitle => _t('Enter OTP', 'Thibitisha Namba Yako');
   String otpBody(String phone) => _t("We've sent a 6-digit code to\n$phone",
       'Tumetuma msimbo wa tarakimu 6 kwenda\n$phone');
@@ -1090,8 +1102,6 @@ class Strings {
   String get defaultLabel => _t('Default', 'Chaguo-msingi');
   String get makeDefault => _t('Make default', 'Fanya chaguo-msingi');
   String get addAddress => _t('Add address', 'Ongeza anwani');
-  String get termsOfService => _t('Terms of service', 'Masharti ya huduma');
-  String get privacyNotice => _t('Privacy notice', 'Taarifa ya faragha');
   String get myAccountTopic => _t('my account', 'akaunti yangu');
   String get openSourceLicenses =>
       _t('Open-source licenses', 'Leseni za programu huria');
@@ -1101,9 +1111,6 @@ class Strings {
   String get supportFallback => _t(
       'Use the Omoterra contact provided with your supply arrangement.',
       'Tumia mawasiliano ya Omoterra uliyopewa pamoja na makubaliano yako ya bidhaa.');
-  String contactForTerms(bool terms) => _t(
-      'Please contact Omoterra for the current ${terms ? 'terms of service' : 'privacy notice'} before placing an order.',
-      'Tafadhali wasiliana na Omoterra upate ${terms ? 'masharti ya huduma' : 'taarifa ya faragha'} ya sasa kabla ya kuagiza.');
 
   // Delete account --------------------------------------------------------
   String get deleteAccount => _t('Delete account', 'Futa akaunti');

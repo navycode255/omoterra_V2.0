@@ -11,6 +11,9 @@ import type { Operator } from './types';
 export const SESSION_COOKIE = 'omoterra_operator';
 // The pending sign-in code between the phone step and the code step.
 export const CHALLENGE_COOKIE = 'omoterra_ops_challenge';
+// Between the passphrase step and the PIN step: the passphrase and phone,
+// httpOnly and short-lived, so staff type the passphrase once.
+export const SIGN_IN_COOKIE = 'omoterra_ops_sign_in';
 const MAX_AGE = 60 * 60 * 12;
 
 const cookieOptions = (maxAge: number) => ({
@@ -33,6 +36,23 @@ export async function endSession() {
 
 export async function sessionToken() {
   return (await cookies()).get(SESSION_COOKIE)?.value ?? '';
+}
+
+export type PendingSignIn = { passphrase: string; phone: string; hasPin: boolean };
+
+export async function setSignIn(state: PendingSignIn) {
+  (await cookies()).set(SIGN_IN_COOKIE, JSON.stringify(state), cookieOptions(60 * 10));
+}
+
+export async function pendingSignIn(): Promise<PendingSignIn | null> {
+  const raw = (await cookies()).get(SIGN_IN_COOKIE)?.value;
+  if (!raw) return null;
+  try { return JSON.parse(raw) as PendingSignIn; }
+  catch { return null; }
+}
+
+export async function endSignIn() {
+  (await cookies()).delete(SIGN_IN_COOKIE);
 }
 
 export type PendingChallenge = { id: string; phone: string; developmentCode?: string };
@@ -71,6 +91,9 @@ export async function requireSession() {
   const operator = await currentOperator();
   // Only say "expired" to someone who actually had a session.
   if (!operator) redirect((await sessionToken()) ? '/sign-in?error=expired' : '/sign-in');
+  // Signed in with a texted code (admin setup, forgotten PIN) but no PIN yet:
+  // create one before using the dashboard, so the next sign-in needs no SMS.
+  if (operator.has_pin === false) redirect('/sign-in?step=new-pin');
   return operator;
 }
 

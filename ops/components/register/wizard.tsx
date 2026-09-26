@@ -87,6 +87,7 @@ export function Wizard({ steps, step, children, error, busy, onBack, onContinue,
           {onBack ? <button type="button" className="button button-outline" onClick={onBack} disabled={busy}>Back</button> : <span />}
           <button type="submit" className="button button-primary" disabled={busy}>{busy ? 'Please wait…' : continueLabel}</button>
         </div>
+        {step === 0 && <p className="join-consent">By continuing you agree to Omoterra&rsquo;s <Link href="/terms" target="_blank">Terms of Use</Link> and <Link href="/privacy" target="_blank">Privacy Policy</Link>.</p>}
       </form>
     </section>
   );

@@ -163,6 +163,7 @@ export default function MarketingHome() {
             <a href="https://www.facebook.com" aria-label="Facebook">f</a>
             <a href="https://www.youtube.com" aria-label="YouTube">▶</a>
           </div>
+          <div className="footer-legal"><Link href="/terms">Terms of Use</Link><Link href="/privacy">Privacy Policy</Link></div>
           <span>© 2026 Omoterra. All rights reserved.</span>
         </div>
       </footer>

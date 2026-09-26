@@ -937,12 +937,72 @@ def payout(id: str, user=Depends(supplier), db=Depends(database)):
     return result(s.payout_view(s.owned(db, m.Settlement, id, user.id, 'supplier_id'), True))
 
 
+def _staff_passphrase(db, passphrase):
+    """The staff passphrase guards every dashboard sign-in, rate limited like
+    admin setup. It falls back to the admin setup passphrase when unset."""
+    expected = settings().staff_passphrase or settings().admin_setup_passphrase
+    if not expected:
+        s.fail('err.staff_sign_in_turned_off', 403)
+    window = m.now() - timedelta(minutes=SETUP_MINUTES)
+    failures = db.scalar(select(func.count()).select_from(m.AdminSetupAttempt).where(
+        m.AdminSetupAttempt.created_at > window, m.AdminSetupAttempt.succeeded.is_(False),
+        m.AdminSetupAttempt.kind == 'staff'))
+    if failures >= SETUP_MAX_FAILURES:
+        s.fail('err.too_many_wrong_passphrases_admin', 429)
+    correct = hmac.compare_digest(expected.encode(), passphrase.encode())
+    db.add(m.AdminSetupAttempt(succeeded=correct, kind='staff'))
+    if not correct:
+        db.commit()  # keep the failed attempt even though the request errors
+        s.fail('err.passphrase_not_right', 403)
+
+
+def _active_operator(db, phone):
+    operator = db.scalar(select(m.Operator).where(m.Operator.phone == phone, m.Operator.active.is_(True)).with_for_update())
+    if not operator:
+        db.commit()  # keep the passphrase attempt
+        s.fail('err.number_not_active_omoterra_operator_2', 403)
+    return operator
+
+
+@app.post(prefix + '/ops/auth/pin/status', dependencies=[Depends(auth.ops_service)])
+def ops_pin_status(data: c.StaffCodeStart, db=Depends(database)):
+    """After the passphrase: does this staff member sign in with their PIN,
+    or create one now (staff added before PIN sign-in have none)?"""
+    _staff_passphrase(db, data.passphrase)
+    return {'has_pin': bool(_active_operator(db, data.phone).pin_hash)}
+
+
+@app.post(prefix + '/ops/auth/pin/sign-in', dependencies=[Depends(auth.ops_service)])
+def ops_pin_sign_in(data: c.StaffPinSignIn, db=Depends(database)):
+    """Passphrase + phone + PIN: signing in costs no SMS. A staff member with
+    no PIN yet creates it here, once; after that only the PIN signs them in and
+    a forgotten PIN is reset with a texted code."""
+    _staff_passphrase(db, data.passphrase)
+    operator = _active_operator(db, data.phone)
+    if not operator.pin_hash:
+        if c.guessable_pin(data.pin):
+            s.fail('err.pin_too_easy', 422)
+        auth.store_pin(db, operator, data.pin)
+    else:
+        auth.check_pin(db, operator, data.pin)
+    return auth.issue_operator_session(db, operator)
+
+
 @app.post(prefix + '/ops/auth/otp', dependencies=[Depends(auth.ops_service)])
-def ops_request_otp(data: c.Phone, db=Depends(database)):
+def ops_request_otp(data: c.StaffCodeStart, db=Depends(database)):
+    """A texted code, only to set a first PIN or reset a forgotten one."""
+    _staff_passphrase(db, data.passphrase)
     operator = db.scalar(select(m.Operator).where(m.Operator.phone == data.phone))
     if not operator or not operator.active:
+        db.commit()
         s.fail('err.number_not_active_omoterra_operator_2', 403)
     return auth.start_otp(db, data.phone, purpose='ops')
+
+
+@app.put(prefix + '/ops/auth/pin')
+def ops_set_pin(data: c.PinInput, operator=Depends(auth.ops), db=Depends(database)):
+    auth.store_pin(db, operator, data.pin)
+    return auth.operator_view(operator)
 
 
 @app.post(prefix + '/ops/auth/verify', dependencies=[Depends(auth.ops_service)])

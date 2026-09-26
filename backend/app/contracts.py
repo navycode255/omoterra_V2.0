@@ -53,7 +53,7 @@ class Verify(Input):
     code: str = Field(pattern=r'^\d{4,8}$')
 
 
-def _guessable(pin):
+def guessable_pin(pin):
     # Same digit (0000) or a run up or down (1234, 987654).
     steps = {int(b) - int(a) for a, b in zip(pin, pin[1:])}
     return len(set(pin)) == 1 or steps in ({1}, {-1})
@@ -65,7 +65,7 @@ class PinInput(Input):
     @field_validator('pin')
     @classmethod
     def not_guessable(cls, value):
-        if _guessable(value):
+        if guessable_pin(value):
             raise ValueError(M('err.pin_too_easy'))
         return value
 
@@ -677,6 +677,16 @@ class OperatorUpdate(Input):
 
 class SetupStart(Input):
     passphrase: str = Field(min_length=1, max_length=200)
+
+
+class StaffCodeStart(Input):
+    """A staff member asking for a texted code, only to set or reset their PIN."""
+    passphrase: str = Field(min_length=1, max_length=200)
+    phone: str = Field(pattern=r'^\+255[67]\d{8}$')
+
+
+class StaffPinSignIn(StaffCodeStart):
+    pin: str = Field(pattern=r'^\d{4,6}$')
 
 
 class SetupPhone(Input):

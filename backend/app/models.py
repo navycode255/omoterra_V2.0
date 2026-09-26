@@ -537,6 +537,11 @@ class Operator(Entity, Base):
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     # Everything in the dashboard's alerts newer than this is unread for them.
     alerts_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Dashboard sign-in is staff passphrase + phone + PIN; a code is texted
+    # only to set or reset the PIN (app/auth.py).
+    pin_hash: Mapped[Optional[str]] = mapped_column(String(200))
+    pin_failed_attempts: Mapped[int] = mapped_column(default=0)
+    pin_locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     __table_args__ = (CheckConstraint("role IN ('admin','staff')", name='valid_operator_role'),)
 
 

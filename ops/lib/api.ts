@@ -12,9 +12,22 @@ export class ApiError extends Error {
   constructor(
     readonly status: number,
     message: string,
+    // The backend's own reason, kept even where `message` is replaced by a
+    // friendlier line (403s become "You do not have access…").
+    readonly detail: string | null = null,
   ) {
     super(message);
   }
+}
+
+// Staff (/ops) answers are always English, so their reasons can be told apart.
+// A mismatched dashboard token or switched-off setup must not read as a wrong
+// passphrase or an unknown number.
+export function opsCause(error: unknown): 'connection' | 'setup-off' | null {
+  const detail = error instanceof ApiError ? error.detail ?? '' : '';
+  if (detail.startsWith('Operations authentication required')) return 'connection';
+  if (detail.startsWith('Admin setup is turned off')) return 'setup-off';
+  return null;
 }
 
 // FastAPI sends either a message string or, for field validation, a list of
@@ -65,7 +78,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
           : response.status === 400 || response.status === 409 || response.status === 422
             ? detail ?? 'Please check the information and try again.'
             : 'We could not complete that just now. Please try again.';
-    throw new ApiError(response.status, message);
+    throw new ApiError(response.status, message, detail);
   }
   return parsed as T;
 }

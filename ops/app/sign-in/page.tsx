@@ -1,6 +1,7 @@
 import Image from 'next/image';
+import Link from 'next/link';
 import { redirect } from 'next/navigation';
-import { pendingChallenge, setupState, signedIn } from '@/lib/session';
+import { pendingChallenge, pendingSignIn, setupState, signedIn } from '@/lib/session';
 
 export const metadata = { title: 'Sign in · Omoterra Operations' };
 
@@ -23,13 +24,32 @@ const PERSON_ICON = (
   </svg>
 );
 
-function PhoneField({ label }: { label: string }) {
+function PhoneField({ label, focus = true }: { label: string; focus?: boolean }) {
   return <>
     <label htmlFor="phone">{label}</label>
     <div className="signin-input-wrap">
       {PHONE_ICON}
-      <input id="phone" name="phone" type="tel" autoComplete="tel" autoFocus placeholder="0712 345 678" required />
+      <input id="phone" name="phone" type="tel" autoComplete="tel" autoFocus={focus} placeholder="0712 345 678" required />
     </div>
+  </>;
+}
+
+function PinFields({ label, confirm, autoComplete }: { label: string; confirm?: boolean; autoComplete: string }) {
+  return <>
+    <label htmlFor="pin">{label}</label>
+    <div className="signin-input-wrap">
+      {LOCK_ICON}
+      <input id="pin" name="pin" type="password" inputMode="numeric" autoComplete={autoComplete} autoFocus
+        pattern="[0-9]{4,6}" maxLength={6} placeholder="4 to 6 digits" required />
+    </div>
+    {confirm && <>
+      <label htmlFor="confirm" className="signin-label-gap">Confirm PIN</label>
+      <div className="signin-input-wrap">
+        {LOCK_ICON}
+        <input id="confirm" name="confirm" type="password" inputMode="numeric" autoComplete="new-password"
+          pattern="[0-9]{4,6}" maxLength={6} placeholder="Repeat the PIN" required />
+      </div>
+    </>}
   </>;
 }
 
@@ -47,12 +67,22 @@ function CodeField({ phone, developmentCode, label = 'Sign-in code' }: { phone?:
 }
 
 const SIGN_IN_ERRORS: Record<string, string> = {
+  passphrase: 'That passphrase is not right.',
+  'staff-off': 'Staff sign-in is switched off on the server: set OMOTERRA_STAFF_PASSPHRASE (or OMOTERRA_ADMIN_SETUP_PASSPHRASE) in the backend .env and restart.',
+  pin: 'The phone number or PIN is incorrect.',
+  'pin-format': 'Enter a PIN of 4 to 6 digits.',
+  'pin-mismatch': 'The PINs do not match.',
+  'pin-easy': 'Choose a PIN that is harder to guess, not 1234 or 0000.',
+  'pin-paused': 'Too many wrong PINs. Wait 15 minutes, or reset your PIN with a code.',
+  'pin-blocked': 'This PIN is blocked after too many wrong tries. Use “Forgot PIN?” to set a new one.',
+  locked: 'Too many wrong passphrases. Wait 15 minutes and try again.',
   phone: 'Enter a Tanzanian mobile number, like 0712 345 678.',
   unknown: 'This number is not an active Omoterra operator. Ask an admin to add you.',
   wait: 'Please wait a minute before requesting another code.',
   code: 'That code is not right. Check it and try again.',
   expired: 'Your sign-in has expired. Please sign in again.',
   server: 'We could not sign you in just now. Please try again.',
+  connection: 'The dashboard is not connected to the Omoterra API: its OMOTERRA_OPS_TOKEN does not match the backend .env.',
 };
 
 const SETUP_ERRORS: Record<string, string> = {
@@ -64,6 +94,8 @@ const SETUP_ERRORS: Record<string, string> = {
   taken: 'This number already has a dashboard account. An admin can make it an admin from Staff.',
   expired: 'Admin setup has expired. Start again with the passphrase.',
   server: 'We could not complete that just now. Please try again.',
+  connection: 'The dashboard is not connected to the Omoterra API: its OMOTERRA_OPS_TOKEN does not match the backend .env.',
+  'setup-off': 'Admin setup is switched off on the server: set OMOTERRA_ADMIN_SETUP_PASSPHRASE in the backend .env and restart.',
 };
 
 export default async function SignIn({
@@ -71,24 +103,66 @@ export default async function SignIn({
 }: {
   searchParams: Promise<{ error?: string; step?: string; mode?: string }>;
 }) {
-  if (await signedIn()) redirect('/manage');
   const { error, step, mode } = await searchParams;
+  // Signed in by a texted code but without a PIN yet: stay to create one.
+  const creatingAfterCode = step === 'new-pin' && await signedIn();
+  if (!creatingAfterCode && await signedIn()) redirect('/manage');
   const setupMode = mode === 'setup';
   const setup = setupMode ? await setupState() : null;
   const challenge = !setupMode && step === 'code' ? await pendingChallenge() : null;
+  const signIn = !setupMode && (step === 'pin' || step === 'create') ? await pendingSignIn() : null;
 
+  // Staff sign in with the staff passphrase and phone, then their PIN. No SMS
+  // is sent to sign in; only a forgotten PIN is reset with a texted code.
   let action = '/sign-in/session';
   let heading = 'Operations';
-  let hidden = 'phone';
-  let submit = 'Send code';
-  let body: React.ReactNode = <PhoneField label="Phone number" />;
+  let hidden = 'start';
+  let submit = 'Continue';
+  let body: React.ReactNode = <>
+    <label htmlFor="passphrase">Staff passphrase</label>
+    <div className="signin-input-wrap">
+      {LOCK_ICON}
+      <input id="passphrase" name="passphrase" type="password" autoComplete="off" autoFocus placeholder="Enter the passphrase" required />
+    </div>
+    <div className="signin-label-gap" />
+    <PhoneField label="Phone number" focus={false} />
+  </>;
   let footer: React.ReactNode = <a className="signin-admin-link" href="/sign-in?mode=setup">Admin setup</a>;
   const errors = setupMode ? SETUP_ERRORS : SIGN_IN_ERRORS;
 
-  if (!setupMode && challenge) {
+  if (creatingAfterCode) {
+    hidden = 'new-pin';
+    heading = 'Create your PIN';
+    submit = 'Save PIN';
+    body = <>
+      <p className="signin-hint">You will sign in with this PIN from now on, without an SMS code.</p>
+      <PinFields label="New PIN" confirm autoComplete="new-password" />
+    </>;
+    footer = null;
+  } else if (signIn?.hasPin && step === 'pin') {
+    hidden = 'pin';
+    submit = 'Sign in';
+    body = <>
+      <p className="signin-hint">Signing in as {signIn.phone}.</p>
+      <PinFields label="PIN" autoComplete="current-password" />
+    </>;
+    footer = <div className="signin-links">
+      <button type="submit" name="action" value="reset" formNoValidate className="signin-alt signin-link-button">Forgot PIN? Get a code by SMS</button>
+      <a className="signin-alt" href="/sign-in">Use a different number</a>
+    </div>;
+  } else if (signIn && !signIn.hasPin && step === 'create') {
+    hidden = 'create';
+    heading = 'Create your PIN';
+    submit = 'Create PIN and sign in';
+    body = <>
+      <p className="signin-hint">First sign-in for {signIn.phone}. Choose a 4 to 6 digit PIN; you will use it every time you sign in.</p>
+      <PinFields label="New PIN" confirm autoComplete="new-password" />
+    </>;
+    footer = <a className="signin-alt" href="/sign-in">Use a different number</a>;
+  } else if (!setupMode && challenge) {
     hidden = 'code';
-    submit = 'Sign In';
-    body = <CodeField phone={challenge.phone} developmentCode={challenge.developmentCode} />;
+    submit = 'Continue';
+    body = <CodeField phone={challenge.phone} developmentCode={challenge.developmentCode} label="Code from SMS" />;
     footer = <a className="signin-alt" href="/sign-in">Use a different number</a>;
   } else if (setupMode) {
     // Admin setup: passphrase, then (when an admin exists) that admin's
@@ -158,14 +232,16 @@ export default async function SignIn({
         <span className="signin-hex signin-hex-d" aria-hidden="true" />
 
         <form action={action} method="post" className="signin-card">
-          <Image
-            className="signin-logo"
-            src="/images/marketing/logo.png"
-            alt="Omoterra — Where Markets Meet Supply"
-            width={370}
-            height={112}
-            priority
-          />
+          <Link href="/" className="signin-logo-link" aria-label="Omoterra home">
+            <Image
+              className="signin-logo"
+              src="/images/marketing/logo.png"
+              alt="Omoterra — Where Markets Meet Supply"
+              width={370}
+              height={112}
+              priority
+            />
+          </Link>
           <div className="signin-form-content">
             <h1>{heading}</h1>
             {error && (
@@ -177,6 +253,11 @@ export default async function SignIn({
             {body}
             <button type="submit" className="signin-submit">{submit}</button>
             {footer}
+            {/* This page is staff only; members who land here need a way out. */}
+            <p className="signin-exit">
+              Buyer or supplier? <Link href="/login">Log in to your account</Link>
+              <span aria-hidden="true"> · </span><Link href="/">Back to website</Link>
+            </p>
           </div>
         </form>
       </section>

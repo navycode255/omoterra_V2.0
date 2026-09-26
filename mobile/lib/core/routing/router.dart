@@ -14,6 +14,7 @@ import '../../shared/widgets/supply_art.dart';
 import '../../features/account/screens.dart';
 import '../../features/account/role_registration_screen.dart';
 import '../../features/account/delete_account_screen.dart';
+import '../../features/account/legal_screen.dart';
 import '../../features/account/notifications_screen.dart';
 import '../../features/account/farm_location_screen.dart';
 import '../../features/admin/admin_screens.dart';
@@ -79,6 +80,9 @@ final routerProvider = Provider<GoRouter>((ref) {
                   ? '/setup'
                   : '/${preferredRole(user.roles, ref.read(activeRoleProvider))}';
         }
+        // The Terms and Privacy Policy are open to everyone: the phone screen
+        // links to them before sign-in.
+        if (state.uri.path.startsWith('/legal/')) return null;
         if (user == null &&
             !['/language', '/welcome', '/phone', '/otp']
                 .contains(state.uri.path)) {
@@ -231,11 +235,10 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/account/support',
             builder: (_, __) => const AccountInfoScreen('support')),
         omoterraRoute(
-            path: '/account/terms',
-            builder: (_, __) => const AccountInfoScreen('terms')),
+            path: '/legal/terms', builder: (_, __) => const LegalScreen('terms')),
         omoterraRoute(
-            path: '/account/privacy',
-            builder: (_, __) => const AccountInfoScreen('privacy')),
+            path: '/legal/privacy',
+            builder: (_, __) => const LegalScreen('privacy')),
         omoterraRoute(
             path: '/account/edit', builder: (_, __) => const ProfileScreen()),
         omoterraRoute(

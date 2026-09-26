@@ -69,6 +69,9 @@ class Settings(BaseSettings):
     # setup off. Once an admin exists, setup also needs an existing admin's
     # phone code, so this alone never creates an admin.
     admin_setup_passphrase: str = ''
+    # Staff sign in to the dashboard with this passphrase, then phone + PIN (no
+    # SMS). Empty: the admin setup passphrase is used.
+    staff_passphrase: str = ''
     # Unlocks operator sign-in from the mobile app (then phone + code).
     # Empty turns mobile admin off.
     mobile_admin_passphrase: str = ''
@@ -98,6 +101,8 @@ class Settings(BaseSettings):
         if self.video_provider != 'disabled':
             # Fail closed until the YouTube upload adapter is implemented.
             raise RuntimeError('No video provider adapter is implemented; OMOTERRA_VIDEO_PROVIDER must stay disabled')
+        if self.staff_passphrase and len(self.staff_passphrase) < 8:
+            raise RuntimeError('OMOTERRA_STAFF_PASSPHRASE must be at least 8 characters (or empty to use the admin setup passphrase)')
         if self.admin_setup_passphrase and len(self.admin_setup_passphrase) < 8:
             raise RuntimeError('OMOTERRA_ADMIN_SETUP_PASSPHRASE must be at least 8 characters (or empty to turn admin setup off)')
         if self.mobile_admin_passphrase and len(self.mobile_admin_passphrase) < 8:

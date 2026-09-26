@@ -1,0 +1,289 @@
+{
+  "updated": "27 September 2026",
+  "operator": {
+    "name": "Jopex Investment Ltd",
+    "address": "Tandale, Kwa Mtogole, Dar es Salaam, Tanzania",
+    "email": "info@jopex.co.tz",
+    "support_email": "support@jopex.co.tz",
+    "phone": "+255 740 996 496",
+    "website": "https://jopex.co.tz"
+  },
+  "terms": {
+    "title": "Terms of Use",
+    "summary": "The rules for buying and selling livestock through Omoterra, on the website and in the mobile app.",
+    "sections": [
+      {
+        "id": "about",
+        "heading": "About Omoterra and these Terms",
+        "body": [
+          { "p": "Omoterra is a livestock marketplace that connects Tanzanian farmers and suppliers with buyers, and arranges the collection, quality check and delivery of the livestock sold. Omoterra is operated by Jopex Investment Ltd (\"Jopex\", \"we\", \"us\"), a company registered in Tanzania." },
+          { "p": "These Terms apply to the Omoterra website, the Omoterra mobile app and any service we provide through them (together, the \"Service\"). By creating an account or using the Service you agree to these Terms and to our Privacy Policy. If you do not agree, do not use the Service." }
+        ]
+      },
+      {
+        "id": "account",
+        "heading": "Eligibility and your account",
+        "body": [
+          { "ul": [
+            "You must be at least 18 years old and able to enter into a binding agreement under Tanzanian law.",
+            "You sign in with your mobile phone number and a one-time code we send by text message. On the website you may also set a PIN. Keep your phone, codes and PIN private: you are responsible for everything done through your account.",
+            "One account can be used as a buyer, a supplier or both. If you register for a business or a farm, you confirm you are allowed to act for it.",
+            "Omoterra staff may start a registration for you, for example during a farm visit. You remain responsible for checking that the details are correct, and you can correct them in your account.",
+            "Give us accurate information and keep it up to date. We may ask you to confirm your identity or your farm before approving your account."
+          ] }
+        ]
+      },
+      {
+        "id": "marketplace",
+        "heading": "How the marketplace works",
+        "body": [
+          { "p": "Omoterra is not a simple listings board. Our team reviews every supplier and every stock batch, sets the price buyers see, and coordinates each order from collection to delivery:" },
+          { "ul": [
+            "Suppliers register their farm and submit stock. Nothing is shown to buyers until Omoterra has approved the supplier account and verified the stock.",
+            "Buyers see an approved farm alias and region, not the supplier's name, phone number or exact location. Suppliers do not see a buyer's identity, address or the buyer price.",
+            "When a buyer orders, Omoterra schedules collection from the supplier, checks the quality and quantity of the livestock at collection, and delivers to the buyer.",
+            "The buyer pays Omoterra for the livestock accepted at the quality check, and Omoterra pays the supplier the agreed payout for the same livestock."
+          ] },
+          { "p": "Buyers and suppliers agree not to use the Service to contact each other directly in order to complete a sale outside Omoterra." }
+        ]
+      },
+      {
+        "id": "suppliers",
+        "heading": "Selling on Omoterra (suppliers)",
+        "body": [
+          { "ul": [
+            "Only list livestock you own or are allowed to sell, that is healthy, and that you can supply on the dates you give.",
+            "Photos and videos must be genuine and show your own farm and the actual stock. Do not include phone numbers, names or other contact details in them.",
+            "Your account and each stock batch are reviewed by Omoterra. We may ask for changes, decline stock, or pause a listing at any time.",
+            "Confirm that your stock is still available when the app asks (every 48 hours for live listings). Stock that is not confirmed is hidden from buyers until you confirm it.",
+            "Once a buyer reserves stock, keep it for that order and do not sell it elsewhere. Have it ready at your pickup location on the agreed collection date.",
+            "At collection Omoterra records the quantity accepted and any quantity rejected (for example sick, injured or underweight animals). Rejected units stay yours.",
+            "Your payout is based on the accepted quantity and the payout price agreed when the order was placed. It is paid by your chosen payout method after delivery and after the buyer's payment is received. We ask for your account details only when a payout is due."
+          ] }
+        ]
+      },
+      {
+        "id": "buyers",
+        "heading": "Buying on Omoterra (buyers)",
+        "body": [
+          { "ul": [
+            "Prices are shown in Tanzanian shillings (TZS). Weights and ready dates are estimates given by the supplier and checked at collection.",
+            "When you start an order, the stock is held for you for a short time (currently 15 minutes) while you complete checkout. If you do not finish in time, the hold is released.",
+            "Payment is currently Pay on Delivery. You pay for the quantity accepted at the quality check and delivered to you; your order total is updated to match.",
+            "You can cancel an order in the app until collection from the supplier has started. After that, contact Omoterra support and we will help where we can.",
+            "Check your livestock at delivery and tell the delivery team or Omoterra support straight away if anything is wrong.",
+            "Supply requests and business setup requests are requests for Omoterra to find supply or advise you. We will try to match them but cannot guarantee that supply will be found."
+          ] }
+        ]
+      },
+      {
+        "id": "livestock",
+        "heading": "Livestock, quality and animal welfare",
+        "body": [
+          { "p": "Livestock are living animals and their weight, condition and readiness can change. Omoterra checks livestock at collection, but we do not give a veterinary guarantee. Suppliers are responsible for the health of their animals, for lawful ownership, and for any permit the law requires to sell or move them." },
+          { "p": "Everyone using the Service must handle animals humanely. We may refuse, pause or remove any listing, collection or order where we believe animal welfare, food safety or the law is at risk." }
+        ]
+      },
+      {
+        "id": "payments",
+        "heading": "Payments and payouts",
+        "body": [
+          { "ul": [
+            "Jopex is not a bank or a payment institution. Payouts sent by mobile money (such as M-Pesa, Mixx by Yas, Airtel Money or HaloPesa) or by bank transfer are also subject to that provider's own terms and charges.",
+            "Omoterra records each buyer payment and each supplier payout with its reference, and you can see your payouts in your account.",
+            "Omoterra staff will never ask for your sign-in code, your PIN or your mobile money PIN. If anyone does, do not share it and contact support."
+          ] }
+        ]
+      },
+      {
+        "id": "acceptable-use",
+        "heading": "Acceptable use",
+        "body": [
+          { "p": "You must not:" },
+          { "ul": [
+            "list stolen, sick or non-existent livestock, or give false information about stock, prices, quantities or deliveries;",
+            "use someone else's phone number or account, or share another person's personal data without their permission;",
+            "post fake or abusive ratings, or harass Omoterra staff, buyers, suppliers or delivery teams;",
+            "try to get around Omoterra's review, pricing or payment process;",
+            "copy, scrape, reverse-engineer or interfere with the Service or its security."
+          ] }
+        ]
+      },
+      {
+        "id": "content",
+        "heading": "Your content and our brand",
+        "body": [
+          { "p": "You keep ownership of the photos, videos and information you submit. You give Jopex permission to store, review and use them to run the Service, including showing your stock photos to buyers under your approved farm alias. The Omoterra name, logo, app, website and designs belong to Jopex or its licensors." }
+        ]
+      },
+      {
+        "id": "suspension",
+        "heading": "Suspension and closing your account",
+        "body": [
+          { "p": "We may suspend or close an account, pause listings or cancel orders where these Terms are broken, where we suspect fraud or risk to animals or people, or where the law requires it. Where it is safe to do so, we will tell you why." },
+          { "p": "You can delete your account at any time from the app (Account › Delete account) or by contacting us. Deletion waits until any order in progress is finished, any payout owed to you is settled and any stock reserved for a buyer is released. Our Privacy Policy explains what is deleted and what we must keep." }
+        ]
+      },
+      {
+        "id": "liability",
+        "heading": "Availability and liability",
+        "body": [
+          { "p": "The Service depends on your device, your internet connection and the mobile network, including text messages that may be delayed. We work to keep the Service available and accurate, but it is provided \"as is\" and we do not promise it will be uninterrupted or error-free." },
+          { "p": "To the extent the law allows, Jopex is not liable for indirect or consequential loss, or for loss of profit, business or data. Nothing in these Terms limits any liability that cannot be limited under Tanzanian law." }
+        ]
+      },
+      {
+        "id": "changes",
+        "heading": "Changes to these Terms",
+        "body": [
+          { "p": "We may update these Terms as Omoterra grows, for example when new payment methods are added. We will show the new date at the top of this page and tell you in the app before important changes take effect. Continuing to use the Service after that means you accept the updated Terms." }
+        ]
+      },
+      {
+        "id": "law",
+        "heading": "Governing law and complaints",
+        "body": [
+          { "p": "These Terms are governed by the laws of the United Republic of Tanzania. If you have a complaint, contact Omoterra support first and we will try to resolve it quickly. If we cannot, the dispute will be handled by the courts of Tanzania." }
+        ]
+      }
+    ]
+  },
+  "privacy": {
+    "title": "Privacy Policy",
+    "summary": "What personal data Omoterra collects, why, who can see it, and the choices you have.",
+    "sections": [
+      {
+        "id": "who",
+        "heading": "Who is responsible for your data",
+        "body": [
+          { "p": "Jopex Investment Ltd operates Omoterra and is the data controller for the personal data described here. We handle personal data in line with the Personal Data Protection Act, 2022 of Tanzania. This policy covers the Omoterra website and the Omoterra mobile app." }
+        ]
+      },
+      {
+        "id": "collect",
+        "heading": "What we collect",
+        "body": [
+          { "ul": [
+            "Account details: your phone number, name, region, preferred language, whether you are a buyer, a supplier or both, and your buyer type.",
+            "Sign-in details: the one-time codes we text you, your website PIN (stored only in scrambled, hashed form) and your signed-in sessions.",
+            "Supplier profile: farm or business name, legal name, the farm alias shown to buyers, alternate phone, preferred contact method, region, district and area, pickup address and instructions, farm map pin, the livestock you keep, capacity, production cycle, supply forms, transport options and your chosen payout method.",
+            "Photos and videos: pictures and videos of your farm and stock that you upload, and photos Omoterra staff take at collection as evidence of quantity and condition.",
+            "Stock and orders: stock batches, prices, availability confirmations, reservations, orders, delivery addresses (including the recipient's name and phone), quality-check results, payment receipts and references, and supplier payouts.",
+            "Requests and feedback: supply requests, business setup requests, ratings of delivered orders, and messages with Omoterra support.",
+            "Device details: a notification token so we can send you alerts, your device platform and app version.",
+            "Referral records: when Omoterra staff register you, which staff member did so and when the registration was confirmed."
+          ] },
+          { "p": "We do not ask for your mobile money PIN or bank password, and we collect payout account numbers only when a payout is due." }
+        ]
+      },
+      {
+        "id": "location",
+        "heading": "Location",
+        "body": [
+          { "p": "The app uses your device's location only when a supplier taps to pin the farm location, and only after you allow it. We do not track your location in the background. Buyer delivery addresses are typed in by you." }
+        ]
+      },
+      {
+        "id": "use",
+        "heading": "How we use your data",
+        "body": [
+          { "ul": [
+            "to create your account, sign you in and keep it secure;",
+            "to review suppliers and stock before anything is shown to buyers;",
+            "to run orders: holding stock, arranging collection, quality checks, delivery, receipts and supplier payouts;",
+            "to match supply requests with suitable suppliers, and to tell suppliers about demand in their category (without identifying the buyer);",
+            "to send you text messages and app notifications about your account, stock, orders and payouts;",
+            "to answer support requests, prevent fraud and misuse, and keep records the law requires, such as tax and accounting records."
+          ] },
+          { "p": "We rely on the contract with you, our legitimate interest in running a safe marketplace, your consent (for example for location and notifications) and our legal obligations. We do not sell your personal data." }
+        ]
+      },
+      {
+        "id": "visible",
+        "heading": "What other users can see",
+        "body": [
+          { "ul": [
+            "Buyers see a supplier's approved farm alias, region, stock photos and ratings. Stock photos are reviewed to remove contact details.",
+            "Suppliers see what was ordered, the quantities and the collection details. They do not see a buyer's name, phone number, address or the buyer price.",
+            "Omoterra staff see the details they need to review accounts, coordinate orders and pay suppliers. Access is limited to signed-in staff."
+          ] }
+        ]
+      },
+      {
+        "id": "sharing",
+        "heading": "Who we share data with",
+        "body": [
+          { "p": "We share personal data only where needed to run the Service:" },
+          { "ul": [
+            "Sema, to send sign-in codes and text messages.",
+            "Google Firebase Cloud Messaging, to deliver app notifications.",
+            "Our hosting, database and file storage providers, which store the Service's data and media on our behalf.",
+            "Mobile money providers and banks, when we pay you a payout.",
+            "Transport and delivery partners, with only the collection or delivery details they need.",
+            "Authorities, where the law requires it, or to protect people, animals or the Service."
+          ] },
+          { "p": "Our providers may only use your data to provide their service to us. If Jopex is ever involved in a merger or sale, your data would move subject to this policy." }
+        ]
+      },
+      {
+        "id": "transfers",
+        "heading": "Data stored outside Tanzania",
+        "body": [
+          { "p": "Some of our providers store data on servers outside Tanzania. When that happens we use providers with recognised security standards and put in place the safeguards the Personal Data Protection Act requires." }
+        ]
+      },
+      {
+        "id": "retention",
+        "heading": "How long we keep data",
+        "body": [
+          { "ul": [
+            "Sign-in codes expire after 5 minutes and can be used only once. App sessions end after 30 days, or when you sign out.",
+            "Account and profile data are kept while your account is open.",
+            "Order, payment and payout records are kept for as long as tax, accounting and dispute rules require, even after an account is deleted, but without your name and contact details."
+          ] }
+        ]
+      },
+      {
+        "id": "security",
+        "heading": "Keeping your data safe",
+        "body": [
+          { "p": "Data is sent over encrypted connections. PINs are stored hashed, sign-in codes are single-use, private photos are shown only to you and Omoterra staff, and staff access requires a separate sign-in. No system is perfectly secure, so please keep your phone and PIN safe and tell us straight away if you think your account has been misused." }
+        ]
+      },
+      {
+        "id": "rights",
+        "heading": "Your rights",
+        "body": [
+          { "p": "You can ask to see the personal data we hold about you, correct it, delete it, or object to or restrict how we use it. You can edit most of your details yourself in your account, and turn off location or notifications in your phone's settings. To use any other right, contact us using the details below; we may need to confirm it is you. You can also complain to the Personal Data Protection Commission of Tanzania." }
+        ]
+      },
+      {
+        "id": "delete",
+        "heading": "Deleting your account",
+        "body": [
+          { "p": "In the app, open Account › Delete account. You can also email info@jopex.co.tz from anywhere, with the subject \"Omoterra account deletion\" and your phone number; we will confirm it is you and complete the deletion within 30 days." },
+          { "ul": [
+            "You are signed out on every device and notification tokens are removed.",
+            "Your name, phone number, delivery addresses, pickup address, farm location, farm photos and video are deleted or permanently anonymised, and your listings are taken off the marketplace.",
+            "Order, payment and payout records are kept without your personal details, so that accounts and tax records stay correct.",
+            "Deletion waits until any order in progress is finished, any payout owed to you is settled and any stock reserved for a buyer is released. Deletion cannot be undone."
+          ] }
+        ]
+      },
+      {
+        "id": "children",
+        "heading": "Children",
+        "body": [
+          { "p": "Omoterra is for adults aged 18 and over and is not directed at children. If you believe a child has created an account, contact us and we will remove it." }
+        ]
+      },
+      {
+        "id": "changes",
+        "heading": "Changes to this policy",
+        "body": [
+          { "p": "We will update this policy when the Service changes, for example if we add card or mobile money payments at checkout. The date at the top shows the latest version, and we will tell you in the app about important changes." }
+        ]
+      }
+    ]
+  }
+}

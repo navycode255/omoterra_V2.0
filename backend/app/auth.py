@@ -86,7 +86,8 @@ def ops_admin(operator=Depends(ops)):
 
 
 def operator_view(operator):
-    return {k: getattr(operator, k) for k in ('id', 'phone', 'name', 'role', 'active', 'last_login_at', 'created_at')}
+    return {**{k: getattr(operator, k) for k in ('id', 'phone', 'name', 'role', 'active', 'last_login_at', 'created_at')},
+        'has_pin': bool(operator.pin_hash)}
 
 
 def user_view(user):
@@ -201,34 +202,46 @@ def pin_matches(pin, stored):
 _NO_PIN = pin_hash('000000', b'omoterra-no-pin!')
 
 
-def set_pin(db, user, pin):
-    user.pin_hash = pin_hash(pin)
-    user.pin_failed_attempts = 0
-    user.pin_locked_until = None
+def store_pin(db, account, pin):
+    """Sets the PIN of a member (User) or staff member (Operator)."""
+    account.pin_hash = pin_hash(pin)
+    account.pin_failed_attempts = 0
+    account.pin_locked_until = None
     db.flush()
+
+
+def set_pin(db, user, pin):
+    store_pin(db, user, pin)
     return user_view(user)
+
+
+def check_pin(db, account, pin):
+    """Raises unless `pin` is right for this member or staff member (or the
+    account is missing or has no PIN), counting wrong tries toward the pause
+    and the block."""
+    if not account or not account.pin_hash:
+        pin_matches(pin, _NO_PIN)
+        fail('err.phone_or_pin_incorrect', 400)
+    if account.pin_failed_attempts >= PIN_RESET_AFTER:
+        fail('err.pin_blocked_reset', 429)
+    if account.pin_locked_until and account.pin_locked_until > m.now():
+        fail('err.pin_paused_try_later', 429, minutes=int(PIN_PAUSE.total_seconds() // 60))
+    if not pin_matches(pin, account.pin_hash):
+        account.pin_failed_attempts += 1
+        if account.pin_failed_attempts % PIN_PAUSE_EVERY == 0:
+            account.pin_locked_until = m.now() + PIN_PAUSE
+        # Commit the failed attempt so the raised error cannot roll it back.
+        db.commit()
+        if account.pin_failed_attempts >= PIN_RESET_AFTER:
+            fail('err.pin_blocked_reset', 429)
+        fail('err.phone_or_pin_incorrect', 400)
+    account.pin_failed_attempts = 0
+    account.pin_locked_until = None
 
 
 def pin_sign_in(db, phone, pin):
     user = db.scalar(select(m.User).where(m.User.phone == phone, m.User.deleted.is_(False)).with_for_update())
-    if not user or not user.pin_hash:
-        pin_matches(pin, _NO_PIN)
-        fail('err.phone_or_pin_incorrect', 400)
-    if user.pin_failed_attempts >= PIN_RESET_AFTER:
-        fail('err.pin_blocked_reset', 429)
-    if user.pin_locked_until and user.pin_locked_until > m.now():
-        fail('err.pin_paused_try_later', 429, minutes=int(PIN_PAUSE.total_seconds() // 60))
-    if not pin_matches(pin, user.pin_hash):
-        user.pin_failed_attempts += 1
-        if user.pin_failed_attempts % PIN_PAUSE_EVERY == 0:
-            user.pin_locked_until = m.now() + PIN_PAUSE
-        # Commit the failed attempt so the raised error cannot roll it back.
-        db.commit()
-        if user.pin_failed_attempts >= PIN_RESET_AFTER:
-            fail('err.pin_blocked_reset', 429)
-        fail('err.phone_or_pin_incorrect', 400)
-    user.pin_failed_attempts = 0
-    user.pin_locked_until = None
+    check_pin(db, user, pin)
     i18n.use_user_language(user.language)
     return issue_session(db, user)
 

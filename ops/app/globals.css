@@ -1797,3 +1797,78 @@ textarea.join-input { min-height: 88px; resize: vertical; }
   .portal-help .button { min-height: 38px; padding: 0 11px; gap: 6px; border-radius: 12px; font-size: 13.5px; }
   .portal-help .button-outline { border-color: var(--forest); }
 }
+.signin-links { display: grid; gap: 2px; }
+.signin-link-button { width: 100%; padding: 0; border: 0; background: none; font: inherit; cursor: pointer; }
+.signin-link-button:hover, .signin-alt:hover { text-decoration: underline; }
+
+/* Legal pages (Terms of Use, Privacy Policy) ---------------------------- */
+.legal-site { min-height: 100vh; background: #f7faf7 url('/images/marketing/register-bg-v1.webp') center bottom / cover no-repeat fixed; color: #1e2a26; }
+.legal-header-actions { display: flex; gap: 10px; }
+.legal-hero { max-width: 1180px; margin: 28px auto 0; padding: clamp(28px, 4vw, 48px) clamp(22px, 4vw, 48px); display: flex; align-items: flex-end; justify-content: space-between; gap: 24px; border: 1px solid #e4ece7; border-radius: 28px;
+  background: linear-gradient(90deg, #f1f7f2 0%, #f1f7f2 46%, rgba(241,247,242,.72) 66%, rgba(241,247,242,.1) 100%), url('/images/marketing/cattle-herd-v1.webp') right center / cover no-repeat; }
+.legal-hero-copy { max-width: 560px; }
+.legal-hero .eyebrow { margin-bottom: 8px; }
+.legal-hero h1 { color: #0f2f25; font-size: clamp(32px, 4.2vw, 50px); font-weight: 800; line-height: 1.05; letter-spacing: -.035em; }
+.legal-hero-copy > p:not(.eyebrow) { margin-top: 10px; color: #3d4c48; font-size: 16px; line-height: 1.5; }
+.legal-updated { display: inline-flex; margin-top: 16px; padding: 6px 14px; border-radius: 999px; background: #fff; color: var(--forest); font-size: 13px; font-weight: 600; box-shadow: 0 2px 10px #123d2d12; }
+.legal-switch { flex: 0 0 auto; display: flex; gap: 4px; padding: 5px; border-radius: 999px; background: rgba(255,255,255,.92); box-shadow: 0 6px 24px #123d2d14; }
+.legal-switch a { padding: 10px 18px; border-radius: 999px; color: #2f3e3a; font-size: 14px; font-weight: 600; white-space: nowrap; }
+.legal-switch a.is-active { background: var(--forest); color: #fff; }
+.legal-body { max-width: 1180px; margin: 0 auto; padding: 28px 0 56px; display: grid; grid-template-columns: 270px minmax(0, 1fr); gap: 28px; align-items: start; }
+.legal-contents { position: sticky; top: 96px; padding: 20px; border: 1px solid #e4ece7; border-radius: 20px; background: rgba(255,255,255,.95); }
+.legal-contents strong { display: block; margin-bottom: 10px; color: #0f2f25; font-size: 14px; }
+.legal-contents ol { display: grid; gap: 2px; margin: 0; padding: 0; list-style: none; counter-reset: legal; }
+.legal-contents li { counter-increment: legal; }
+.legal-contents a { display: flex; gap: 10px; padding: 7px 10px; border-radius: 10px; color: #3d4c48; font-size: 13.5px; line-height: 1.35; }
+.legal-contents a::before { content: counter(legal); min-width: 16px; color: var(--market-green); font-weight: 700; }
+.legal-contents a:hover { background: #eef5f0; color: #0f2f25; }
+.legal-document { display: grid; gap: 14px; min-width: 0; }
+.legal-section, .legal-contact { scroll-margin-top: 96px; padding: 24px clamp(20px, 3vw, 32px); border: 1px solid #e4ece7; border-radius: 20px; background: rgba(255,255,255,.96); }
+.legal-section h2, .legal-contact h2 { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; color: #0f2f25; font-size: 20px; font-weight: 750; letter-spacing: -.02em; }
+.legal-number { width: 34px; height: 34px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: #eef5f0; color: var(--forest); font-size: 14px; font-weight: 700; }
+.legal-section p, .legal-section li, .legal-contact p { color: #3d4c48; font-size: 15px; line-height: 1.65; }
+.legal-section p + p, .legal-section p + ul, .legal-section ul + p { margin-top: 10px; }
+.legal-section ul { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.legal-section li { position: relative; padding-left: 22px; }
+.legal-section li::before { content: ''; position: absolute; left: 4px; top: .62em; width: 8px; height: 8px; border-radius: 50%; background: #3f9a4f; }
+.legal-contact { background: linear-gradient(135deg, #eaf5ee, #f7fbf8); border-color: #c9e4d3; }
+.legal-contact-links { display: flex; flex-wrap: wrap; gap: 10px; margin: 14px 0 10px; }
+.legal-muted { color: #6b7a78 !important; font-size: 13.5px !important; }
+.legal-footer { max-width: 1180px; margin: 0 auto; padding: 18px 0 32px; display: flex; flex-wrap: wrap; justify-content: space-between; gap: 12px; color: #6b7a78; font-size: 13px; }
+.legal-footer nav { display: flex; gap: 18px; }
+.legal-footer a { color: var(--forest); font-weight: 600; }
+.footer-legal { display: flex; justify-content: flex-end; gap: 12px; }
+@media (max-width: 1260px) {
+  .legal-hero, .legal-body, .legal-footer { margin-left: var(--market-gutter); margin-right: var(--market-gutter); }
+}
+@media (max-width: 900px) {
+  .legal-body { grid-template-columns: 1fr; }
+  .legal-contents { position: static; }
+  .legal-contents ol { grid-template-columns: 1fr 1fr; }
+  .legal-hero { flex-direction: column; align-items: flex-start; }
+}
+@media (max-width: 640px) {
+  .legal-site { background-attachment: scroll; }
+  .legal-header-actions .button-light { display: none; }
+  .legal-hero, .legal-body, .legal-footer { margin-left: 16px; margin-right: 16px; }
+  .legal-hero { margin-top: 16px; padding: 22px 18px; border-radius: 20px; gap: 18px;
+    background: linear-gradient(180deg, rgba(241,247,242,.2) 0%, #f1f7f2 42%), url('/images/marketing/cattle-herd-v1.webp') center top / 100% auto no-repeat, #f1f7f2; padding-top: 120px; }
+  .legal-hero h1 { font-size: 30px; }
+  .legal-hero-copy > p:not(.eyebrow) { font-size: 14.5px; }
+  .legal-switch { width: 100%; }
+  .legal-switch a { flex: 1; text-align: center; padding: 10px 8px; font-size: 13.5px; }
+  .legal-body { padding: 16px 0 36px; gap: 14px; }
+  .legal-contents ol { grid-template-columns: 1fr; }
+  .legal-section, .legal-contact { padding: 18px; border-radius: 18px; }
+  .legal-section h2, .legal-contact h2 { align-items: flex-start; font-size: 17px; }
+  .legal-number { width: 28px; height: 28px; font-size: 13px; }
+  .legal-section p, .legal-section li, .legal-contact p { font-size: 14.5px; }
+  .legal-contact-links .button { width: 100%; }
+  .legal-footer { flex-direction: column; }
+}
+@media (max-width: 600px) { .footer-legal { justify-content: center; } }
+.join-consent { margin-top: 14px; color: #6b7a78; font-size: 12.5px; line-height: 1.5; text-align: center; }
+.join-consent a { color: var(--market-green); font-weight: 600; }
+.signin-logo-link { display: flex; justify-content: center; }
+.signin-exit { margin: 22px 0 0; padding-top: 16px; border-top: 1px solid #edf1ee; color: #7a857f; font-size: 13px; line-height: 1.6; text-align: center; }
+.signin-exit a { color: #0e6f50; font-weight: 600; }

@@ -338,6 +338,7 @@ export interface Operator {
   id: string;
   phone: string;
   name: string;
+  has_pin?: boolean;
   role: 'admin' | 'staff';
   active: boolean;
   last_login_at: string | null;

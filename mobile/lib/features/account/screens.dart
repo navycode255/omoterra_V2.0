@@ -713,13 +713,13 @@ class AccountInfoScreen extends StatelessWidget {
         body: ListView(padding: const EdgeInsets.all(20), children: [
           if (page == 'support') ...[
             ListTile(
-                title: Text(s.termsOfService),
+                title: Text(s.termsOfUse),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push('/account/terms')),
+                onTap: () => context.push('/legal/terms')),
             ListTile(
-                title: Text(s.privacyNotice),
+                title: Text(s.privacyPolicy),
                 trailing: const Icon(Icons.chevron_right),
-                onTap: () => context.push('/account/privacy')),
+                onTap: () => context.push('/legal/privacy')),
             SupportContact(topic: s.myAccountTopic),
             ListTile(
                 title: Text(s.openSourceLicenses),
@@ -728,20 +728,16 @@ class AccountInfoScreen extends StatelessWidget {
                     context: context, applicationName: 'Omoterra')),
           ],
           ResourceView('/config', builder: (config) {
-            final text = page == 'support'
-                ? config['support_phone']
-                : config['${page}_text'];
+            final text = config['support_phone'];
             return Surface(
                 child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                  if (page == 'support') Text(s.supportIntro),
+                  Text(s.supportIntro),
                   const SizedBox(height: 16),
                   SelectableText(text is String && text.isNotEmpty
                       ? text
-                      : page == 'support'
-                          ? s.supportFallback
-                          : s.contactForTerms(page == 'terms')),
+                      : s.supportFallback),
                 ]));
           }),
         ]));

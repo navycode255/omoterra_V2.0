@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { ApiError, post } from '@/lib/api';
+import { ApiError, opsCause, post } from '@/lib/api';
 import { endSetup, setSetup, setupState, startSession } from '@/lib/session';
 import type { Operator } from '@/lib/types';
 
@@ -24,6 +24,8 @@ function phoneNumber(raw: string) {
 }
 
 function failure(error: unknown) {
+  const cause = opsCause(error);
+  if (cause) return cause;
   if (!(error instanceof ApiError)) return 'server';
   return ({ 400: 'code', 401: 'expired', 403: 'denied', 409: 'taken', 429: 'locked' } as Record<number, string>)[error.status] ?? 'server';
 }
