@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/auth/session.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/theme/theme.dart';
 import '../../shared/widgets/components.dart';
 
@@ -10,6 +11,7 @@ class LanguageScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final selected = ref.watch(selectedLanguageProvider);
+    final s = ref.s;
     return Scaffold(
       body: SafeArea(
           child: Padding(
@@ -20,16 +22,15 @@ class LanguageScreen extends ConsumerWidget {
                     const Spacer(),
                     const Icon(Icons.language, color: OColors.forest, size: 44),
                     const SizedBox(height: 24),
-                    const Text('Choose your language',
-                        style: TextStyle(
+                    Text(s.chooseLanguageEn,
+                        style: const TextStyle(
                             fontSize: 28, fontWeight: FontWeight.w800)),
                     const SizedBox(height: 8),
-                    const Text('Chagua lugha yako',
-                        style:
-                            TextStyle(fontSize: 18, color: OColors.secondary)),
+                    Text(s.chooseLanguageSw,
+                        style: const TextStyle(
+                            fontSize: 18, color: OColors.secondary)),
                     const SizedBox(height: 28),
-                    for (final entry
-                        in const {'en': 'English', 'sw': 'Kiswahili'}.entries)
+                    for (final entry in Strings.languageNames.entries)
                       Padding(
                           padding: const EdgeInsets.only(bottom: 12),
                           child: InkWell(
@@ -59,7 +60,7 @@ class LanguageScreen extends ConsumerWidget {
                                           color: OColors.forest)
                                   ])))),
                     const Spacer(),
-                    OmoterraButton('Continue',
+                    OmoterraButton(s.continueLabel,
                         onPressed: () => context.go('/welcome')),
                   ]))),
     );

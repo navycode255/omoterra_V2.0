@@ -99,6 +99,15 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
             <fieldset className="check-row"><legend>Usual supply forms</legend>{['live','dressed','chilled','frozen'].map((form) => <label key={form}><input type="checkbox" name="supply_forms" value={form} defaultChecked={supplier.supply_forms.includes(form)}/> {titleCase(form)}</label>)}</fieldset>
             <Field label="Operating schedule / notes" name="operating_notes"><textarea className="input" id="edit_operating_notes" name="operating_notes" defaultValue={supplier.operating_notes}/></Field>
           </>}/>
+        <section className="card">
+          <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 'var(--s3)' }}><Icons.star size={20}/>Reputation</h3>
+          <Details items={[
+            ['Buyer rating', supplier.reputation?.rating != null ? `${supplier.reputation.rating.toFixed(1)} of 5 (${supplier.reputation.ratings} ratings)` : `${supplier.reputation?.ratings ?? 0} ratings, not enough to show buyers an average`],
+            ['Deliveries', String(supplier.reputation?.deliveries ?? 0)],
+            ['Passed quality check', supplier.reputation?.quality_passed != null ? `${supplier.reputation.quality_passed}%` : 'No collections checked yet'],
+          ]}/>
+          <p className="meta" style={{ marginTop: 'var(--s2)' }}><a href="/ratings">See all ratings</a></p>
+        </section>
         <EditableCard id={supplier.id} section="pickup" extras={extrasFor('pickup')} icon={<Icons.pin size={23}/>} title="Private pickup location"
           view={<Details items={[["Farm location", <FarmLocation key="farm" supplier={supplier}/>], ["Address", supplier.internal_pickup_address || '—'], ["Region", supplier.region || '—'], ["Pickup instructions", supplier.pickup_instructions || '—']]}/>}
           fields={<>

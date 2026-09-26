@@ -3,17 +3,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/repository.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/routing/back_navigation.dart';
 import '../../core/theme/theme.dart';
+import '../media_cache.dart';
 import '../models/domain.dart';
 import 'brand_image.dart';
+import 'decor.dart';
 import 'rating.dart';
 import 'supply_art.dart';
 
-String label(String value) => value
-    .split('_')
-    .map((s) => s.isEmpty ? s : '${s[0].toUpperCase()}${s.substring(1)}')
-    .join(' ');
 String amount(Object? value) =>
     NumberFormat('#,##0.##').format(num.tryParse('$value') ?? 0);
 String tsh(Object? value) => 'TZS ${amount(value)}';
@@ -49,7 +48,7 @@ class OmoterraButton extends StatelessWidget {
       this.icon});
   @override
   Widget build(BuildContext context) {
-    final label = Text(busy ? 'Please wait…' : text);
+    final label = Text(busy ? context.s.pleaseWait : text);
     if (icon == null) {
       return secondary
           ? OutlinedButton(onPressed: busy ? null : onPressed, child: label)
@@ -111,7 +110,7 @@ Future<T?> showOmoterraPicker<T>(
                             fontWeight: FontWeight.w700,
                             color: OColors.ink))),
                 IconButton(
-                    tooltip: 'Close',
+                    tooltip: context.s.close,
                     onPressed: () => Navigator.pop(context),
                     icon: const Icon(Icons.close_rounded)),
               ]),
@@ -289,7 +288,7 @@ class OmoterraTextField extends StatelessWidget {
           decoration: InputDecoration(labelText: label),
           validator: (value) =>
               requiredField && (value == null || value.trim().isEmpty)
-                  ? 'Enter ${label.toLowerCase()}'
+                  ? context.s.enterField(label)
                   : null));
 }
 
@@ -326,12 +325,13 @@ class StatusText extends StatelessWidget {
   final String status;
   const StatusText(this.status, {super.key});
   @override
-  Widget build(BuildContext context) => Text('●  ${label(status)}',
+  Widget build(BuildContext context) => Text('●  ${context.s.status(status)}',
       style: TextStyle(
           fontSize: 12,
           color: ['cancelled', 'failed', 'rejected'].contains(status)
               ? OColors.error
-              : ['needs_confirmation', 'pending_review'].contains(status)
+              : ['needs_confirmation', 'pending_review', 'changes_requested']
+                      .contains(status)
                   ? OColors.warning
                   : status == 'live'
                       ? OColors.positive
@@ -343,11 +343,14 @@ class ErrorState extends StatelessWidget {
   final VoidCallback? retry;
   final String? title;
   final String? message;
+
+  /// Shows the retry button busy, so a tap visibly does something.
+  final bool retrying;
   const ErrorState(this.error,
-      {super.key, this.retry, this.title, this.message});
+      {super.key, this.retry, this.title, this.message, this.retrying = false});
   @override
   Widget build(BuildContext context) {
-    final copy = _friendlyErrorCopy(error);
+    final copy = _friendlyErrorCopy(error, context.s);
     return Container(
       width: double.infinity,
       margin: const EdgeInsets.symmetric(vertical: 12),
@@ -390,9 +393,15 @@ class ErrorState extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: FilledButton.icon(
-              onPressed: retry,
-              icon: const Icon(Icons.refresh_rounded),
-              label: const Text('Try again'),
+              // Stays green (not greyed out) so the spinner reads as progress.
+              onPressed: retrying ? () {} : retry,
+              icon: retrying
+                  ? const SizedBox.square(
+                      dimension: 18,
+                      child: CircularProgressIndicator(
+                          strokeWidth: 2.2, color: Colors.white))
+                  : const Icon(Icons.refresh_rounded),
+              label: Text(retrying ? context.s.retrying : context.s.retry),
             ),
           ),
         ],
@@ -402,36 +411,41 @@ class ErrorState extends StatelessWidget {
 }
 
 /// Never show raw transport exceptions or server responses to customers.
-String friendlyErrorMessage(Object error) => _friendlyErrorCopy(error).$2;
+String friendlyErrorMessage(Object error, Strings s) =>
+    _friendlyErrorCopy(error, s).$2;
 
-(String, String) _friendlyErrorCopy(Object error) {
+(String, String) _friendlyErrorCopy(Object error, Strings s) {
   final raw = error is ApiFailure ? error.message : '';
   final text = raw.toLowerCase();
-  if (text.contains('temporarily unavailable') ||
-      text.contains('trouble loading right now')) {
-    return (
-      'Omoterra is having a short delay',
-      'We couldn’t load this just now. Please try again shortly.'
-    );
+  final status = error is ApiFailure ? error.status : null;
+  switch (error is ApiFailure ? error.kind : null) {
+    case FailureKind.unavailable:
+      return (s.errDelayTitle, s.errDelayBody);
+    case FailureKind.sessionExpired:
+      return (s.errSignInTitle, s.errSignInBody);
+    case FailureKind.staffSessionExpired:
+      return (s.errSignInTitle, s.errStaffSignInBody);
+    case FailureKind.offline:
+      return (s.errOfflineTitle, s.errOfflineBody);
+    case FailureKind.videoPaused:
+      return (s.errOfflineTitle, s.errVideoPaused);
+    case FailureKind.notConfigured:
+      return (s.errFailedTitle, s.errFailedBody);
+    case null:
+      break;
   }
-  if (text.contains('session has expired')) {
-    return (
-      'Please sign in again',
-      'Your sign-in has expired. Sign in to continue.'
-    );
+  // Server answers are told apart by status, not wording: the server writes
+  // its reason in the member's language (Accept-Language / saved language).
+  if (status == 401) return (s.errSignInTitle, s.errSignInBody);
+  if (status == 404) {
+    // FastAPI's own "Not Found" means an unknown route; a reason from
+    // Omoterra (stock or demand that has gone) is worth showing as written.
+    return text == 'not found' || raw.isEmpty || raw.length >= 180
+        ? (s.errNotFoundTitle, s.errNotFoundBody)
+        : (s.errGoneTitle, raw);
   }
-  if (text == 'not found' || text.contains('status code 404')) {
-    return (
-      'We couldn’t find this just now',
-      'Refresh and try again. If the problem continues, try again later.'
-    );
-  }
-  if (text.contains('no longer available') || text.contains('not available')) {
-    return (
-      'This is no longer available',
-      'Choose another option and try again.'
-    );
-  }
+  if (status != null && status >= 500) return (s.errDelayTitle, s.errDelayBody);
+  // Raw transport or framework text must never reach a customer.
   if (text.contains('preview mode') ||
       text.contains('api_base_url') ||
       text.contains('backend') ||
@@ -440,18 +454,12 @@ String friendlyErrorMessage(Object error) => _friendlyErrorCopy(error).$2;
       text.contains('exception') ||
       text.contains('status code') ||
       text.contains('request failed')) {
-    return (
-      'We couldn’t complete that',
-      'Please check your connection and try again. If the problem continues, try again later.'
-    );
+    return (s.errFailedTitle, s.errFailedBody);
   }
   if (raw.isNotEmpty && raw.length < 180 && !raw.contains('\n')) {
-    return ('Please check this information', raw);
+    return (s.errCheckTitle, raw);
   }
-  return (
-    'We couldn’t load this just now',
-    'Check your internet connection, then try again.'
-  );
+  return (s.errLoadTitle, s.errLoadBody);
 }
 
 class EmptyState extends StatelessWidget {
@@ -459,20 +467,79 @@ class EmptyState extends StatelessWidget {
   final Widget? action;
   const EmptyState(this.title, this.message, {super.key, this.action});
   @override
-  Widget build(BuildContext context) => Surface(
-      color: OColors.pale,
-      child: Column(crossAxisAlignment: CrossAxisAlignment.center, children: [
-        const SupplyArt('crate', size: 70, surface: false),
-        const SizedBox(height: 16),
-        Text(title,
-            textAlign: TextAlign.center,
-            style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 8),
-        Text(message, textAlign: TextAlign.center),
-        if (action != null) ...[
-          const SizedBox(height: 24),
-          SizedBox(width: double.infinity, child: action!)
-        ]
+  Widget build(BuildContext context) => Container(
+      clipBehavior: Clip.antiAlias,
+      decoration: BoxDecoration(
+          gradient: const LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Colors.white, Color(0xFFF1F6F2)]),
+          borderRadius: BorderRadius.circular(22),
+          border: Border.all(color: const Color(0xFFE6EEE9)),
+          boxShadow: [
+            BoxShadow(
+                color: OColors.forest.withValues(alpha: .05),
+                blurRadius: 16,
+                offset: const Offset(0, 5))
+          ]),
+      child: Stack(children: [
+        // Hills, clouds and sprigs behind the message, as in the design.
+        const Positioned.fill(child: HillsBackdrop()),
+        const Positioned(
+            left: 14,
+            bottom: 6,
+            child: LeafSprig(size: 44, angle: -.2, color: Color(0xFFD5E7DA))),
+        const Positioned(
+            right: 20,
+            bottom: 4,
+            child: LeafSprig(size: 26, angle: .2, color: Color(0xFFDDEDE1))),
+        Padding(
+            padding: const EdgeInsets.fromLTRB(22, 26, 22, 30),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+                  const SizedBox(
+                      width: 190,
+                      height: 110,
+                      child: Stack(alignment: Alignment.center, children: [
+                        // Leaves behind the crate, sprigs either side.
+                        Positioned(
+                            right: 44,
+                            top: 0,
+                            child: LeafSprig(
+                                size: 56, angle: .2, color: Color(0xFF9FC3A6))),
+                        Positioned(
+                            left: 6,
+                            bottom: 14,
+                            child: LeafSprig(size: 40, angle: -.2)),
+                        Positioned(
+                            right: 8,
+                            bottom: 14,
+                            child: LeafSprig(size: 34, angle: .2)),
+                        SupplyArt('crate', size: 92, surface: false),
+                      ])),
+                  const SizedBox(height: 14),
+                  Text(title,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                          fontSize: 22,
+                          fontWeight: FontWeight.w800,
+                          color: OColors.ink,
+                          letterSpacing: -.3)),
+                  if (message.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Text(message,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                            fontSize: 15,
+                            height: 1.4,
+                            color: OColors.secondary)),
+                  ],
+                  if (action != null) ...[
+                    const SizedBox(height: 24),
+                    SizedBox(width: double.infinity, child: action!)
+                  ]
+                ])),
       ]));
 }
 
@@ -480,7 +547,7 @@ class LoadingSkeleton extends StatelessWidget {
   const LoadingSkeleton({super.key});
   @override
   Widget build(BuildContext context) => Semantics(
-      label: 'Loading content',
+      label: context.s.loadingContent,
       child: Column(
           children: List.generate(
               3,
@@ -546,33 +613,129 @@ class ProductImage extends StatelessWidget {
               // photography, then to the in-app vector artwork.
               ? BrandImage('category_${_slot(category)}',
                   fallbackArt: category, height: height)
-              : PageView(
-                  children: photos.map((photo) {
-                  final ownApi = photo.startsWith('/media/');
-                  final url = ownApi ? '$apiUrl$photo' : photo;
-                  if (!ownApi) {
-                    return CachedNetworkImage(
-                        imageUrl: url,
-                        fit: BoxFit.cover,
-                        placeholder: (_, __) => Container(color: OColors.soft),
-                        errorWidget: (_, __, ___) =>
-                            const Icon(Icons.image_not_supported_outlined));
-                  }
-                  // Private images use only memory caching; never persist unapproved stock photos.
-                  return FutureBuilder<String?>(
-                      future: storage.read(key: 'session'),
-                      builder: (context, token) {
-                        if (!token.hasData) {
-                          return Container(color: OColors.soft);
-                        }
-                        return Image.network(url,
-                            fit: BoxFit.cover,
-                            headers: {'Authorization': 'Bearer ${token.data}'},
-                            errorBuilder: (_, __, ___) => const Center(
-                                child:
-                                    Icon(Icons.image_not_supported_outlined)));
-                      });
-                }).toList())));
+              : LayoutBuilder(builder: (context, box) {
+                  // Decode at the size shown, not the 1600px upload: a card
+                  // thumbnail then holds ~0.3 MB of pixels instead of ~7.7 MB.
+                  final cacheWidth = (box.maxWidth.isFinite
+                          ? box.maxWidth
+                          : MediaQuery.sizeOf(context).width) *
+                      MediaQuery.devicePixelRatioOf(context);
+                  return PageView(
+                      children: photos.map((photo) {
+                    if (!photo.startsWith('/media/')) {
+                      return CachedNetworkImage(
+                          imageUrl: photo,
+                          memCacheWidth: cacheWidth.round(),
+                          fit: BoxFit.cover,
+                          placeholder: (_, __) =>
+                              Container(color: OColors.soft),
+                          errorWidget: (_, __, ___) =>
+                              const Icon(Icons.image_not_supported_outlined));
+                    }
+                    return _MediaPhoto(photo,
+                        category: category,
+                        height: height,
+                        cacheWidth: cacheWidth.round());
+                  }).toList());
+                })));
+}
+
+/// A private `/media/…` photo. The server is asked for a signed link each
+/// time it is shown, so a photo this member may no longer see is refused and
+/// removed from the phone; the bytes come from the disk cache when present
+/// (keyed by media id, since links change every time), otherwise from the
+/// signed link once. Offline, the cached copy still shows (media_cache.dart).
+class _MediaPhoto extends ConsumerStatefulWidget {
+  final String photo;
+  final String category;
+  final double height;
+  final int cacheWidth;
+  const _MediaPhoto(this.photo,
+      {required this.category, required this.height, required this.cacheWidth});
+  @override
+  ConsumerState<_MediaPhoto> createState() => _MediaPhotoState();
+}
+
+class _MediaPhotoState extends ConsumerState<_MediaPhoto> {
+  late Future<SignedMedia?> _link;
+
+  Future<SignedMedia?> _resolve() async {
+    final link =
+        await signedMediaLink(ref.read(repositoryProvider), widget.photo);
+    if (link == null) {
+      // Refused: never keep a copy of media this member may not see.
+      await mediaCache
+          .removeFile(mediaCacheKey(widget.photo))
+          .catchError((_) {});
+    }
+    return link;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _link = _resolve();
+  }
+
+  @override
+  void didUpdateWidget(_MediaPhoto old) {
+    super.didUpdateWidget(old);
+    if (old.photo != widget.photo) _link = _resolve();
+  }
+
+  @override
+  Widget build(BuildContext context) => FutureBuilder<SignedMedia?>(
+      future: _link,
+      builder: (context, link) {
+        if (link.connectionState != ConnectionState.done) {
+          return Container(color: OColors.soft);
+        }
+        if (!link.hasError && link.data == null) {
+          return BrandImage('category_${_slot(widget.category)}',
+              fallbackArt: widget.category, height: widget.height);
+        }
+        return CachedNetworkImage(
+            // Unreachable: only a copy already on this phone can show.
+            imageUrl: link.data?.url ?? 'offline:${widget.photo}',
+            cacheKey: mediaCacheKey(widget.photo),
+            cacheManager: mediaCache,
+            memCacheWidth: widget.cacheWidth,
+            fit: BoxFit.cover,
+            placeholder: (_, __) => Container(color: OColors.soft),
+            errorWidget: (_, __, ___) =>
+                _PhotoUnavailable(widget.category, widget.height));
+      });
+}
+
+/// A photo that isn't on this phone yet and can't be fetched now (offline,
+/// or Omoterra unreachable): the category picture with a quiet note, never a
+/// broken-image icon.
+class _PhotoUnavailable extends StatelessWidget {
+  final String category;
+  final double height;
+  const _PhotoUnavailable(this.category, this.height);
+  @override
+  Widget build(BuildContext context) => Stack(fit: StackFit.expand, children: [
+        BrandImage('category_${_slot(category)}',
+            fallbackArt: category, height: height),
+        Positioned(
+            left: 10,
+            bottom: 10,
+            child: Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                    color: Colors.black.withValues(alpha: .55),
+                    borderRadius: BorderRadius.circular(20)),
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  const Icon(Icons.cloud_off_outlined,
+                      size: 14, color: Colors.white),
+                  const SizedBox(width: 6),
+                  Text(context.s.photoOffline,
+                      style:
+                          const TextStyle(fontSize: 12, color: Colors.white)),
+                ]))),
+      ]);
 }
 
 class ListingCard extends StatelessWidget {
@@ -602,47 +765,53 @@ class ListingCard extends StatelessWidget {
                               borderRadius: BorderRadius.circular(10),
                               child: ProductImage(listing.photos,
                                   category: listing.category, height: 92)))),
-                  Positioned(
-                      top: 6,
-                      left: 6,
-                      child: Container(
-                          padding: const EdgeInsets.symmetric(
-                              horizontal: 7, vertical: 3),
-                          decoration: BoxDecoration(
-                              color: Colors.white.withValues(alpha: .92),
-                              borderRadius: BorderRadius.circular(9)),
-                          child: Row(mainAxisSize: MainAxisSize.min, children: [
-                            Container(
-                                width: 6,
-                                height: 6,
-                                decoration: const BoxDecoration(
-                                    color: OColors.positive,
-                                    shape: BoxShape.circle)),
-                            const SizedBox(width: 4),
-                            const Text('In stock',
-                                style: TextStyle(
-                                    fontSize: 9.5,
-                                    fontWeight: FontWeight.w700,
-                                    color: OColors.positive)),
-                          ]))),
                 ]),
                 const SizedBox(width: 14),
                 Expanded(
                     child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
-                      Row(children: [
-                        Expanded(
-                            child: Text(label(listing.category),
-                                style: const TextStyle(
-                                    fontSize: 15,
-                                    fontWeight: FontWeight.w700))),
-                        const Icon(Icons.favorite_border,
-                            size: 19, color: OColors.muted),
-                      ]),
+                      Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            // The name is never cut short: "In stock" sits beside
+                            // it when there is room and drops just under it when
+                            // not. Plain green text, no pill.
+                            Expanded(
+                                child: Wrap(
+                                    spacing: 8,
+                                    crossAxisAlignment:
+                                        WrapCrossAlignment.center,
+                                    children: [
+                                  Text(context.s.label(listing.category),
+                                      style: const TextStyle(
+                                          fontSize: 15,
+                                          fontWeight: FontWeight.w700)),
+                                  // A drawn dot: Manrope has no "●" glyph.
+                                  Row(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        Container(
+                                            width: 7,
+                                            height: 7,
+                                            decoration: const BoxDecoration(
+                                                color: OColors.positive,
+                                                shape: BoxShape.circle)),
+                                        const SizedBox(width: 5),
+                                        Text(context.s.inStock,
+                                            style: const TextStyle(
+                                                fontSize: 12,
+                                                height: 1.6,
+                                                fontWeight: FontWeight.w600,
+                                                color: OColors.positive)),
+                                      ]),
+                                ])),
+                            const Icon(Icons.favorite_border,
+                                size: 19, color: OColors.muted),
+                          ]),
                       const SizedBox(height: 4),
                       Text(
-                          '${listing.specs['avg_weight_kg'] != null ? '${listing.specs['avg_weight_kg']} kg · ' : ''}${amount(listing.available)} available',
+                          '${listing.specs['avg_weight_kg'] != null ? '${listing.specs['avg_weight_kg']} kg · ' : ''}${context.s.nAvailable(amount(listing.available))}',
                           style: Theme.of(context).textTheme.bodySmall),
                       Row(children: [
                         const Icon(Icons.location_on_outlined,
@@ -664,7 +833,7 @@ class ListingCard extends StatelessWidget {
                           fit: BoxFit.scaleDown,
                           alignment: Alignment.centerLeft,
                           child: Text(
-                              '${tsh(listing.price)} / ${listing.unitType}',
+                              '${tsh(listing.price)} / ${context.s.unit(listing.unitType, 1)}',
                               maxLines: 1,
                               style: const TextStyle(
                                   fontSize: 15,
@@ -701,7 +870,7 @@ class CategoryCard extends StatelessWidget {
                     child: BrandImage('category_${_slot(category)}',
                         fallbackArt: category, height: 74)),
                 const SizedBox(height: 8),
-                Text(label(category),
+                Text(context.s.label(category),
                     textAlign: TextAlign.center,
                     style: const TextStyle(
                         fontWeight: FontWeight.w600, fontSize: 13))
@@ -756,7 +925,7 @@ class OrderProgress extends StatelessWidget {
                           size: 12,
                           color: i <= current ? Colors.white : OColors.muted)),
                   const SizedBox(width: 16),
-                  Text(label(steps[i]),
+                  Text(context.s.label(steps[i]),
                       style: TextStyle(
                           fontWeight:
                               i == current ? FontWeight.w700 : FontWeight.w400))
@@ -779,24 +948,80 @@ class OmoterraDateField extends StatefulWidget {
   final String title;
   final TextEditingController controller;
   final bool pastAllowed;
+
+  /// May be left empty (e.g. a filter); shows a button to clear the date.
+  final bool optional;
   const OmoterraDateField(this.title, this.controller,
-      {super.key, this.pastAllowed = false});
+      {super.key, this.pastAllowed = false, this.optional = false});
   @override
   State<OmoterraDateField> createState() => _DateFieldState();
 }
 
+/// [OmoterraDateField.controller] holds the date as the API takes it
+/// (2026-09-27); the field shows it the way people read it (27 Sep 2026).
 class _DateFieldState extends State<OmoterraDateField> {
+  final _shown = TextEditingController();
+
+  String _readable(String value) {
+    final date = DateTime.tryParse(value);
+    return date == null ? value : context.s.date(date);
+  }
+
+  void _sync() => _shown.text = _readable(widget.controller.text);
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_sync);
+  }
+
+  // Also runs when the language changes, so the month name follows it.
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _sync();
+  }
+
+  @override
+  void didUpdateWidget(OmoterraDateField old) {
+    super.didUpdateWidget(old);
+    if (old.controller != widget.controller) {
+      old.controller.removeListener(_sync);
+      widget.controller.addListener(_sync);
+      _sync();
+    }
+  }
+
+  @override
+  void dispose() {
+    widget.controller.removeListener(_sync);
+    _shown.dispose();
+    super.dispose();
+  }
+
   @override
   Widget build(BuildContext context) => Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: TextFormField(
-          controller: widget.controller,
+          controller: _shown,
           readOnly: true,
           decoration: InputDecoration(
               labelText: widget.title,
-              suffixIcon: const Icon(Icons.calendar_today_outlined, size: 19)),
-          validator: (value) =>
-              DateTime.tryParse(value ?? '') == null ? 'Choose a date' : null,
+              hintText: widget.optional ? context.s.anyDate : null,
+              suffixIcon: widget.optional && widget.controller.text.isNotEmpty
+                  ? IconButton(
+                      tooltip: context.s.clearDate,
+                      icon: const Icon(Icons.close, size: 19),
+                      onPressed: () =>
+                          setState(() => widget.controller.clear()))
+                  : const Icon(Icons.calendar_today_outlined, size: 19)),
+          validator: (_) {
+            final value = widget.controller.text;
+            return (widget.optional && value.isEmpty) ||
+                    DateTime.tryParse(value) != null
+                ? null
+                : context.s.chooseDate;
+          },
           onTap: () async {
             final now = DateTime.now();
             final earliest = widget.pastAllowed
@@ -889,4 +1114,34 @@ class ExitOnBack extends StatelessWidget {
       // move the app to the background.
       canPop: true,
       child: child);
+}
+
+/// An ⓘ button that keeps explanations off the page: tapping it opens a
+/// short pop-up with [title] and [message].
+class InfoButton extends StatelessWidget {
+  final String title, message;
+  final Color? color;
+
+  /// Replaces the default outline icon, e.g. a page's own ⓘ badge.
+  final Widget? icon;
+  const InfoButton(
+      {super.key,
+      required this.title,
+      required this.message,
+      this.color,
+      this.icon});
+  @override
+  Widget build(BuildContext context) => IconButton(
+      tooltip: title,
+      icon: icon ?? Icon(Icons.info_outline, size: 28, color: color),
+      onPressed: () => showDialog<void>(
+          context: context,
+          builder: (context) => AlertDialog(
+                  title: Text(title),
+                  content: SingleChildScrollView(child: Text(message)),
+                  actions: [
+                    TextButton(
+                        onPressed: () => Navigator.of(context).pop(),
+                        child: Text(context.s.ok)),
+                  ])));
 }

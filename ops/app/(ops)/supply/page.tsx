@@ -2,14 +2,18 @@ import Link from 'next/link';
 import { Empty, Notice, PageHeader, Pill, Status } from '@/components/ui';
 import { ApiError, get } from '@/lib/api';
 import { category, date, listingTone, quantity, reference, titleCase, tzs, unit } from '@/lib/format';
-import type { Listing, ListingStatus } from '@/lib/types';
+import { ListControls } from '@/components/list-controls';
+import { listPath, type ListParams, type Page } from '@/lib/paging';
+import type { Listing } from '@/lib/types';
 
 export const metadata = { title: 'Supply · Omoterra Operations' };
 
-const TABS: { key: ListingStatus; label: string }[] = [
-  { key: 'live', label: 'Live' },
+const TABS = [
+  { key: '', label: 'All' },
   { key: 'pending_review', label: 'Pending approval' },
   { key: 'needs_confirmation', label: 'Needs confirmation' },
+  { key: 'live', label: 'Live' },
+  { key: 'changes_requested', label: 'Changes requested' },
   { key: 'paused', label: 'Paused' },
   { key: 'sold_out', label: 'Sold' },
 ];
@@ -23,15 +27,11 @@ function stale(listing: Listing) {
   );
 }
 
-export default async function Supply({
-  searchParams,
-}: {
-  searchParams: Promise<{ tab?: string; q?: string }>;
-}) {
-  const { tab = 'live', q = '' } = await searchParams;
-  let listings: Listing[];
+export default async function Supply({ searchParams }: { searchParams: Promise<ListParams> }) {
+  const params = await searchParams;
+  let data: Page<Listing>;
   try {
-    listings = await get<Listing[]>('/ops/listings');
+    data = await get<Page<Listing>>(listPath('/ops/listings', params));
   } catch (error) {
     return (
       <>
@@ -46,26 +46,7 @@ export default async function Supply({
       </>
     );
   }
-
-  const counts = Object.fromEntries(
-    TABS.map((t) => [
-      t.key,
-      listings.filter((l) =>
-        t.key === 'needs_confirmation' ? stale(l) : l.listing_status === t.key && !stale(l),
-      ).length,
-    ]),
-  );
-
-  const search = q.trim().toLowerCase();
-  const rows = listings
-    .filter((l) => (tab === 'needs_confirmation' ? stale(l) : l.listing_status === tab && !stale(l)))
-    .filter(
-      (l) =>
-        !search ||
-        category(l.category).toLowerCase().includes(search) ||
-        l.region.toLowerCase().includes(search) ||
-        reference(l.id, 'ST').toLowerCase().includes(search),
-    );
+  const rows = data.items;
 
   return (
     <>
@@ -73,34 +54,8 @@ export default async function Supply({
         <PageHeader title="Supply" subtitle="Stock submitted by suppliers, and what buyers can currently see." />
       </div>
       <div className="workspace">
-        <div className="tabs">
-          {TABS.map((t) => (
-            <Link
-              key={t.key}
-              href={`/supply?tab=${t.key}`}
-              className="tab"
-              data-active={tab === t.key}
-            >
-              {t.label}
-              {counts[t.key] > 0 && <span className="meta"> {counts[t.key]}</span>}
-            </Link>
-          ))}
-        </div>
-
-        <form className="row" action="/supply">
-          <input type="hidden" name="tab" value={tab} />
-          <input
-            className="input"
-            name="q"
-            defaultValue={q}
-            placeholder="Search category, region or reference"
-            style={{ maxWidth: 340 }}
-          />
-          <button className="button" data-variant="secondary" type="submit">
-            Search
-          </button>
-        </form>
-
+        <ListControls path="/supply" params={params} data={data} tabs={TABS} noun={['listing', 'listings']}
+          placeholder="Search supplier, category, region or reference">
         <div className="table-wrap">
           {rows.length === 0 ? (
             <Empty>No stock in this state.</Empty>
@@ -155,6 +110,7 @@ export default async function Supply({
             </table>
           )}
         </div>
+        </ListControls>
       </div>
     </>
   );

@@ -7,6 +7,7 @@ export type ListingStatus =
   | 'live'
   | 'needs_confirmation'
   | 'paused'
+  | 'changes_requested'
   | 'sold_out'
   | 'rejected';
 
@@ -59,6 +60,9 @@ export interface Listing {
   quantity_available: string;
   listing_status: ListingStatus;
   confirmation_due_at: string | null;
+  /** What Omoterra asked the supplier to change. */
+  review_note: string;
+  approved: boolean;
 }
 
 export interface OrderItem {
@@ -102,6 +106,8 @@ export interface Order {
   expected_quantity: string;
   actual_quantity: string | null;
   rejected_quantity: string | null;
+  /** Set on the /ops/orders list. */
+  buyer_name?: string;
 }
 
 export interface OrderDetail extends Order {
@@ -138,6 +144,9 @@ export interface Settlement {
   id: string;
   supplier_id: string;
   order_item_id: string;
+  order_id: string | null;
+  supplier_alias: string;
+  supplier_legal_name: string;
   farmer_asking_price_per_unit: string;
   supplier_payout_price_per_unit: string;
   commission_amount_per_unit: string;
@@ -176,6 +185,7 @@ export interface BusinessOpportunity {
   target_start_date: string;
   status: BusinessStatus;
   internal_notes: string;
+  created_at: string;
 }
 
 export interface SupplierRow {
@@ -228,6 +238,7 @@ export interface SupplierDetail extends Omit<SupplierRow, 'live_listings' | 'pen
   farm_latitude: string | number | null;
   farm_longitude: string | number | null;
   farm_map_url: string;
+  reputation: Reputation;
   listings: Listing[];
   settlements: Settlement[];
 }
@@ -339,4 +350,24 @@ export interface AuditEntry {
   method: string;
   path: string;
   at: string;
+}
+
+export interface Reputation {
+  rating: number | null;
+  ratings: number;
+  deliveries: number;
+  quality_passed: number | null;
+}
+
+export interface RatingRow {
+  id: string;
+  order_id: string;
+  stars: number;
+  comment: string;
+  created_at: string;
+  updated_at: string;
+  hidden: boolean;
+  hidden_by: string | null;
+  buyer_name: string;
+  suppliers: { id: string; name: string }[];
 }

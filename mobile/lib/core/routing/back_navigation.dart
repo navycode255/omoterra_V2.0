@@ -36,10 +36,12 @@ String? backFallback(String path) {
   }
   final id = parts[1];
   return switch (first) {
+    'admin' => '/admin',
     'stock' when parts.length > 2 => '/stock/$id',
     'stock' || 'batches' => '/stock',
     'listing' => '/explore',
     'checkout' => '/listing/$id',
+    'requests' when parts.length > 2 => '/requests/$id',
     'confirmation' || 'order' || 'requests' => '/orders',
     'request-submitted' => '/buyer',
     'business' when parts.length > 2 => '/business/$id',
@@ -103,5 +105,13 @@ mixin StepBackHistory<T extends StatefulWidget> on State<T> {
 
   void popStep() {
     if (_steps.isNotEmpty) _steps.last.remove();
+  }
+
+  /// Drops every step from the back history, so leaving the screen after it
+  /// is done pops the page itself rather than stepping back a step.
+  void clearSteps() {
+    while (_steps.isNotEmpty) {
+      _steps.last.remove();
+    }
   }
 }

@@ -1,6 +1,7 @@
 from functools import lru_cache
 from pathlib import Path
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -30,14 +31,30 @@ class Settings(BaseSettings):
     session_days: int = 30
     payment_provider: str = 'disabled'
     # 'development': no SMS is sent; the OTP code is returned in the API
-    # response so the app can show it on-screen. This is the only supported
-    # value until a real SMS provider adapter is built — keep it 'development'
-    # on the live server too, on purpose, to avoid SMS charges while testing.
+    # response so the app can show it on-screen (costs nothing while testing).
+    # 'sema': codes are texted through Sema (app/sms.py) and never returned.
     sms_provider: str = 'development'
+    sema_url: str = 'https://api.sema.co.tz/api/SendSMS'
+    # Read as SEMA_API_ID / SEMA_API_PASSWORD (no OMOTERRA_ prefix): the same
+    # Sema account entries other apps on the server already use.
+    sema_api_id: str = Field('', validation_alias=AliasChoices('SEMA_API_ID', 'sema_api_id'))
+    sema_api_password: str = Field('', validation_alias=AliasChoices('SEMA_API_PASSWORD', 'sema_api_password'))
+    # A sender ID approved on the Sema account (GetSenderIDList), e.g. OMOTERRA.
+    sema_sender_id: str = ''
+    # Sema message type: P = promotional, T = transactional (per the account).
+    sema_sms_type: str = 'P'
     # Apply pending backend/migrations/*.sql at startup. Tests turn it off
     # because they build their schema from the models.
     auto_migrate: bool = True
     media_directory: str = './media'
+    # 'local': photos and videos are files in media_directory. 'r2': they live
+    # in a private Cloudflare R2 bucket under livestock/ (see app/storage.py).
+    # Copy existing files with `python -m app.storage migrate` before switching.
+    media_storage: str = 'local'
+    r2_account_id: str = ''
+    r2_access_key_id: str = ''
+    r2_secret_access_key: str = ''
+    r2_bucket_livestock: str = ''
     # 'disabled' until a YouTube channel adapter exists; see app/video.py.
     video_provider: str = 'disabled'
     video_upload_max_bytes: int = 500 * 1024 * 1024
@@ -52,6 +69,9 @@ class Settings(BaseSettings):
     # setup off. Once an admin exists, setup also needs an existing admin's
     # phone code, so this alone never creates an admin.
     admin_setup_passphrase: str = ''
+    # Unlocks operator sign-in from the mobile app (then phone + code).
+    # Empty turns mobile admin off.
+    mobile_admin_passphrase: str = ''
     push_provider: str = 'disabled'
     fcm_credentials_file: str = ''
     support_phone: str = ''
@@ -63,9 +83,15 @@ class Settings(BaseSettings):
             raise RuntimeError('OTP length must be between 4 and 8')
         if self.environment not in ('development', 'live'):
             raise RuntimeError("OMOTERRA_ENVIRONMENT must be 'development' or 'live'")
-        if self.sms_provider != 'development':
-            # Fail closed until a real SMS provider adapter is implemented.
-            raise RuntimeError('No SMS provider adapter is implemented; OMOTERRA_SMS_PROVIDER must stay development')
+        if self.sms_provider not in ('development', 'sema'):
+            raise RuntimeError("OMOTERRA_SMS_PROVIDER must be 'development' or 'sema'")
+        if self.sms_provider == 'sema':
+            names = {'sema_api_id': 'SEMA_API_ID', 'sema_api_password': 'SEMA_API_PASSWORD', 'sema_sender_id': 'OMOTERRA_SEMA_SENDER_ID'}
+            missing = [env for name, env in names.items() if not getattr(self, name)]
+            if missing:
+                raise RuntimeError('Set ' + ', '.join(missing) + ' to send codes through Sema')
+            if self.sema_sms_type not in ('P', 'T'):
+                raise RuntimeError("OMOTERRA_SEMA_SMS_TYPE must be 'P' (promotional) or 'T' (transactional)")
         if self.payment_provider != 'disabled':
             # Fail closed until a real payment provider adapter is implemented.
             raise RuntimeError('No payment provider adapter is implemented; OMOTERRA_PAYMENT_PROVIDER must stay disabled')
@@ -74,6 +100,19 @@ class Settings(BaseSettings):
             raise RuntimeError('No video provider adapter is implemented; OMOTERRA_VIDEO_PROVIDER must stay disabled')
         if self.admin_setup_passphrase and len(self.admin_setup_passphrase) < 8:
             raise RuntimeError('OMOTERRA_ADMIN_SETUP_PASSPHRASE must be at least 8 characters (or empty to turn admin setup off)')
+        if self.mobile_admin_passphrase and len(self.mobile_admin_passphrase) < 8:
+            raise RuntimeError('OMOTERRA_MOBILE_ADMIN_PASSPHRASE must be at least 8 characters (or empty to turn mobile admin off)')
+        if self.media_storage not in ('local', 'r2'):
+            raise RuntimeError("OMOTERRA_MEDIA_STORAGE must be 'local' or 'r2'")
+        if self.media_storage == 'r2' or self.r2_account_id:
+            import re
+            missing = [name for name in ('r2_account_id', 'r2_access_key_id', 'r2_secret_access_key', 'r2_bucket_livestock') if not getattr(self, name)]
+            if missing:
+                raise RuntimeError('Set ' + ', '.join('OMOTERRA_' + name.upper() for name in missing) + ' to use R2 media storage')
+            if not re.fullmatch(r'[0-9a-f]{32}', self.r2_account_id):
+                raise RuntimeError('OMOTERRA_R2_ACCOUNT_ID must be the 32-character Cloudflare account ID')
+            if not re.fullmatch(r'[a-z0-9][a-z0-9-]{1,61}[a-z0-9]', self.r2_bucket_livestock):
+                raise RuntimeError('OMOTERRA_R2_BUCKET_LIVESTOCK must be the bucket name, not a URL')
         if self.push_provider not in ('disabled', 'fcm'):
             raise RuntimeError("OMOTERRA_PUSH_PROVIDER must be 'disabled' or 'fcm'")
         if self.push_provider == 'fcm':

@@ -29,6 +29,9 @@ def refresh_demand_status(db, demand):
         demand.status = 'fully_matched'
 
 
+BUYER_EDITABLE = ('open', 'submitted', 'sourcing')
+
+
 def buyer_requirement(db, demand):
     secured_quantity = secured(db, demand.id)
     return {
@@ -54,6 +57,8 @@ def buyer_requirement(db, demand):
         'status': 'confirmed' if demand.status == 'converted' else demand.status,
         'secured_quantity': secured_quantity,
         'remaining_quantity': max(Decimal('0'), Decimal(demand.quantity) - secured_quantity),
+        # The buyer may still change it: nothing secured and not yet confirmed.
+        'editable': demand.status in BUYER_EDITABLE and secured_quantity == 0,
         'created_at': demand.created_at,
         'converted_order_id': demand.converted_order_id,
     }
@@ -146,15 +151,15 @@ def allocation_create(db, demand, batch, quantity, actor_id, offer=None):
     demand = db.scalar(select(m.SourcingRequest).where(m.SourcingRequest.id == demand.id).with_for_update())
     batch = db.scalar(select(m.SupplierBatch).where(m.SupplierBatch.id == batch.id).with_for_update())
     if demand.status in ('cancelled', 'completed'):
-        s.fail('This requirement is closed.')
+        s.fail('err.requirement_closed')
     if quantity <= 0 or quantity > remaining(db, demand):
-        s.fail('Allocation exceeds the remaining requirement.', 422)
+        s.fail('err.allocation_exceeds_remaining_requirement', 422)
     if quantity > batch.available_to_commit:
-        s.fail('The supplier batch no longer has that quantity available.', 409)
+        s.fail('err.supplier_batch_no_longer_quantity', 409)
     if batch.category != demand.category:
-        s.fail('Supplier batch category does not match the requirement.', 422)
+        s.fail('err.supplier_batch_category_does_not', 422)
     if offer and (offer.demand_id != demand.id or offer.supplier_id != batch.supplier_id or offer.batch_id != batch.id or offer.status not in ('accepted', 'partially_accepted')):
-        s.fail('The reviewed supply offer does not match this allocation.', 422)
+        s.fail('err.reviewed_supply_offer_does_not', 422)
     batch.reserved_quantity += quantity
     if batch.available_to_commit <= 0:
         batch.status = 'fully_reserved'
@@ -180,10 +185,10 @@ def allocation_update(db, allocation, quantity, status, actor_id):
         allocation.status = 'cancelled'
     elif quantity is not None:
         if not active:
-            s.fail('Only active allocations can be changed.')
+            s.fail('err.only_active_allocations_changed')
         delta = quantity - allocation.allocated_quantity
         if quantity <= 0 or quantity > allocation.allocated_quantity:
-            s.fail('An allocation can only be reduced here; create another allocation to increase it.', 422)
+            s.fail('err.allocation_only_reduced_here_create', 422)
         batch.reserved_quantity += delta
         allocation.allocated_quantity = quantity
         if batch.reserved_quantity == 0 and batch.status == 'partially_reserved':

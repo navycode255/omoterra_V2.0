@@ -2,6 +2,8 @@ import Link from 'next/link';
 import { Empty, Notice, PageHeader, Status } from '@/components/ui';
 import { ApiError, get } from '@/lib/api';
 import { date, reference, titleCase } from '@/lib/format';
+import { ListControls } from '@/components/list-controls';
+import { listPath, type ListParams, type Page } from '@/lib/paging';
 import type { BusinessOpportunity, BusinessStatus } from '@/lib/types';
 
 export const metadata = { title: 'Business Opportunities · Omoterra Operations' };
@@ -22,10 +24,11 @@ function tone(status: BusinessStatus) {
   return 'neutral' as const;
 }
 
-export default async function Opportunities() {
-  let rows: BusinessOpportunity[];
+export default async function Opportunities({ searchParams }: { searchParams: Promise<ListParams> }) {
+  const params = await searchParams;
+  let data: Page<BusinessOpportunity>;
   try {
-    rows = await get<BusinessOpportunity[]>('/ops/business-opportunities');
+    data = await get<Page<BusinessOpportunity>>(listPath('/ops/business-opportunities', params));
   } catch (error) {
     return (
       <>
@@ -41,9 +44,9 @@ export default async function Opportunities() {
     );
   }
 
-  const counts = Object.fromEntries(
-    PIPELINE.map((status) => [status, rows.filter((r) => r.status === status).length]),
-  );
+  const rows = data.items;
+  const counts = data.counts ?? {};
+  const tabs = [{ key: '', label: 'All' }, ...PIPELINE.map((status) => ({ key: status, label: titleCase(status) }))];
 
   return (
     <>
@@ -58,14 +61,16 @@ export default async function Opportunities() {
           {PIPELINE.map((status) => (
             <div key={status} className="stat">
               <div className="stat-label">{titleCase(status)}</div>
-              <div className="stat-value numeric">{counts[status]}</div>
+              <div className="stat-value numeric">{counts[status] ?? 0}</div>
             </div>
           ))}
         </div>
 
+        <ListControls path="/opportunities" params={params} data={data} tabs={tabs} noun={['request', 'requests']}
+          actionLabel="new" placeholder="Search business type, area, buyer or reference">
         <div className="table-wrap">
           {rows.length === 0 ? (
-            <Empty>No setup-plan requests yet.</Empty>
+            <Empty>No setup-plan requests in this view.</Empty>
           ) : (
             <table>
               <thead>
@@ -103,6 +108,7 @@ export default async function Opportunities() {
             </table>
           )}
         </div>
+        </ListControls>
       </div>
     </>
   );

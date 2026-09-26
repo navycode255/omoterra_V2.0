@@ -2,11 +2,13 @@ import hashlib
 import hmac
 import secrets
 from datetime import timedelta
-from fastapi import Depends, Header, HTTPException, Request
+from fastapi import Depends, Header, Request
 from sqlalchemy import select, text
 from .db import database
 from .config import settings
 from . import models as m
+from . import i18n
+from .i18n import M, fail
 
 
 def digest(value):
@@ -21,14 +23,16 @@ def current_user(authorization: str = Header(default=''), db=Depends(database)):
     token = authorization.removeprefix('Bearer ')
     session = db.scalar(select(m.AuthSession).where(m.AuthSession.token_hash == digest(token), m.AuthSession.expires_at > m.now()))
     if not session:
-        raise HTTPException(401, 'Your session has expired. Sign in again.')
-    return db.get(m.User, session.user_id)
+        fail('err.session_expired_sign_again', 401)
+    user = db.get(m.User, session.user_id)
+    i18n.use_user_language(user.language)
+    return user
 
 
 def role(name):
     def require(user=Depends(current_user)):
         if name not in user.roles:
-            raise HTTPException(403, f'Enable your {name} capability in Account first.')
+            fail('err.enable_role', 403, role=M(f'role.{name}'))
         return user
     return require
 
@@ -41,7 +45,7 @@ def ops_service(x_ops_token: str = Header(default='')):
     ops endpoints can only be reached through the dashboard."""
     expected = settings().ops_token
     if not expected or not hmac.compare_digest(expected, x_ops_token):
-        raise HTTPException(403, 'Operations authentication required.')
+        fail('err.operations_authentication_required', 403)
 
 
 def ops(request: Request, x_operator_session: str = Header(default=''), _=Depends(ops_service), db=Depends(database)):
@@ -51,7 +55,25 @@ def ops(request: Request, x_operator_session: str = Header(default=''), _=Depend
         m.OperatorSession.token_hash == digest(x_operator_session), m.OperatorSession.expires_at > m.now()))
     operator = db.get(m.Operator, session.operator_id) if session else None
     if not operator or not operator.active:
-        raise HTTPException(401, 'Sign in to the operations dashboard again.')
+        fail('err.sign_operations_dashboard_again', 401)
+    # Reading one's own alerts changes nothing anyone else sees; keep it out
+    # of the audit trail so Activity shows only real work.
+    if request.method not in ('GET', 'HEAD', 'OPTIONS') and not request.url.path.endswith('/ops/alerts/seen'):
+        db.add(m.OpsAuditEntry(operator_id=operator.id, method=request.method, path=request.url.path))
+    return operator
+
+
+def mobile_operator(request: Request, x_operator_session: str = Header(default=''), db=Depends(database)):
+    """An operator signed in from the mobile admin app. Same sessions and
+    audit trail as the dashboard, but reached without the dashboard's
+    server token, which never ships inside the app."""
+    if not settings().mobile_admin_passphrase:
+        fail('err.mobile_admin_turned_off_server', 403)
+    session = db.scalar(select(m.OperatorSession).where(
+        m.OperatorSession.token_hash == digest(x_operator_session), m.OperatorSession.expires_at > m.now()))
+    operator = db.get(m.Operator, session.operator_id) if session else None
+    if not operator or not operator.active:
+        fail('err.sign_omoterra_admin_again', 401)
     if request.method not in ('GET', 'HEAD', 'OPTIONS'):
         db.add(m.OpsAuditEntry(operator_id=operator.id, method=request.method, path=request.url.path))
     return operator
@@ -59,7 +81,7 @@ def ops(request: Request, x_operator_session: str = Header(default=''), _=Depend
 
 def ops_admin(operator=Depends(ops)):
     if operator.role != 'admin':
-        raise HTTPException(403, 'Only an Omoterra admin can do this.')
+        fail('err.only_omoterra_admin_do', 403)
     return operator
 
 
@@ -68,7 +90,8 @@ def operator_view(operator):
 
 
 def user_view(user):
-    return {k: getattr(user, k) for k in ['id', 'phone', 'name', 'region', 'language', 'roles', 'buyer_type']}
+    return {**{k: getattr(user, k) for k in ['id', 'phone', 'name', 'region', 'language', 'roles', 'buyer_type']},
+        'has_pin': bool(user.pin_hash)}
 
 
 def start_otp(db, phone, purpose='app'):
@@ -76,7 +99,7 @@ def start_otp(db, phone, purpose='app'):
     db.execute(text('SELECT pg_advisory_xact_lock(:key)'), {'key': int(digest(phone)[:15], 16)})
     prior = db.scalar(select(m.OtpChallenge).where(m.OtpChallenge.phone == phone).order_by(m.OtpChallenge.created_at.desc()))
     if prior and (m.now() - prior.created_at).total_seconds() < settings().otp_resend_seconds:
-        raise HTTPException(429, 'Please wait before requesting another code.')
+        fail('err.wait_before_requesting_another_code', 429)
     for old in db.scalars(select(m.OtpChallenge).where(m.OtpChallenge.phone == phone, m.OtpChallenge.consumed.is_(False))):
         old.consumed = True
     code = ''.join(secrets.choice('0123456789') for _ in range(settings().otp_length))
@@ -84,6 +107,8 @@ def start_otp(db, phone, purpose='app'):
         expires_at=m.now() + timedelta(seconds=settings().otp_ttl_seconds))
     challenge.code_hash = otp_hash(challenge.id, code)
     db.add(challenge)
+    if settings().sms_provider == 'sema':
+        _text_code(db, challenge, phone, code)
     # Commit before the challenge_id leaves this function. A flush alone
     # keeps the row invisible to other transactions until the request-scoped
     # transaction closes, which happens *after* the response is serialised —
@@ -100,17 +125,31 @@ def start_otp(db, phone, purpose='app'):
     return response
 
 
+def _text_code(db, challenge, phone, code):
+    from . import sms
+    db.flush()
+    try:
+        sms.send(phone, i18n.t('sms.code', i18n.current(), code=code,
+            minutes=max(1, settings().otp_ttl_seconds // 60)), reference=challenge.id)
+    except sms.SmsNotSent:
+        # Nothing was sent, so drop the challenge rather than make the person
+        # wait out the resend timer for a code that never arrived.
+        db.delete(challenge)
+        db.commit()
+        fail('err.code_not_sent_try_again', 503)
+
+
 def consume_otp(db, challenge_id, code, purpose):
     """Checks a code and returns the phone it was sent to."""
     challenge = db.scalar(select(m.OtpChallenge).where(m.OtpChallenge.id == challenge_id).with_for_update())
     if (not challenge or challenge.purpose != purpose or challenge.consumed
             or challenge.expires_at <= m.now() or challenge.attempts >= 5):
-        raise HTTPException(400, 'This code has expired. Request a new code.')
+        fail('err.code_expired_request_new_code', 400)
     challenge.attempts += 1
     if not hmac.compare_digest(challenge.code_hash, otp_hash(challenge.id, code)):
         # Commit the failed attempt so a raised HTTP error cannot roll it back.
         db.commit()
-        raise HTTPException(400, 'The code is incorrect. Check it and try again.')
+        fail('err.code_incorrect_check_try_again', 400)
     challenge.consumed = True
     return challenge.phone
 
@@ -122,17 +161,83 @@ def verify_otp(db, challenge_id, code):
         user = m.User(phone=phone)
         db.add(user)
         db.flush()
+    return issue_session(db, user)
+
+
+def issue_session(db, user):
     token = secrets.token_urlsafe(48)
     db.add(m.AuthSession(user_id=user.id, token_hash=digest(token), expires_at=m.now() + timedelta(days=settings().session_days)))
     db.flush()
     return {'access_token': token, 'user': user_view(user)}
 
 
+# PIN sign-in: members sign in with phone + PIN so each sign-in costs no SMS.
+# A code is texted only to set or reset the PIN. Five wrong PINs pause
+# sign-in for 15 minutes; ten in a row stop it until the PIN is reset with a
+# texted code, so a PIN can't be guessed by trying all 10,000 values.
+PIN_ITERATIONS = 200_000
+PIN_PAUSE_EVERY = 5
+PIN_PAUSE = timedelta(minutes=15)
+PIN_RESET_AFTER = 10
+
+
+def pin_hash(pin, salt=None):
+    salt = salt or secrets.token_bytes(16)
+    derived = hashlib.pbkdf2_hmac('sha256', pin.encode(), salt, PIN_ITERATIONS)
+    return f'pbkdf2_sha256${PIN_ITERATIONS}${salt.hex()}${derived.hex()}'
+
+
+def pin_matches(pin, stored):
+    try:
+        _, iterations, salt, expected = stored.split('$')
+        derived = hashlib.pbkdf2_hmac('sha256', pin.encode(), bytes.fromhex(salt), int(iterations))
+    except (ValueError, AttributeError):
+        return False
+    return hmac.compare_digest(derived.hex(), expected)
+
+
+# Checked when the phone has no PIN, so both answers take the same time and
+# the response never reveals which numbers are registered.
+_NO_PIN = pin_hash('000000', b'omoterra-no-pin!')
+
+
+def set_pin(db, user, pin):
+    user.pin_hash = pin_hash(pin)
+    user.pin_failed_attempts = 0
+    user.pin_locked_until = None
+    db.flush()
+    return user_view(user)
+
+
+def pin_sign_in(db, phone, pin):
+    user = db.scalar(select(m.User).where(m.User.phone == phone, m.User.deleted.is_(False)).with_for_update())
+    if not user or not user.pin_hash:
+        pin_matches(pin, _NO_PIN)
+        fail('err.phone_or_pin_incorrect', 400)
+    if user.pin_failed_attempts >= PIN_RESET_AFTER:
+        fail('err.pin_blocked_reset', 429)
+    if user.pin_locked_until and user.pin_locked_until > m.now():
+        fail('err.pin_paused_try_later', 429, minutes=int(PIN_PAUSE.total_seconds() // 60))
+    if not pin_matches(pin, user.pin_hash):
+        user.pin_failed_attempts += 1
+        if user.pin_failed_attempts % PIN_PAUSE_EVERY == 0:
+            user.pin_locked_until = m.now() + PIN_PAUSE
+        # Commit the failed attempt so the raised error cannot roll it back.
+        db.commit()
+        if user.pin_failed_attempts >= PIN_RESET_AFTER:
+            fail('err.pin_blocked_reset', 429)
+        fail('err.phone_or_pin_incorrect', 400)
+    user.pin_failed_attempts = 0
+    user.pin_locked_until = None
+    i18n.use_user_language(user.language)
+    return issue_session(db, user)
+
+
 def start_operator_session(db, challenge_id, code):
     phone = consume_otp(db, challenge_id, code, 'ops')
     operator = db.scalar(select(m.Operator).where(m.Operator.phone == phone))
     if not operator or not operator.active:
-        raise HTTPException(403, 'This number is not an active Omoterra operator.')
+        fail('err.number_not_active_omoterra_operator', 403)
     return issue_operator_session(db, operator)
 
 

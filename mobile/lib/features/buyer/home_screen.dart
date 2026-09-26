@@ -8,7 +8,7 @@ import '../../core/l10n/strings.dart';
 import '../../core/theme/theme.dart';
 import '../../shared/widgets/brand_image.dart';
 import '../../shared/widgets/components.dart';
-import '../../shared/widgets/supply_art.dart';
+import '../../shared/widgets/decor.dart';
 import 'listing_feed.dart';
 
 class BuyerHome extends ConsumerStatefulWidget {
@@ -55,43 +55,66 @@ class _BuyerHomeState extends ConsumerState<BuyerHome> {
     final s = ref.s;
     _syncGreeting(ref.watch(greetingUntilProvider));
     return ListView(
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
         children: [
           if (_showGreeting) ...[
             Text(s.greeting(user?.name.split(' ').first ?? ''),
                 style: Theme.of(context).textTheme.headlineMedium),
             const SizedBox(height: 6),
           ],
-          Text(s.whatToday, style: const TextStyle(color: OColors.secondary)),
-          const SizedBox(height: 18),
+          Text(s.whatToday,
+              style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: OColors.ink,
+                  letterSpacing: -.2)),
+          const SizedBox(height: 14),
           const _BuySupplyBanner(),
           const SizedBox(height: 12),
-          // Intrinsic height keeps the two cards equal without the unbounded
-          // height that CrossAxisAlignment.stretch forces inside a ListView.
-          IntrinsicHeight(
-              child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
+          Row(children: [
+            Expanded(
+                child: _entry(context, s.requestSupply,
+                    Icons.assignment_outlined, '/request')),
+            const SizedBox(width: 10),
+            Expanded(
+                child: _entry(context, s.startBusiness,
+                    Icons.storefront_outlined, '/business')),
+          ]),
+          Padding(
+              padding: const EdgeInsets.only(top: 22, bottom: 12),
+              child: Row(children: [
                 Expanded(
-                    child: _entry(context, s.requestSupply, s.requestSupplyBody,
-                        Icons.assignment_outlined, '/request')),
-                const SizedBox(width: 12),
-                Expanded(
-                    child: _entry(context, s.startBusiness, s.startBusinessBody,
-                        Icons.storefront_outlined, '/business')),
+                    child: Text(s.availableToday,
+                        style: const TextStyle(
+                            fontSize: 21,
+                            fontWeight: FontWeight.w800,
+                            color: OColors.ink,
+                            letterSpacing: -.4))),
+                TextButton(
+                    style: TextButton.styleFrom(
+                        foregroundColor: const Color(0xFF0B5E3F),
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        minimumSize: const Size(0, 36),
+                        tapTargetSize: MaterialTapTargetSize.shrinkWrap),
+                    onPressed: () => context.go('/explore'),
+                    child: Row(mainAxisSize: MainAxisSize.min, children: [
+                      Text(s.viewAll,
+                          style: const TextStyle(
+                              fontSize: 14, fontWeight: FontWeight.w500)),
+                      const SizedBox(width: 4),
+                      const Icon(Icons.chevron_right, size: 20),
+                    ])),
               ])),
-          SectionHeader(s.availableToday,
-              action: s.viewAll, onTap: () => context.go('/explore')),
           SizedBox(
-              height: 36,
+              height: 34,
               child: ListView(
                   scrollDirection: Axis.horizontal,
                   padding: EdgeInsets.zero,
                   children: ['', ...categories]
                       .map((c) => Padding(
-                          padding: const EdgeInsets.only(right: 8),
+                          padding: const EdgeInsets.only(right: 10),
                           child: _CategoryChip(
-                              label: c.isEmpty ? s.all : label(c),
+                              label: c.isEmpty ? s.all : s.label(c),
                               selected: c == chip,
                               onTap: () => setState(() => chip = c))))
                       .toList())),
@@ -100,49 +123,36 @@ class _BuyerHomeState extends ConsumerState<BuyerHome> {
         ]);
   }
 
-  Widget _entry(BuildContext context, String title, String subtitle,
-          IconData icon, String route) =>
-      InkWell(
+  /// A compact half-width action in the supplier-home card style: soft green
+  /// wash with the wave, a plain coloured icon, the title and a chevron.
+  Widget _entry(
+          BuildContext context, String title, IconData icon, String route) =>
+      DecorCard(
           onTap: () => context.push(route),
-          borderRadius: BorderRadius.circular(16),
-          child: ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: Container(
-                  decoration: BoxDecoration(
-                      color: Colors.white,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: OColors.border)),
-                  child: Stack(children: [
-                    const Positioned(
-                        right: -18,
-                        bottom: -18,
-                        child: LeafWatermark(size: 76)),
-                    Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Container(
-                                  width: 36,
-                                  height: 36,
-                                  decoration: BoxDecoration(
-                                      color: OColors.soft,
-                                      borderRadius: BorderRadius.circular(10)),
-                                  child: Icon(icon,
-                                      size: 19, color: OColors.forest)),
-                              const SizedBox(height: 12),
-                              Text(title,
-                                  style: const TextStyle(
-                                      fontWeight: FontWeight.w700,
-                                      fontSize: 14)),
-                              const SizedBox(height: 4),
-                              Text(subtitle,
-                                  style: const TextStyle(
-                                      fontSize: 12,
-                                      color: OColors.secondary,
-                                      height: 1.35))
-                            ])),
-                  ]))));
+          wave: true,
+          waveColor: const Color(0xFFDCEDE2),
+          gradient: const LinearGradient(
+              begin: Alignment.topLeft,
+              end: Alignment.bottomRight,
+              colors: [Color(0xFFFFFFFF), Color(0xFFEDF6F0)]),
+          padding: const EdgeInsets.fromLTRB(14, 15, 8, 15),
+          child: Row(children: [
+            Icon(icon, size: 26, color: const Color(0xFF0B5E3F)),
+            const SizedBox(width: 10),
+            Expanded(
+                // Long titles (Swahili) shrink slightly instead of wrapping.
+                child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.centerLeft,
+                    child: Text(title,
+                        maxLines: 1,
+                        style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            fontSize: 15,
+                            color: OColors.ink,
+                            letterSpacing: -.2)))),
+            const Icon(Icons.chevron_right, size: 20, color: OColors.ink),
+          ]));
 }
 
 /// The Buy Supply card: rotating full-width photography with a single call to
@@ -183,9 +193,9 @@ class _BuySupplyBannerState extends ConsumerState<_BuySupplyBanner> {
     final slide = _slides[_activeSlide];
     return InkWell(
         onTap: () => context.go('/explore'),
-        borderRadius: BorderRadius.circular(18),
+        borderRadius: BorderRadius.circular(22),
         child: ClipRRect(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(22),
             child: AspectRatio(
                 aspectRatio: 8 / 3,
                 child: Stack(children: [
@@ -234,14 +244,14 @@ class _CategoryChip extends StatelessWidget {
           onTap: onTap,
           borderRadius: BorderRadius.circular(18),
           child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 18),
               alignment: Alignment.center,
               decoration: BoxDecoration(
-                  color: selected ? OColors.forest : OColors.soft,
+                  color: selected ? OColors.forest : const Color(0xFFF1F5F2),
                   borderRadius: BorderRadius.circular(18)),
               child: Text(label,
                   style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
+                      fontSize: 14,
+                      fontWeight: selected ? FontWeight.w600 : FontWeight.w500,
                       color: selected ? Colors.white : OColors.secondary)))));
 }

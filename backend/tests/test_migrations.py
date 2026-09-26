@@ -109,3 +109,33 @@ def test_percent_signs_in_a_migration_are_just_text(fresh_engine, tmp_path, monk
     assert migrations.apply(fresh_engine) == ['001_percent.sql']
     with fresh_engine.connect() as db:
         assert db.execute(text('SELECT v FROM notes')).scalar() == '50% off!'
+
+
+def test_media_references_are_backfilled_from_existing_records(fresh_engine, tmp_path, monkeypatch):
+    # A database at 018 with photos already saved on stock, then 019 arrives.
+    files = migrations.files()
+    for path in files:
+        shutil.copy(path, tmp_path / path.name)
+    later = [path for path in files if path.name >= '019']
+    for path in later:
+        (tmp_path / path.name).unlink()
+    monkeypatch.setattr(migrations, 'DIRECTORY', tmp_path)
+    migrations.apply(fresh_engine)
+    photo, video, gone = (str(uuid.uuid4()) for _ in range(3))
+    from app import models as m
+    # Core inserts through the model tables, so column defaults are filled in.
+    with fresh_engine.begin() as db:
+        # Plain SQL: the model has columns later migrations add (e.g. 020's PIN).
+        db.execute(text("""INSERT INTO users (id, phone, name, region, language, roles, deleted, created_at)
+            VALUES ('u1', '+255700000001', '', '', 'en', '["supplier"]', false, now())"""))
+        for id in (photo, video):
+            db.execute(m.MediaAsset.__table__.insert().values(id=id, owner_id='u1', storage_name=id))
+        db.execute(m.Listing.__table__.insert().values(id='l1', supplier_id='u1', category='broilers', unit_type='bird',
+            specs={}, region='Pwani', quantity_total=1, farmer_asking_price_per_unit=1,
+            photos=[f'/media/{photo}', f'/media/{gone}'], video=f'/media/{video}'))
+    for path in later:
+        shutil.copy(path, tmp_path / path.name)
+    migrations.apply(fresh_engine)
+    with fresh_engine.connect() as db:
+        rows = set(db.execute(text('SELECT media_id, owner_table, owner_id FROM media_references')))
+    assert rows == {(photo, 'listings', 'l1'), (video, 'listings', 'l1')}

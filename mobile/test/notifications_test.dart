@@ -3,12 +3,15 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:go_router/go_router.dart';
 import 'package:omoterra/core/api/repository.dart';
+import 'package:omoterra/core/routing/router.dart';
 import 'package:omoterra/core/theme/theme.dart';
 import 'package:omoterra/features/account/notifications_screen.dart';
 
 class _InboxRepository extends LocalRepository {
   final writes = <(String, Map<String, dynamic>)>[];
+  final String link;
   bool seen = false;
+  _InboxRepository({this.link = '/order/o1'});
 
   @override
   Future<dynamic> read(String path, [Map<String, dynamic>? query]) async {
@@ -22,7 +25,7 @@ class _InboxRepository extends LocalRepository {
             'kind': 'order_in_transit',
             'title': 'Order on the way',
             'body': 'Your order has left for delivery.',
-            'link': '/order/o1',
+            'link': link,
             'read': seen,
             'created_at': DateTime.now().toIso8601String(),
           }
@@ -88,5 +91,33 @@ void main() {
     expect(repository.writes.single.$2, {
       'ids': ['n1']
     });
+  });
+
+  test('the inbox opens in supplier mode too, not bounced to Home', () {
+    expect(
+        routeGuard('/notifications',
+            signedIn: true,
+            setup: true,
+            roles: ['buyer', 'supplier'],
+            activeRole: 'supplier'),
+        isNull);
+    expect(
+        routeGuard('/notifications',
+            signedIn: true, setup: true, roles: ['supplier']),
+        isNull);
+  });
+
+  testWidgets('a notification with nowhere to go opens to be read',
+      (tester) async {
+    final repository = _InboxRepository(link: '');
+    await tester.pumpWidget(_app(repository));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(NotificationBell));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Order on the way'));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('Your order has left for delivery.'), findsNWidgets(2));
+    expect(repository.writes.single.$1, '/notifications/read');
   });
 }

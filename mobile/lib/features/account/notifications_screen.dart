@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import 'package:intl/intl.dart';
 import '../../core/api/repository.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/notifications/notifications.dart';
 import '../../core/theme/theme.dart';
 import '../../shared/widgets/components.dart';
@@ -21,13 +22,27 @@ class NotificationsScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(notificationsProvider);
     final unread = (state.valueOrNull?['unread'] as int?) ?? 0;
+    final s = ref.s;
     return Scaffold(
-        appBar: OmoterraAppBar(title: const Text('Notifications'), actions: [
-          if (unread > 0)
-            TextButton(
-                onPressed: () => _markRead(ref, {'all': true}),
-                child: const Text('Mark all read')),
-        ]),
+        appBar: OmoterraAppBar(
+            title: Text(s.notifications,
+                style: const TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.w800,
+                    color: OColors.ink,
+                    letterSpacing: -.4)),
+            actions: [
+              if (unread > 0)
+                Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: TextButton(
+                        onPressed: () => _markRead(ref, {'all': true}),
+                        child: Text(s.markAllRead,
+                            style: const TextStyle(
+                                fontSize: 15.5,
+                                fontWeight: FontWeight.w600,
+                                color: OColors.forest)))),
+            ]),
         body: RefreshIndicator(
             onRefresh: () => ref.refresh(notificationsProvider.future),
             child: state.when(
@@ -45,72 +60,130 @@ class NotificationsScreen extends ConsumerWidget {
                   if (items.isEmpty) {
                     return ListView(
                         padding: const EdgeInsets.all(20),
-                        children: const [
-                          EmptyState('No notifications yet',
-                              'Updates about your orders, stock and payouts will appear here.'),
+                        children: [
+                          EmptyState(
+                              s.noNotificationsTitle, s.noNotificationsBody),
                         ]);
                   }
                   return ListView.separated(
-                      padding: const EdgeInsets.symmetric(vertical: 8),
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 24),
                       itemCount: items.length,
                       separatorBuilder: (_, __) =>
-                          const Divider(height: 1, indent: 72),
+                          const Divider(height: 1, color: Color(0xFFE6ECE8)),
                       itemBuilder: (context, i) {
                         final item = items[i];
                         final read = item['read'] == true;
-                        return ListTile(
+                        return _NotificationRow(
                             key: ValueKey(item['id']),
-                            leading: CircleAvatar(
-                                backgroundColor: read
-                                    ? OColors.soft
-                                    : const Color(0xFFE0EFE7),
-                                child: Icon(
-                                    item['role'] == 'supplier'
-                                        ? Icons.storefront_outlined
-                                        : Icons.shopping_basket_outlined,
-                                    color: OColors.forest)),
-                            title: Text('${item['title']}',
-                                style: TextStyle(
-                                    fontWeight: read
-                                        ? FontWeight.w500
-                                        : FontWeight.w800)),
-                            subtitle: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  if ('${item['body']}'.isNotEmpty)
-                                    Text('${item['body']}'),
-                                  const SizedBox(height: 4),
-                                  Text(_when('${item['created_at']}'),
-                                      style: const TextStyle(
-                                          fontSize: 11,
-                                          color: OColors.secondary)),
-                                ]),
-                            trailing: read
-                                ? null
-                                : const Icon(Icons.circle,
-                                    size: 10, color: OColors.forest),
+                            item: item,
                             onTap: () async {
                               if (!read) {
                                 _markRead(ref, {
                                   'ids': [item['id']]
                                 });
                               }
+                              final link = '${item['link'] ?? ''}';
+                              // Nothing to open: read it here instead.
+                              if (link.isEmpty || link == 'null') {
+                                showDialog<void>(
+                                    context: context,
+                                    builder: (context) => AlertDialog(
+                                            title: Text('${item['title']}'),
+                                            content: Text('${item['body']}'),
+                                            actions: [
+                                              TextButton(
+                                                  onPressed: () =>
+                                                      Navigator.pop(context),
+                                                  child: Text(s.ok))
+                                            ]));
+                                return;
+                              }
                               await openNotification(ref, GoRouter.of(context),
-                                  role: '${item['role']}',
-                                  link: '${item['link']}');
+                                  role: '${item['role']}', link: link);
                             });
                       });
                 })));
   }
 
-  static String _when(String iso) {
+  static String _when(String iso, Strings s) {
     final at = DateTime.tryParse(iso)?.toLocal();
     if (at == null) return '';
     final age = DateTime.now().difference(at);
-    if (age.inMinutes < 1) return 'Just now';
-    if (age.inHours < 1) return '${age.inMinutes} min ago';
-    if (age.inDays < 1) return '${age.inHours} h ago';
-    return DateFormat('d MMM, HH:mm').format(at);
+    if (age.inMinutes < 1) return s.justNow;
+    if (age.inHours < 1) return s.minutesAgo(age.inMinutes);
+    if (age.inDays < 1) return s.hoursAgo(age.inHours);
+    return '${s.dayMonth(at)}, ${DateFormat('HH:mm').format(at)}';
+  }
+}
+
+/// One notification: role icon, bold title while unread, message, age, and
+/// a green dot until it is read.
+class _NotificationRow extends StatelessWidget {
+  final Map<String, dynamic> item;
+  final VoidCallback onTap;
+  const _NotificationRow({super.key, required this.item, required this.onTap});
+  @override
+  Widget build(BuildContext context) {
+    final read = item['read'] == true;
+    final body = '${item['body'] ?? ''}';
+    return InkWell(
+        onTap: onTap,
+        child: Padding(
+            padding: const EdgeInsets.symmetric(vertical: 18),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Container(
+                  width: 54,
+                  height: 54,
+                  decoration: BoxDecoration(
+                      color: read ? OColors.soft : const Color(0xFFE3F0E8),
+                      shape: BoxShape.circle),
+                  child: Icon(
+                      item['role'] == 'supplier'
+                          ? Icons.storefront_outlined
+                          : Icons.shopping_basket_outlined,
+                      size: 26,
+                      color: OColors.forest)),
+              const SizedBox(width: 18),
+              Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    Text('${item['title']}',
+                        style: TextStyle(
+                            fontSize: 17,
+                            fontWeight:
+                                read ? FontWeight.w600 : FontWeight.w800,
+                            color: OColors.ink)),
+                    if (body.isNotEmpty && body != 'null') ...[
+                      const SizedBox(height: 4),
+                      Text(body,
+                          style: const TextStyle(
+                              fontSize: 15,
+                              height: 1.45,
+                              color: OColors.secondary)),
+                    ],
+                    const SizedBox(height: 8),
+                    Text(
+                        NotificationsScreen._when(
+                            '${item['created_at']}', context.s),
+                        style: const TextStyle(
+                            fontSize: 13, color: OColors.muted)),
+                  ])),
+              SizedBox(
+                  width: 28,
+                  height: 54,
+                  child: read
+                      ? null
+                      : Align(
+                          alignment: Alignment.centerRight,
+                          child: Container(
+                              key: const Key('unread_dot'),
+                              width: 10,
+                              height: 10,
+                              decoration: const BoxDecoration(
+                                  color: Color(0xFF0B6B45),
+                                  shape: BoxShape.circle)))),
+            ])));
   }
 }
 
@@ -123,13 +196,15 @@ class NotificationBell extends ConsumerWidget {
         (ref.watch(notificationsProvider).valueOrNull?['unread'] as int?) ?? 0;
     return IconButton(
         visualDensity: VisualDensity.compact,
-        tooltip: unread > 0 ? 'Notifications, $unread unread' : 'Notifications',
+        tooltip: unread > 0
+            ? ref.s.notificationsUnread(unread)
+            : ref.s.notifications,
         onPressed: () => context.push('/notifications'),
         icon: Badge(
             isLabelVisible: unread > 0,
             label: Text(unread > 99 ? '99+' : '$unread'),
             backgroundColor: const Color(0xFFD9534F),
-            child:
-                const Icon(Icons.notifications_none, color: OColors.forest)));
+            child: const Icon(Icons.notifications_none,
+                size: 26, color: OColors.ink)));
   }
 }

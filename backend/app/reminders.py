@@ -5,13 +5,16 @@ buyers' view. Run from cron, e.g. hourly on cPanel:
 
 Each listing gets at most one reminder per confirmation window: the
 reminder is stamped on the listing and a new confirmation starts a new window.
+
+The same run deletes photos and videos uploaded over a day ago that nothing
+uses (a form that was abandoned), from disk or R2.
 """
 from datetime import timedelta
 
 from sqlalchemy import or_, select
 
 from . import models as m, notifications as notes
-from .services import category
+from .i18n import M, category
 
 REMIND_BEFORE = timedelta(hours=6)
 
@@ -26,14 +29,10 @@ def remind_stale_stock(db, now=None):
             m.Listing.confirmation_reminded_at < m.Listing.last_confirmed_at),
     ).with_for_update()).all()
     for listing in rows:
-        what = category(listing.category)
-        if listing.confirmation_due_at <= now:
-            title, body = ('Stock hidden from buyers',
-                f'Your {what} needs confirming before buyers can see it again. Open it and tap Confirm availability.')
-        else:
-            title, body = ('Confirm your stock is still available',
-                f'Your {what} will be hidden from buyers in a few hours unless you confirm it is still available.')
-        notes.notify(db, listing.supplier_id, 'supplier', 'stock_confirm', title, body, f'/stock/{listing.id}')
+        key = 'notify.stock_hidden' if listing.confirmation_due_at <= now else 'notify.stock_confirm'
+        # ?confirm=1 opens the stock with "Still available?" already asked.
+        notes.notify(db, listing.supplier_id, 'supplier', 'stock_confirm', M(key, what=category(listing.category)),
+            f'/stock/{listing.id}?confirm=1')
         listing.confirmation_reminded_at = now
     return len(rows)
 
@@ -47,3 +46,11 @@ if __name__ == '__main__':
     with Session.begin() as db:
         sent = remind_stale_stock(db)
     print(f'Stock reminders sent: {sent}')
+    # Same hourly run: delete uploads that were never saved onto anything.
+    from .media import prune_unused_media
+    with Session.begin() as db:
+        pruned = prune_unused_media(db)
+    print(f'Unused media deleted: {pruned}')
+    from .media import prune_stale_uploads
+    with Session.begin() as db:
+        print(f'Unfinished video uploads removed: {prune_stale_uploads(db)}')

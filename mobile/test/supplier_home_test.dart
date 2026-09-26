@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:go_router/go_router.dart';
 import 'package:omoterra/core/api/repository.dart';
 import 'package:omoterra/core/routing/router.dart';
 import 'package:omoterra/core/theme/theme.dart';
@@ -40,6 +41,21 @@ class FailingSupplierHomeRepository extends LocalRepository {
   }
 }
 
+/// Preview stock with every listing's status replaced.
+class _StockRepository extends LocalRepository {
+  final String Function(Map row) status;
+  _StockRepository(this.status);
+  @override
+  Future<dynamic> read(String path, [Map<String, dynamic>? query]) async {
+    final data = await super.read(path, query);
+    if (path != '/supplier/stock') return data;
+    return [
+      for (final row in data as List)
+        {...Map<String, dynamic>.from(row), 'listing_status': status(row)}
+    ];
+  }
+}
+
 Widget host(Widget child) => ProviderScope(
     overrides: [repositoryProvider.overrideWithValue(LocalRepository())],
     child: MaterialApp(theme: omoterraTheme(), home: Scaffold(body: child)));
@@ -51,7 +67,7 @@ void main() {
     await tester.pump(const Duration(seconds: 1));
     expect(tester.takeException(), isNull);
     expect(find.text('Grow Beyond\nthe Farm'), findsOneWidget);
-    expect(find.text('Sales Records'), findsOneWidget);
+    expect(find.text('Sales'), findsOneWidget);
     expect(find.text('Payouts'), findsOneWidget);
     expect(find.text('Add Stock'), findsNothing);
     expect(find.text('Reservations'), findsNothing);
@@ -59,7 +75,7 @@ void main() {
     expect(tester.getTopLeft(find.text('Market Demand')).dy,
         lessThan(tester.getTopLeft(find.text('Payouts')).dy));
     expect(tester.getTopLeft(find.text('Payouts')).dy,
-        tester.getTopLeft(find.text('Sales Records')).dy);
+        tester.getTopLeft(find.text('Sales')).dy);
     expect(find.text('Track completed earnings'), findsNothing);
   });
 
@@ -121,7 +137,7 @@ void main() {
     expect(find.text('My Stock'), findsNothing);
     expect(find.text('Reservations'), findsNothing);
     expect(find.text('Payouts'), findsNothing);
-    expect(find.text('Sales Records'), findsNothing);
+    expect(find.text('Sales'), findsNothing);
     expect(find.byType(ErrorState), findsNothing);
   });
 
@@ -213,7 +229,9 @@ void main() {
   });
 
   testWidgets('quick stats keep stock units separate', (tester) async {
-    await tester.pumpWidget(host(const SupplierHome()));
+    await tester.pumpWidget(ProviderScope(overrides: [
+      repositoryProvider.overrideWithValue(_StockRepository((row) => 'live'))
+    ], child: MaterialApp(theme: omoterraTheme(), home: const SupplierHome())));
     await tester.pump(const Duration(seconds: 1));
     expect(tester.takeException(), isNull);
 
@@ -243,5 +261,105 @@ void main() {
     expect(
         find.byWidgetPredicate((w) => w is Material && w.shape is CircleBorder),
         findsOneWidget);
+  });
+
+  testWidgets('Market Demand and Buyer ratings are compact and the same height',
+      (tester) async {
+    tester.view.physicalSize = const Size(400, 1400);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(host(const SupplierHome()));
+    await tester.pump(const Duration(seconds: 1));
+    final demand = tester.getSize(find
+        .ancestor(
+            of: find.text('Market Demand'), matching: find.byType(SupplierTile))
+        .first);
+    final ratings = tester.getSize(find
+        .ancestor(
+            of: find.text('Buyer Ratings'), matching: find.byType(SupplierTile))
+        .first);
+    // As in the design: Market Demand a little taller than Buyer Ratings.
+    expect((demand.height - ratings.height).abs(), lessThanOrEqualTo(12));
+    expect(demand.height, lessThanOrEqualTo(64));
+  });
+
+  testWidgets('Quick Stats and the first stock figures show without scrolling',
+      (tester) async {
+    // A common Android phone: 360x780 with a 32px status bar.
+    tester.view.physicalSize = const Size(360, 780);
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(top: 32);
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(ProviderScope(
+        overrides: [
+          repositoryProvider.overrideWithValue(NoBatchesRepository())
+        ],
+        child: MaterialApp(
+            theme: omoterraTheme(),
+            home: const AppShell(path: '/supplier', child: SupplierHome()))));
+    await tester.pump(const Duration(seconds: 1));
+    expect(tester.takeException(), isNull);
+
+    final navTop = tester.getTopLeft(find.text('Home')).dy - 20;
+    final order = ['Market Demand', 'Payouts', 'Quick Stats']
+        .map((t) => tester.getTopLeft(find.text(t).first).dy)
+        .toList();
+    expect(order, orderedEquals([...order]..sort()),
+        reason: 'Market Demand, then Payouts/Sales, then Quick Stats');
+    expect(tester.getBottomLeft(find.text('Quick Stats')).dy, lessThan(navTop));
+    // The first figure (its number and label) sits above the bottom nav.
+    expect(tester.getBottomLeft(find.text('Total Stock').first).dy,
+        lessThan(navTop));
+
+    // Buyer ratings comes after the stock figures.
+    await tester.scrollUntilVisible(find.text('Buyer Ratings'), 200,
+        scrollable: find.byType(Scrollable).first);
+    expect(tester.getTopLeft(find.text('Buyer Ratings')).dy,
+        greaterThan(tester.getTopLeft(find.text('Quick Stats')).dy));
+  });
+
+  testWidgets('Market Demand opens on the first tap, even near its top edge',
+      (tester) async {
+    tester.view.physicalSize = const Size(360, 640);
+    tester.view.devicePixelRatio = 1;
+    tester.view.padding = const FakeViewPadding(top: 27);
+    addTearDown(tester.view.reset);
+    final router = GoRouter(initialLocation: '/supplier', routes: [
+      GoRoute(
+          path: '/supplier',
+          builder: (_, __) =>
+              const AppShell(path: '/supplier', child: SupplierHome())),
+      GoRoute(
+          path: '/supplier-demand',
+          builder: (_, __) => const Scaffold(body: Text('demand page'))),
+    ]);
+    await tester.pumpWidget(ProviderScope(
+        overrides: [
+          repositoryProvider.overrideWithValue(NoBatchesRepository())
+        ],
+        child:
+            MaterialApp.router(theme: omoterraTheme(), routerConfig: router)));
+    await tester.pump(const Duration(seconds: 1));
+    final card = find
+        .ancestor(
+            of: find.text('Market Demand'), matching: find.byType(SupplierTile))
+        .first;
+    // 6 points below the card's top edge: this used to land on the photo.
+    await tester.tapAt(tester.getTopLeft(card) + const Offset(60, 6));
+    await tester.pumpAndSettle();
+    expect(find.text('demand page'), findsOneWidget);
+  });
+
+  testWidgets('quick stats wait for approval instead of counting pending stock',
+      (tester) async {
+    await tester.pumpWidget(ProviderScope(overrides: [
+      repositoryProvider
+          .overrideWithValue(_StockRepository((row) => 'pending_review'))
+    ], child: MaterialApp(theme: omoterraTheme(), home: const SupplierHome())));
+    await tester.pump(const Duration(seconds: 1));
+    await tester.drag(find.byType(ListView).first, const Offset(0, -500));
+    await tester.pumpAndSettle();
+    expect(find.text('Stats available after approval.'), findsOneWidget);
+    expect(find.text('Available'), findsNothing);
   });
 }

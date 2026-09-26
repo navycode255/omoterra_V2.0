@@ -22,3 +22,23 @@ mobile/android/.gradle/
 # Local Netlify build output
 .netlify/
 .gstack/
+
+# --- Secrets: never commit these ---
+# Environment files (the .env.example templates stay tracked)
+.env.*
+!.env.example
+# Firebase / Google service-account keys (push notifications)
+*firebase-adminsdk*.json
+*service-account*.json
+*serviceAccount*.json
+secrets/
+# Android release signing
+*.jks
+*.keystore
+key.properties
+# Private keys and certificates
+*.pem
+*.p12
+*.key
+# Backend runtime logs (can contain phone numbers and request data)
+backend/logs/

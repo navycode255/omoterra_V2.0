@@ -10,14 +10,18 @@ def test_otp_code_is_hidden_once_a_real_sms_provider_is_set(client):
     # Even on the live deployment, the OTP code must never appear in the API
     # response once sms_provider stops being 'development' — that would leak
     # the code to anyone who can see the network response.
+    from app import sms
     original = settings().sms_provider
-    settings().sms_provider = 'twilio'
+    settings().sms_provider = 'sema'
+    sent = sms.send
+    sms.send = lambda phone, text, reference='': 1
     try:
         start = client.post('/api/v1/auth/otp', json={'phone': '+255711111112'})
         assert start.status_code == 200
         assert 'development_code' not in start.json()
     finally:
         settings().sms_provider = original
+        sms.send = sent
 
 
 def test_start_otp_commits_before_returning_the_challenge_id(sessions):
@@ -130,7 +134,8 @@ def test_upload_strips_metadata_and_enforces_owner(client, sessions, seeded, tmp
     url = response.json()['url']
     own = client.get('/api/v1' + url, headers=headers('supplier'))
     assert own.status_code == 200
-    assert not Image.open(BytesIO(own.content)).getexif()
+    # The API answers with a signed link; the bytes behind it carry no metadata.
+    assert not Image.open(BytesIO(client.get('/api/v1' + own.json()['url']).content)).getexif()
     assert client.get('/api/v1' + url, headers=headers()).status_code == 404
     with sessions.begin() as db:
         db.get(m.Listing, seeded['listing']).photos = [url]

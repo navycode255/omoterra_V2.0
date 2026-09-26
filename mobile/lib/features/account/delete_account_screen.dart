@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/api/repository.dart';
 import '../../core/auth/session.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/theme/theme.dart';
 import '../../shared/widgets/components.dart';
 
@@ -45,9 +46,10 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final ready = _confirm.text.trim().toUpperCase() == 'DELETE';
+    final s = ref.s;
+    final ready = _confirm.text.trim().toUpperCase() == s.deleteWord;
     return Scaffold(
-        appBar: const OmoterraAppBar(title: Text('Delete account')),
+        appBar: OmoterraAppBar(title: Text(s.deleteAccount)),
         body: ListView(padding: const EdgeInsets.all(20), children: [
           Container(
               padding: const EdgeInsets.all(16),
@@ -56,34 +58,30 @@ class _DeleteAccountScreenState extends ConsumerState<DeleteAccountScreen> {
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text('This permanently deletes your account',
+                    Text(s.deletePermanently,
                         style: Theme.of(context).textTheme.titleMedium),
                     const SizedBox(height: 10),
-                    const _Point(
-                        'Your name, phone number and saved addresses are removed.'),
-                    const _Point(
-                        'A supplier profile, farm location, photos and video are removed and your stock is taken down.'),
-                    const _Point(
-                        'Past orders and payouts stay on record for Omoterra’s accounts, but are no longer linked to your name.'),
-                    const _Point('This can’t be undone.'),
+                    _Point(s.deletePointPersonal),
+                    _Point(s.deletePointSupplier),
+                    _Point(s.deletePointRecords),
+                    _Point(s.cannotBeUndone),
                   ])),
           const SizedBox(height: 20),
-          const Text(
-              'If you have an order in progress, an unpaid payout, or stock reserved for a buyer, finish or settle it first — deletion is blocked until then.',
-              style: TextStyle(color: OColors.secondary)),
+          Text(s.deleteBlockedNote,
+              style: const TextStyle(color: OColors.secondary)),
           const SizedBox(height: 24),
-          Text('Type DELETE to confirm',
+          Text(s.typeToConfirm(s.deleteWord),
               style: Theme.of(context).textTheme.titleSmall),
           const SizedBox(height: 8),
           TextField(
               key: const Key('delete_confirm_field'),
               controller: _confirm,
               textCapitalization: TextCapitalization.characters,
-              decoration: const InputDecoration(hintText: 'DELETE'),
+              decoration: InputDecoration(hintText: s.deleteWord),
               onChanged: (_) => setState(() {})),
           const SizedBox(height: 20),
           if (_error != null) ErrorState(_error!),
-          OmoterraButton('Delete my account',
+          OmoterraButton(s.deleteMyAccount,
               busy: _busy, onPressed: ready && !_busy ? _delete : null),
         ]));
   }

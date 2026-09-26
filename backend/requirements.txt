@@ -18,3 +18,7 @@ pillow>=11,<13
 # Push notifications: signs the Firebase Cloud Messaging access-token request
 # with the service-account key (see app/notifications.py).
 google-auth>=2.30,<3
+
+# Media on Cloudflare R2 (S3-compatible API), used when
+# OMOTERRA_MEDIA_STORAGE=r2 (see app/storage.py).
+boto3>=1.35,<2

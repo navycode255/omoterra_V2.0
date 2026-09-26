@@ -2,6 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/api/repository.dart';
+import '../../core/l10n/strings.dart';
+import '../../shared/widgets/support_contact.dart';
 import '../../shared/widgets/components.dart';
 
 class SupplierOrders extends ConsumerWidget {
@@ -10,6 +12,7 @@ class SupplierOrders extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.s;
     final path = id == null ? '/supplier/orders' : '/supplier/orders/$id';
     final request = ref.watch(resourceProvider(path));
     if (request.hasError) {
@@ -28,15 +31,12 @@ class SupplierOrders extends ConsumerWidget {
     if (rows.isEmpty) {
       return ListView(
         padding: const EdgeInsets.all(20),
-        children: const [
-          EmptyState('No reservations yet',
-              'When buyers reserve your approved stock, collection details will appear here.'),
-        ],
+        children: [EmptyState(s.noReservationsTitle, s.noReservationsBody)],
       );
     }
 
     return ListView(padding: const EdgeInsets.all(20), children: [
-      Text(id == null ? 'Orders & reservations' : 'Collection details',
+      Text(id == null ? s.ordersAndReservations : s.collectionDetails,
           style: Theme.of(context).textTheme.headlineMedium),
       const SizedBox(height: 24),
       for (final row in rows)
@@ -50,17 +50,18 @@ class SupplierOrders extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                      'Reservation #${row['id'].toString().substring(0, 8).toUpperCase()}'),
+                  Text(s.reservationNo(
+                      row['id'].toString().substring(0, 8).toUpperCase())),
                   const SizedBox(height: 8),
                   Text(
-                    '${label(row['category'])} · ${amount(row['quantity'])} ${row['unit_type']}',
+                    '${s.label(row['category'])} · ${amount(row['quantity'])} ${s.unit('${row['unit_type']}', num.tryParse('${row['quantity']}'))}',
                     style: Theme.of(context).textTheme.titleMedium,
                   ),
                   const SizedBox(height: 8),
                   Text(row['expected_collection_date'] == null
-                      ? 'Collection to be confirmed'
-                      : 'Collection expected ${row['expected_collection_date']}'),
+                      ? s.collectionTbc
+                      : s.collectionExpected(
+                          s.dateText(row['expected_collection_date']))),
                   const SizedBox(height: 8),
                   StatusText(row['status']),
                   if (id != null) ...[
@@ -70,7 +71,7 @@ class SupplierOrders extends ConsumerWidget {
                       ListTile(
                         contentPadding: EdgeInsets.zero,
                         title: Text(
-                            'Settlement ${tsh(settlement['total_payable'])}'),
+                            s.settlement(tsh(settlement['total_payable']))),
                         subtitle: StatusText(settlement['status']),
                         onTap: () =>
                             context.push('/payouts/${settlement['id']}'),
@@ -81,6 +82,9 @@ class SupplierOrders extends ConsumerWidget {
             ),
           ),
         ),
+      if (id != null)
+        SupportContact(
+            topic: s.collectionTopic(id!.substring(0, 8).toUpperCase())),
     ]);
   }
 }

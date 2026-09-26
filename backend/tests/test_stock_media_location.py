@@ -73,7 +73,8 @@ def test_supplier_uploads_video_and_edits_stock_media(client, sessions, seeded, 
     assert client.get(f"/api/v1/listings/{seeded['listing']}", headers=headers()).status_code == 404
     assert client.get('/api/v1' + clip, headers=headers()).status_code == 404
     owner = client.get('/api/v1' + clip, headers=headers('supplier'))
-    assert owner.status_code == 200 and owner.headers['content-type'] == 'video/mp4'
+    assert owner.status_code == 200 and owner.json()['content_type'] == 'video/mp4'
+    assert client.get('/api/v1' + owner.json()['url']).headers['content-type'] == 'video/mp4'
     approved = client.post(f"/api/v1/ops/listings/{seeded['listing']}/approve", headers={'X-Ops-Token': 'test-operator-secret', 'X-Operator-Session': 'ops-admin'},
         json={'buyer_price_per_unit': '12000', 'public_alias': 'Green Pastures'})
     assert approved.status_code == 200

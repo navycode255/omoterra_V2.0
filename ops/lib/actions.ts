@@ -44,7 +44,12 @@ export async function approveListing(_: ActionResult | null, formData: FormData)
 export async function reviewListing(_: ActionResult | null, formData: FormData) {
   const id = String(formData.get('id'));
   return run(
-    () => patch(`/ops/listings/${id}/status`, { status: String(formData.get('status')) }, randomUUID()),
+    () =>
+      patch(
+        `/ops/listings/${id}/status`,
+        { status: String(formData.get('status')), note: String(formData.get('note') ?? '').trim() },
+        randomUUID(),
+      ),
     ['/supply', `/supply/${id}`, '/manage'],
   );
 }
@@ -428,7 +433,7 @@ async function saveSupplierProfile(id: string, change: (profile: SupplierProfile
   await put(`/ops/suppliers/${id}`, profile);
 }
 
-type SupplierProfilePayload = Omit<SupplierDetail, 'evidence_photos' | 'photos' | 'video' | 'video_upload_enabled' | 'id' | 'status' | 'phone' | 'alias_approved' | 'completed_supplies_count' | 'internal_notes' | 'verification' | 'reviewed_by_actor' | 'reviewed_at' | 'approved_by_actor' | 'approved_at' | 'suspended_by_actor' | 'suspended_at' | 'created_at' | 'batches' | 'batch_verifications' | 'name' | 'listings' | 'settlements' | 'farm_latitude' | 'farm_longitude' | 'farm_map_url'>;
+type SupplierProfilePayload = Omit<SupplierDetail, 'evidence_photos' | 'photos' | 'video' | 'video_upload_enabled' | 'id' | 'status' | 'phone' | 'alias_approved' | 'completed_supplies_count' | 'internal_notes' | 'verification' | 'reviewed_by_actor' | 'reviewed_at' | 'approved_by_actor' | 'approved_at' | 'suspended_by_actor' | 'suspended_at' | 'created_at' | 'batches' | 'batch_verifications' | 'name' | 'listings' | 'settlements' | 'farm_latitude' | 'farm_longitude' | 'farm_map_url' | 'reputation'>;
 
 export async function updateSupplierSection(_: ActionResult | null, formData: FormData) {
   const read = (key: string) => String(formData.get(key) ?? '').trim();
@@ -528,4 +533,10 @@ export async function updateOperator(_: ActionResult | null, formData: FormData)
   if (role) change.role = String(role);
   if (active !== null) change.active = String(active) === 'true';
   return run(() => patch(`/ops/operators/${id}`, change), ['/staff']);
+}
+
+// Hiding a rating stops it counting toward the supplier's reputation.
+export async function setRatingHidden(_: ActionResult | null, formData: FormData) {
+  const id = String(formData.get('id'));
+  return run(() => patch(`/ops/ratings/${id}`, { hidden: String(formData.get('hidden')) === 'true' }), ['/ratings']);
 }

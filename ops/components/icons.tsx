@@ -38,5 +38,7 @@ export const Icons = {
   shield: (props: IconProps) => <Icon {...props}><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></Icon>,
   image: (props: IconProps) => <Icon {...props}><rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="9" cy="9" r="2"/><path d="m3 17 5-5 4 4 3-3 6 6"/></Icon>,
   cubes: (props: IconProps) => <Icon {...props}><path d="m8 3 4 2-4 2-4-2ZM16 8l4 2-4 2-4-2ZM8 13l4 2-4 2-4-2ZM4 5v5l4 2 4-2V5M12 10v5l4 2 4-2v-5M4 15v4l4 2 4-2v-4"/></Icon>,
+  bell: (props: IconProps) => <Icon {...props}><path d="M6 8a6 6 0 1 1 12 0c0 7 3 9 3 9H3s3-2 3-9"/><path d="M10.3 21a1.9 1.9 0 0 0 3.4 0"/></Icon>,
+  star: (props: IconProps) => <Icon {...props}><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2L12 17.3l-5.6 2.9 1.1-6.2L3 9.6l6.2-.9Z"/></Icon>,
   camera: (props: IconProps) => <Icon {...props}><path d="M4 7h4l2-3h4l2 3h4v13H4z"/><circle cx="12" cy="13" r="4"/></Icon>,
 };

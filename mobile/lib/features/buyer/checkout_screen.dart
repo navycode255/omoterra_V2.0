@@ -38,7 +38,8 @@ class _CheckoutState extends ConsumerState<CheckoutScreen> {
 
   Future<void> submit() async {
     if (address == null) {
-      setState(() => error = 'Choose a delivery address.');
+      setState(() =>
+          error = ApiFailure(ref.read(stringsProvider).chooseDeliveryAddress));
       return;
     }
     setState(() {
@@ -66,103 +67,114 @@ class _CheckoutState extends ConsumerState<CheckoutScreen> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-      appBar: OmoterraAppBar(title: const Text('Checkout')),
-      body: ListView(padding: const EdgeInsets.all(20), children: [
-        ResourceView('/reservations/${widget.id}', builder: (data) {
-          final hold = Reservation.fromJson(Map<String, dynamic>.from(data));
-          final remaining = hold.expiresAt.difference(DateTime.now());
-          final expired = remaining.isNegative || hold.status != 'active';
-          // The server decides which methods this order may use.
-          final allowed = List<String>.from(
-              data['payment_methods'] as List? ?? const ['pay_on_delivery']);
-          return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label(data['listing']['category']),
-                    style: Theme.of(context).textTheme.headlineMedium),
-                const SizedBox(height: 12),
-                MoneySummary({
-                  'Quantity':
-                      '${amount(hold.quantity)} ${data['listing']['unit_type']}',
-                  'Price per unit':
-                      tsh(data['listing']['buyer_price_per_unit']),
-                  'Estimated total': tsh(num.parse(hold.quantity) *
-                      num.parse('${data['listing']['buyer_price_per_unit']}'))
-                }),
-                const SizedBox(height: 12),
-                Text(
-                    expired
-                        ? 'Reservation expired. Return to the listing to reserve again.'
-                        : 'Your stock is held for ${remaining.inMinutes}:${(remaining.inSeconds % 60).toString().padLeft(2, '0')}',
-                    style: TextStyle(
-                        color: expired ? OColors.error : OColors.secondary)),
-                const SectionHeader('Delivery address'),
-                ResourceView('/addresses',
-                    builder: (rows) => Column(children: [
-                          for (final a in rows)
-                            ListTile(
-                                selected: address == a['id'],
-                                leading: Icon(address == a['id']
-                                    ? Icons.radio_button_checked
-                                    : Icons.radio_button_off),
-                                onTap: busy
-                                    ? null
-                                    : () => setState(() => address = a['id']),
-                                title: Text(a['label']),
-                                subtitle: Text(
-                                    '${a['district_area']}, ${a['region']}')),
-                          TextButton.icon(
-                              onPressed: () async {
-                                await context.push('/addresses/new');
-                                ref.invalidate(resourceProvider('/addresses'));
-                              },
-                              icon: const Icon(Icons.add),
-                              label: const Text('Add delivery address'))
-                        ])),
-                const SectionHeader('Preferred delivery'),
-                ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(date.toIso8601String().split('T').first),
-                    trailing: const Icon(Icons.calendar_today_outlined),
-                    onTap: busy
-                        ? null
-                        : () async {
-                            final chosen = await showDatePicker(
-                                context: context,
-                                initialDate: date,
-                                firstDate: DateTime.now()
-                                    .subtract(const Duration(days: 1)),
-                                lastDate: DateTime.now()
-                                    .add(const Duration(days: 365)));
-                            if (chosen != null) setState(() => date = chosen);
-                          }),
-                SectionHeader(ref.s.paymentMethod),
-                // Both methods render as designed. Pay Now stays disabled until
-                // the backend actually lists it, so no buyer can select a method
-                // that cannot complete.
-                _PaymentOption(
-                    title: ref.s.payNow,
-                    subtitle: ref.s.payNowSoon,
-                    icon: Icons.smartphone_outlined,
-                    selected: false,
-                    enabled: allowed.contains('pay_now'),
-                    onTap: null),
-                const SizedBox(height: 10),
-                _PaymentOption(
-                    title: ref.s.payOnDelivery,
-                    subtitle: ref.s.payOnDeliveryBody,
-                    icon: Icons.payments_outlined,
-                    selected: true,
-                    enabled: true,
-                    onTap: () {}),
-                if (error != null) ErrorState(error!),
-                const SizedBox(height: 24),
-                OmoterraButton(ref.s.confirmOrder,
-                    busy: busy, onPressed: expired ? null : submit)
-              ]);
-        })
-      ]));
+  Widget build(BuildContext context) {
+    final s = ref.s;
+    return Scaffold(
+        appBar: OmoterraAppBar(title: Text(s.checkout)),
+        body: ListView(padding: const EdgeInsets.all(20), children: [
+          ResourceView('/reservations/${widget.id}', builder: (data) {
+            final hold = Reservation.fromJson(Map<String, dynamic>.from(data));
+            final remaining = hold.expiresAt.difference(DateTime.now());
+            final expired = remaining.isNegative || hold.status != 'active';
+            // The server decides which methods this order may use.
+            final allowed = List<String>.from(
+                data['payment_methods'] as List? ?? const ['pay_on_delivery']);
+            return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(s.label(data['listing']['category']),
+                      style: Theme.of(context).textTheme.headlineMedium),
+                  const SizedBox(height: 12),
+                  MoneySummary({
+                    s.quantity:
+                        '${amount(hold.quantity)} ${s.unit('${data['listing']['unit_type']}', num.tryParse(hold.quantity))}',
+                    s.pricePerUnit:
+                        tsh(data['listing']['buyer_price_per_unit']),
+                    s.estimatedTotal: tsh(num.parse(hold.quantity) *
+                        num.parse('${data['listing']['buyer_price_per_unit']}'))
+                  }),
+                  const SizedBox(height: 12),
+                  Text(
+                      expired
+                          ? s.reservationExpired
+                          : s.stockHeldFor(
+                              '${remaining.inMinutes}:${(remaining.inSeconds % 60).toString().padLeft(2, '0')}'),
+                      style: TextStyle(
+                          color: expired ? OColors.error : OColors.secondary)),
+                  SectionHeader(s.deliveryAddressTitle),
+                  ResourceView('/addresses', builder: (rows) {
+                    // Start on the default delivery address (listed first).
+                    if (address == null && (rows as List).isNotEmpty) {
+                      address = ((rows.firstWhere(
+                          (a) => a['is_default'] == true,
+                          orElse: () => rows.first)) as Map)['id'] as String?;
+                    }
+                    return Column(children: [
+                      for (final a in rows)
+                        ListTile(
+                            selected: address == a['id'],
+                            leading: Icon(address == a['id']
+                                ? Icons.radio_button_checked
+                                : Icons.radio_button_off),
+                            onTap: busy
+                                ? null
+                                : () => setState(() => address = a['id']),
+                            title: Text(a['label']),
+                            subtitle:
+                                Text('${a['district_area']}, ${a['region']}')),
+                      TextButton.icon(
+                          onPressed: () async {
+                            await context.push('/addresses/new');
+                            ref.invalidate(resourceProvider('/addresses'));
+                          },
+                          icon: const Icon(Icons.add),
+                          label: Text(s.addDeliveryAddress))
+                    ]);
+                  }),
+                  SectionHeader(s.preferredDelivery),
+                  ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: Text(s.date(date)),
+                      trailing: const Icon(Icons.calendar_today_outlined),
+                      onTap: busy
+                          ? null
+                          : () async {
+                              final chosen = await showDatePicker(
+                                  context: context,
+                                  initialDate: date,
+                                  firstDate: DateTime.now()
+                                      .subtract(const Duration(days: 1)),
+                                  lastDate: DateTime.now()
+                                      .add(const Duration(days: 365)));
+                              if (chosen != null) setState(() => date = chosen);
+                            }),
+                  SectionHeader(ref.s.paymentMethod),
+                  // Both methods render as designed. Pay Now stays disabled until
+                  // the backend actually lists it, so no buyer can select a method
+                  // that cannot complete.
+                  _PaymentOption(
+                      title: ref.s.payNow,
+                      subtitle: ref.s.payNowSoon,
+                      icon: Icons.smartphone_outlined,
+                      selected: false,
+                      enabled: allowed.contains('pay_now'),
+                      onTap: null),
+                  const SizedBox(height: 10),
+                  _PaymentOption(
+                      title: ref.s.payOnDelivery,
+                      subtitle: ref.s.payOnDeliveryBody,
+                      icon: Icons.payments_outlined,
+                      selected: true,
+                      enabled: true,
+                      onTap: () {}),
+                  if (error != null) ErrorState(error!),
+                  const SizedBox(height: 24),
+                  OmoterraButton(ref.s.confirmOrder,
+                      busy: busy, onPressed: expired ? null : submit)
+                ]);
+          })
+        ]));
+  }
 }
 
 class _PaymentOption extends StatelessWidget {

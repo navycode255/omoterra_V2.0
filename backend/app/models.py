@@ -4,7 +4,7 @@ import uuid
 from typing import Optional
 from datetime import datetime, timezone
 from decimal import Decimal
-from sqlalchemy import String, Numeric, DateTime, ForeignKey, UniqueConstraint, CheckConstraint, JSON, Boolean, Integer, Text
+from sqlalchemy import String, Numeric, DateTime, ForeignKey, UniqueConstraint, CheckConstraint, JSON, Boolean, Integer, Text, Index, text
 from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 
@@ -36,6 +36,10 @@ class User(Entity, Base):
     # number can sign up again.
     deleted: Mapped[bool] = mapped_column(default=False)
     deleted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Website sign-in without an SMS each time (app/auth.py). Salted PBKDF2.
+    pin_hash: Mapped[Optional[str]] = mapped_column(String(200))
+    pin_failed_attempts: Mapped[int] = mapped_column(default=0)
+    pin_locked_until: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
 
 
 class SupplierProfile(Base):
@@ -66,6 +70,8 @@ class SupplierProfile(Base):
     farm_longitude: Mapped[Optional[Decimal]] = mapped_column(Numeric(9, 6))
     farm_map_url: Mapped[str] = mapped_column(default='')
     status: Mapped[str] = mapped_column(default='new', index=True)
+    # When the supplier last sent their registration for review (ops alerts).
+    submitted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     verification: Mapped[dict] = mapped_column(JSON, default=dict)
     internal_notes: Mapped[str] = mapped_column(Text, default='')
     created_by_actor: Mapped[str] = mapped_column(default='supplier')
@@ -106,6 +112,8 @@ class Address(Entity, Base):
     address_text: Mapped[str] = mapped_column(Text)
     coordinates: Mapped[Optional[str]]
     deleted: Mapped[bool] = mapped_column(default=False)
+    # The buyer's default delivery address; checkout starts on it.
+    is_default: Mapped[bool] = mapped_column(default=False)
 
 
 class Listing(Entity, Base):
@@ -124,6 +132,8 @@ class Listing(Entity, Base):
     quantity_reserved: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=0)
     quantity_sold: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=0)
     listing_status: Mapped[str] = mapped_column(default='pending_review', index=True)
+    # What Omoterra asked the supplier to change ('changes_requested').
+    review_note: Mapped[str] = mapped_column(Text, default='')
     last_confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     confirmation_due_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), index=True)
     approved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
@@ -422,6 +432,27 @@ class MediaAsset(Entity, Base):
     content_type: Mapped[str] = mapped_column(default='image/jpeg')
 
 
+class MediaUpload(Entity, Base):
+    """A resumable video upload between start and confirm. Its parts go to
+    storage object pending/<id>; confirm turns it into a MediaAsset."""
+    __tablename__ = 'media_uploads'
+    owner_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    upload_id: Mapped[str] = mapped_column(Text, default='')
+    size: Mapped[int] = mapped_column(Integer)
+
+
+class MediaReference(Base):
+    """Which record shows which media: one row per (media, record). Kept in
+    step with the records' photo/video fields by app/media.py on every flush,
+    so "is this photo used?" and "may this buyer see it?" are index lookups
+    instead of text searches through JSON columns."""
+    __tablename__ = 'media_references'
+    media_id: Mapped[str] = mapped_column(ForeignKey('media_assets.id'), primary_key=True)
+    owner_table: Mapped[str] = mapped_column(String(40), primary_key=True)
+    owner_id: Mapped[str] = mapped_column(String(36), primary_key=True)
+    __table_args__ = (Index('ix_media_references_owner', 'owner_table', 'owner_id'),)
+
+
 class PaymentReceipt(Entity, Base):
     __tablename__ = 'payment_receipts'
     payment_id: Mapped[str] = mapped_column(ForeignKey('payments.id'), index=True)
@@ -501,6 +532,8 @@ class Operator(Entity, Base):
     active: Mapped[bool] = mapped_column(default=True)
     created_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
     last_login_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Everything in the dashboard's alerts newer than this is unread for them.
+    alerts_seen_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     __table_args__ = (CheckConstraint("role IN ('admin','staff')", name='valid_operator_role'),)
 
 
@@ -534,10 +567,41 @@ class AdminSetup(Entity, Base):
     completed_operator_id: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
 
 
+class Referral(Entity, Base):
+    """Someone registered for a role by someone else. One row per role, so a
+    buyer later referred as a supplier has two. This is the account
+    registration only: a supplier's profile keeps its own verification
+    (under_review → approved) whatever this row says."""
+    __tablename__ = 'referrals'
+    target_user_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    # Exactly one referrer, by source: operators today, members later.
+    referred_by_operator_id: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'), index=True)
+    referred_by_user_id: Mapped[Optional[str]] = mapped_column(ForeignKey('users.id'), index=True)
+    role_requested: Mapped[str] = mapped_column(String(16))
+    source: Mapped[str] = mapped_column(String(16))
+    status: Mapped[str] = mapped_column(String(16))
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    reviewed_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    rejection_reason: Mapped[str] = mapped_column(Text, default='')
+    __table_args__ = (
+        CheckConstraint("role_requested IN ('buyer','supplier')", name='valid_referral_role'),
+        CheckConstraint("source IN ('admin','member','self_signup')", name='valid_referral_source'),
+        CheckConstraint("status IN ('pending','confirmed','rejected','cancelled')", name='valid_referral_status'),
+        CheckConstraint("(source = 'self_signup' AND referred_by_operator_id IS NULL AND referred_by_user_id IS NULL)"
+            " OR (source = 'admin' AND referred_by_operator_id IS NOT NULL AND referred_by_user_id IS NULL)"
+            " OR (source = 'member' AND referred_by_user_id IS NOT NULL AND referred_by_operator_id IS NULL)",
+            name='one_referrer'),
+        Index('uq_referrals_live_role', 'target_user_id', 'role_requested', unique=True,
+            postgresql_where=text("status IN ('pending', 'confirmed')")),
+    )
+
+
 class AdminSetupAttempt(Entity, Base):
     """Every passphrase attempt, for rate limiting guesses."""
     __tablename__ = 'admin_setup_attempts'
     succeeded: Mapped[bool]
+    # 'setup' (dashboard admin setup) or 'mobile' (mobile admin sign-in).
+    kind: Mapped[str] = mapped_column(String(16), default='setup')
 
 
 class OrderRating(Entity, Base):
@@ -555,3 +619,7 @@ class OrderRating(Entity, Base):
     hidden: Mapped[bool] = mapped_column(default=False)
     hidden_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
     __table_args__ = (CheckConstraint('stars BETWEEN 1 AND 5', name='valid_rating_stars'),)
+
+
+# Registers the media_references hook wherever the models are loaded.
+from . import media_refs  # noqa: E402,F401

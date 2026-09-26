@@ -4,7 +4,7 @@ import { ActionForm } from '@/components/form';
 import { PricingPreview } from '@/components/pricing-preview';
 import { Card, Definition, Notice, PageHeader, Status } from '@/components/ui';
 import { approveListing, reviewListing } from '@/lib/actions';
-import { get } from '@/lib/api';
+import { ApiError, get } from '@/lib/api';
 import {
   category,
   date,
@@ -20,9 +20,12 @@ import type { Listing, SupplierDetail } from '@/lib/types';
 
 export default async function ListingReview({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const listings = await get<Listing[]>('/ops/listings');
-  const listing = listings.find((row) => row.id === id);
-  if (!listing) notFound();
+  let listing: Listing;
+  try { listing = await get<Listing>(`/ops/listings/${encodeURIComponent(id)}`); }
+  catch (error) {
+    if (error instanceof ApiError && error.status === 404) notFound();
+    throw error;
+  }
 
   const supplier = await get<SupplierDetail>(`/ops/suppliers/${listing.supplier_id}`);
   const pending = listing.listing_status === 'pending_review';
@@ -37,6 +40,12 @@ export default async function ListingReview({ params }: { params: Promise<{ id: 
         <Status tone={listingTone(listing.listing_status)}>{titleCase(listing.listing_status)}</Status>
       </div>
       <div className="workspace">
+        {listing.listing_status === 'changes_requested' && (
+          <Notice>
+            Waiting for the supplier. You asked: “{listing.review_note}”. The stock comes back to
+            Pending approval when they update it.
+          </Notice>
+        )}
         <div className="grid-2" style={{ alignItems: 'start' }}>
           <div className="stack">
             <Card title="Stock">
@@ -150,14 +159,29 @@ export default async function ListingReview({ params }: { params: Promise<{ id: 
                     confirm="Reject this listing? Any active holds on it are released."
                     hidden={{ id: listing.id, status: 'rejected' }}
                   />
-                  <ActionForm
-                    action={reviewListing}
-                    label="Request changes (pause)"
-                    variant="secondary"
-                    layout="row"
-                    hidden={{ id: listing.id, status: 'paused' }}
-                  />
                 </div>
+                <ActionForm
+                  action={reviewListing}
+                  label="Send back for changes"
+                  variant="secondary"
+                  hidden={{ id: listing.id, status: 'changes_requested' }}
+                >
+                  <div className="field" style={{ marginTop: 'var(--s5)' }}>
+                    <label htmlFor="note">What should the supplier change?</label>
+                    <textarea
+                      id="note"
+                      name="note"
+                      className="input"
+                      minLength={5}
+                      maxLength={1000}
+                      required
+                      placeholder="e.g. Add a clearer photo of the birds in daylight"
+                    />
+                    <span className="meta">
+                      The supplier sees this in the app and sends the stock back for review.
+                    </span>
+                  </div>
+                </ActionForm>
               </Card>
             ) : (
               <Card title="Pricing">
@@ -192,7 +216,16 @@ export default async function ListingReview({ params }: { params: Promise<{ id: 
                 />
                 {listing.listing_status !== 'rejected' && (
                   <div className="row" style={{ marginTop: 'var(--s5)' }}>
-                    {listing.listing_status !== 'paused' && (
+                    {listing.listing_status === 'paused' && listing.approved && (
+                      <ActionForm
+                        action={reviewListing}
+                        label="Resume listing"
+                        layout="row"
+                        confirm="Resume this listing? Buyers will see it again."
+                        hidden={{ id: listing.id, status: 'live' }}
+                      />
+                    )}
+                    {listing.listing_status !== 'paused' && listing.listing_status !== 'changes_requested' && (
                       <ActionForm
                         action={reviewListing}
                         label="Pause listing"

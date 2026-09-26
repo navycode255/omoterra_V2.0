@@ -57,6 +57,11 @@ DETECT = {
     '009_operator_accounts.sql': _table('operators'),
     '010_admin_setup.sql': _table('admin_setups'),
     '011_order_ratings.sql': _table('order_ratings'),
+    '012_ops_alerts.sql': _column('operators', 'alerts_seen_at'),
+    '013_referrals.sql': _table('referrals'),
+    '014_listing_changes.sql': _column('listings', 'review_note'),
+    '015_default_address.sql': _column('addresses', 'is_default'),
+    '016_media_uploads.sql': _table('media_uploads'),
 }
 
 _TRANSACTION_LINE = re.compile(r'^\s*(BEGIN|COMMIT)\s*;\s*$', re.I | re.M)

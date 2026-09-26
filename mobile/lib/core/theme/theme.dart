@@ -50,7 +50,8 @@ ThemeData omoterraTheme() {
     inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: Colors.white,
-        contentPadding: const EdgeInsets.all(16),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 16, vertical: 13),
         border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
             borderSide: const BorderSide(color: OColors.border)),

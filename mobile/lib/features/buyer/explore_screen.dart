@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/l10n/strings.dart';
@@ -12,10 +14,30 @@ class ExploreScreen extends StatefulWidget {
   State<ExploreScreen> createState() => _ExploreState();
 }
 
+/// How long typing must pause before the search goes to the server.
+const searchDebounce = Duration(milliseconds: 400);
+
 class _ExploreState extends State<ExploreScreen> {
   late String category = widget.initialCategory;
   String search = '', region = '', readyBy = '', condition = '';
   double? maxPrice, minWeight, maxWeight;
+  Timer? _typing;
+
+  @override
+  void dispose() {
+    _typing?.cancel();
+    super.dispose();
+  }
+
+  void _searchChanged(String value) {
+    _typing?.cancel();
+    _typing = Timer(searchDebounce, () {
+      if (mounted && value.trim() != search) {
+        setState(() => search = value.trim());
+      }
+    });
+  }
+
   Future<void> filters() async {
     final regionText = TextEditingController(text: region),
         price = TextEditingController(text: maxPrice?.toStringAsFixed(0) ?? ''),
@@ -23,31 +45,31 @@ class _ExploreState extends State<ExploreScreen> {
         minimum = TextEditingController(text: minWeight?.toString() ?? ''),
         maximum = TextEditingController(text: maxWeight?.toString() ?? '');
     String selectedCondition = condition;
+    final s = context.s;
     final values = await omoterraSheet<List<String>>(
         context,
         Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Filter supply', style: Theme.of(context).textTheme.titleLarge),
+          Text(s.filterSupply, style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 24),
-          OmoterraTextField('Region', regionText, requiredField: false),
-          OmoterraTextField('Maximum price per unit', price,
+          OmoterraTextField(s.regionLabel, regionText, requiredField: false),
+          OmoterraTextField(s.maxPricePerUnit, price,
               keyboard: TextInputType.number, requiredField: false),
-          OmoterraTextField('Ready by (YYYY-MM-DD)', date,
-              requiredField: false),
-          OmoterraTextField('Minimum weight (kg)', minimum,
+          OmoterraDateField(s.readyBy, date, optional: true),
+          OmoterraTextField(s.minWeightKg, minimum,
               requiredField: false, keyboard: TextInputType.number),
-          OmoterraTextField('Maximum weight (kg)', maximum,
+          OmoterraTextField(s.maxWeightKg, maximum,
               requiredField: false, keyboard: TextInputType.number),
           OmoterraDropdown<String>(
-              label: 'Condition',
+              label: s.condition,
               value: condition,
               items: ['', 'live', 'dressed', 'chilled', 'frozen']
                   .map((v) => DropdownMenuItem(
                       value: v,
-                      child: Text(v.isEmpty ? 'Any condition' : label(v))))
+                      child: Text(v.isEmpty ? s.anyCondition : s.label(v))))
                   .toList(),
               onChanged: (v) => selectedCondition = v!),
           const SizedBox(height: 24),
-          OmoterraButton('Apply filters',
+          OmoterraButton(s.applyFilters,
               onPressed: () => Navigator.pop(context, [
                     regionText.text,
                     price.text,
@@ -97,7 +119,7 @@ class _ExploreState extends State<ExploreScreen> {
                                     size: 20, color: OColors.muted),
                                 hintStyle: const TextStyle(
                                     color: OColors.muted, fontSize: 14)),
-                            onChanged: (v) => setState(() => search = v)))),
+                            onChanged: _searchChanged))),
                 const SizedBox(width: 10),
                 InkWell(
                     onTap: filters,
@@ -122,7 +144,7 @@ class _ExploreState extends State<ExploreScreen> {
                           .map((c) => Padding(
                               padding: const EdgeInsets.only(right: 8),
                               child: _FilterChip(
-                                  label: c.isEmpty ? s.all : label(c),
+                                  label: c.isEmpty ? s.all : s.label(c),
                                   selected: c == category,
                                   onTap: () => setState(() => category = c))))
                           .toList())),

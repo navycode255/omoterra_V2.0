@@ -3,8 +3,11 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/api/repository.dart';
 import '../../core/auth/session.dart';
+import '../../core/l10n/strings.dart';
+import '../../core/theme/theme.dart';
 import '../../shared/widgets/components.dart';
 import '../../shared/widgets/data_form.dart';
+import '../../shared/widgets/support_contact.dart';
 
 class AccountScreen extends ConsumerStatefulWidget {
   const AccountScreen({super.key});
@@ -21,8 +24,8 @@ class _AccountState extends ConsumerState<AccountScreen> {
       await ref.read(sessionProvider.notifier).switchRole(role);
     } catch (_) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Could not switch role. Please try again.')));
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(ref.read(stringsProvider).switchRoleFailed)));
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -34,12 +37,13 @@ class _AccountState extends ConsumerState<AccountScreen> {
     final session = ref.watch(sessionProvider);
     final user = session.valueOrNull;
     final role = ref.watch(activeRoleProvider);
+    final s = ref.s;
     if (user == null) {
       return Center(
           child: session.hasError
               ? TextButton(
                   onPressed: () => ref.invalidate(sessionProvider),
-                  child: const Text('Retry loading account'))
+                  child: Text(s.retryLoadingAccount))
               : const CircularProgressIndicator());
     }
     final initials = user.name
@@ -88,7 +92,7 @@ class _AccountState extends ConsumerState<AccountScreen> {
                       Padding(
                           padding: EdgeInsets.only(
                               top: 9 * scale, bottom: 43 * scale),
-                          child: Text('Your account',
+                          child: Text(s.yourAccount,
                               style: TextStyle(
                                   fontSize: 31 * scale,
                                   fontWeight: FontWeight.w800,
@@ -248,13 +252,13 @@ class _AccountState extends ConsumerState<AccountScreen> {
                                                                   context.push(
                                                                       '/account/edit'),
                                                               child:
-                                                                  const Text('Edit')))
+                                                                  Text(s.edit)))
                                                     ])
                                               ])))
                                 ]))
                           ])),
                       SizedBox(height: 16 * scale),
-                      Text('Your capabilities',
+                      Text(s.yourCapabilities,
                           style: TextStyle(
                               fontSize: 24 * scale,
                               fontWeight: FontWeight.w800,
@@ -263,7 +267,7 @@ class _AccountState extends ConsumerState<AccountScreen> {
                       SizedBox(height: 13 * scale),
                       for (final r in ['buyer', 'supplier'])
                         _AccountRow(
-                            title: r == 'buyer' ? 'Buy Supply' : 'Sell Supply',
+                            title: r == 'buyer' ? s.buySupply : s.sellSupply,
                             icon: r == 'buyer'
                                 ? Icons.shopping_basket_outlined
                                 : Icons.storefront_outlined,
@@ -275,31 +279,34 @@ class _AccountState extends ConsumerState<AccountScreen> {
                                 : () => user.roles.contains(r)
                                     ? _switchRole(r)
                                     : context.push('/register-role/$r')),
+                      // Location settings: where buyers get deliveries by
+                      // default, and where Omoterra collects from a farm.
                       if (role == 'buyer')
                         _AccountRow(
-                            title: 'Saved delivery address',
+                            title: s.deliveryLocation,
                             icon: Icons.location_on_outlined,
                             scale: scale,
                             onTap: () => context.push('/addresses')),
+                      if (role == 'supplier')
+                        _AccountRow(
+                            title: s.farmLocation,
+                            icon: Icons.agriculture_outlined,
+                            scale: scale,
+                            onTap: () =>
+                                context.push('/account/farm-location')),
                       _AccountRow(
-                          title: 'Profile & language',
+                          title: s.profileAndLanguage,
                           icon: Icons.language,
                           leaves: true,
                           scale: scale,
                           onTap: () => context.push('/account/edit')),
                       _AccountRow(
-                          title: 'Support',
+                          title: s.support,
                           icon: Icons.headset_mic_outlined,
                           scale: scale,
                           onTap: () => context.push('/account/support')),
                       _AccountRow(
-                          title: 'Delete account',
-                          icon: Icons.delete_outline,
-                          danger: true,
-                          scale: scale,
-                          onTap: () => context.push('/account/delete')),
-                      _AccountRow(
-                          title: 'Log out',
+                          title: s.logout,
                           icon: Icons.logout,
                           danger: true,
                           scale: scale,
@@ -314,6 +321,12 @@ class _AccountState extends ConsumerState<AccountScreen> {
                                   } catch (_) {}
                                   if (context.mounted) context.go('/welcome');
                                 }),
+                      Center(
+                          child: TextButton(
+                              onPressed: () => context.push('/admin'),
+                              child: Text(s.omoterraStaff,
+                                  style: const TextStyle(
+                                      fontSize: 12.5, color: OColors.muted)))),
                     ]))
           ]));
     });
@@ -483,20 +496,21 @@ class ProfileScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final user = ref.watch(sessionProvider).value!;
+    final s = ref.s;
     return Scaffold(
-        appBar: OmoterraAppBar(title: const Text('Profile & language')),
+        appBar: OmoterraAppBar(title: Text(s.profileAndLanguage)),
         body: ListView(padding: const EdgeInsets.all(20), children: [
           DataForm(
               path: '/me',
               method: 'PUT',
               fixed: {'roles': user.roles},
               fields: [
-                FormFieldSpec('name', 'Your name', initial: user.name),
-                FormFieldSpec('region', 'General region', initial: user.region),
-                FormFieldSpec('language', 'Language',
+                FormFieldSpec('name', s.yourName, initial: user.name),
+                FormFieldSpec('region', s.generalRegion, initial: user.region),
+                FormFieldSpec('language', s.language,
                     options: const ['en', 'sw'], initial: user.language),
                 if (user.roles.contains('buyer'))
-                  FormFieldSpec('buyer_type', 'Buyer type',
+                  FormFieldSpec('buyer_type', s.buyerType,
                       options: const [
                         'personal',
                         'restaurant',
@@ -508,11 +522,36 @@ class ProfileScreen extends ConsumerWidget {
                       ],
                       initial: user.buyerType ?? 'personal')
               ],
-              button: 'Save profile',
-              onSuccess: (_) {
+              button: s.saveProfile,
+              onSuccess: (saved) async {
+                // Keep the phone's own choice in step, so the app stays in
+                // this language after signing out too.
+                final language = saved is Map ? saved['language'] : null;
+                if (language == 'en' || language == 'sw') {
+                  await ref
+                      .read(sessionProvider.notifier)
+                      .setLanguage(language, saveToServer: false);
+                }
                 ref.invalidate(sessionProvider);
-                context.pop();
-              })
+                if (context.mounted) context.pop();
+              }),
+          // Kept here, away from Log out on the Account menu, so deleting an
+          // account always takes a deliberate trip: this screen, then typing
+          // DELETE on the next.
+          const SizedBox(height: 48),
+          const Divider(),
+          const SizedBox(height: 8),
+          Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                  key: const Key('delete_account_link'),
+                  style: TextButton.styleFrom(
+                      foregroundColor: Theme.of(context).colorScheme.error),
+                  onPressed: () => context.push('/account/delete'),
+                  icon: const Icon(Icons.delete_outline, size: 18),
+                  label: Text(s.deleteMyAccount))),
+          Text(s.deleteMyAccountBody,
+              style: const TextStyle(fontSize: 12, color: OColors.secondary)),
         ]));
   }
 }
@@ -522,133 +561,189 @@ class AddressesScreen extends ConsumerWidget {
   final Map<String, dynamic>? edit;
   const AddressesScreen({super.key, this.create = false, this.edit});
   @override
-  Widget build(BuildContext context, WidgetRef ref) => Scaffold(
-      appBar: OmoterraAppBar(
-          title: Text(create ? 'Delivery address' : 'Saved addresses')),
-      body: ListView(
-          padding: const EdgeInsets.all(20),
-          children: create
-              ? [
-                  DataForm(
-                      path: edit == null
-                          ? '/addresses'
-                          : '/addresses/${edit!['id']}',
-                      method: edit == null ? 'POST' : 'PUT',
-                      fields: [
-                        for (final entry in {
-                          'label': 'Address label',
-                          'recipient_name': 'Recipient name',
-                          'phone': 'Delivery phone (+255…)',
-                          'region': 'Region',
-                          'district_area': 'District / area',
-                          'address_text': 'Delivery directions'
-                        }.entries)
-                          FormFieldSpec(entry.key, entry.value,
-                              initial: edit?[entry.key] ?? '')
-                      ],
-                      button: 'Save address',
-                      onSuccess: (_) {
-                        ref.invalidate(resourceProvider('/addresses'));
-                        context.pop();
-                      })
-                ]
-              : [
-                  ResourceView('/addresses',
-                      builder: (rows) => Column(children: [
-                            for (final a in rows)
-                              Padding(
-                                  padding: const EdgeInsets.only(bottom: 12),
-                                  child: Surface(
-                                      child: Column(
-                                          crossAxisAlignment:
-                                              CrossAxisAlignment.start,
-                                          children: [
-                                        Text(a['label'],
-                                            style: Theme.of(context)
-                                                .textTheme
-                                                .titleLarge),
-                                        Text(
-                                            '${a['address_text']}, ${a['district_area']}'),
-                                        Row(children: [
-                                          TextButton(
-                                              onPressed: () => context.push(
-                                                  '/addresses/new',
-                                                  extra:
-                                                      Map<String, dynamic>.from(
-                                                          a)),
-                                              child: const Text('Edit')),
-                                          TextButton(
-                                              onPressed: () async {
-                                                try {
-                                                  await ref
-                                                      .read(repositoryProvider)
-                                                      .write(
-                                                          '/addresses/${a['id']}',
-                                                          {},
-                                                          method: 'DELETE');
-                                                  ref.invalidate(
-                                                      resourceProvider(
-                                                          '/addresses'));
-                                                } catch (e) {
-                                                  if (context.mounted) {
-                                                    ScaffoldMessenger.of(
-                                                            context)
-                                                        .showSnackBar(SnackBar(
-                                                            content:
-                                                                Text('$e')));
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.s;
+    return Scaffold(
+        appBar: OmoterraAppBar(
+            title: Text(create ? s.deliveryAddressTitle : s.deliveryLocation)),
+        body: ListView(
+            padding: const EdgeInsets.all(20),
+            children: create
+                ? [
+                    DataForm(
+                        path: edit == null
+                            ? '/addresses'
+                            : '/addresses/${edit!['id']}',
+                        method: edit == null ? 'POST' : 'PUT',
+                        fields: [
+                          for (final entry in {
+                            'label': s.addressLabel,
+                            'recipient_name': s.recipientName,
+                            'phone': s.deliveryPhone,
+                            'region': s.regionLabel,
+                            'district_area': s.districtArea,
+                            'address_text': s.deliveryDirections
+                          }.entries)
+                            FormFieldSpec(entry.key, entry.value,
+                                initial: edit?[entry.key] ?? '')
+                        ],
+                        button: s.saveAddress,
+                        onSuccess: (_) {
+                          ref.invalidate(resourceProvider('/addresses'));
+                          context.pop();
+                        })
+                  ]
+                : [
+                    ResourceView('/addresses',
+                        builder: (rows) => Column(children: [
+                              for (final a in rows)
+                                Padding(
+                                    padding: const EdgeInsets.only(bottom: 12),
+                                    child: Surface(
+                                        child: Column(
+                                            crossAxisAlignment:
+                                                CrossAxisAlignment.start,
+                                            children: [
+                                          Row(children: [
+                                            Flexible(
+                                                child: Text(a['label'],
+                                                    style: Theme.of(context)
+                                                        .textTheme
+                                                        .titleLarge)),
+                                            if (a['is_default'] == true) ...[
+                                              const SizedBox(width: 10),
+                                              Container(
+                                                  padding: const EdgeInsets
+                                                      .symmetric(
+                                                      horizontal: 10,
+                                                      vertical: 3),
+                                                  decoration: BoxDecoration(
+                                                      color: const Color(
+                                                          0xFFE3F0E8),
+                                                      borderRadius: BorderRadius
+                                                          .circular(20)),
+                                                  child: Text(
+                                                      s.defaultLabel,
+                                                      style: const TextStyle(
+                                                          fontSize: 12,
+                                                          fontWeight:
+                                                              FontWeight.w700,
+                                                          color:
+                                                              OColors.forest))),
+                                            ],
+                                          ]),
+                                          Text(
+                                              '${a['address_text']}, ${a['district_area']}'),
+                                          Wrap(children: [
+                                            TextButton(
+                                                onPressed: () => context.push(
+                                                    '/addresses/new',
+                                                    extra: Map<String,
+                                                        dynamic>.from(a)),
+                                                child: Text(s.edit)),
+                                            if (a['is_default'] != true)
+                                              TextButton(
+                                                  onPressed: () async {
+                                                    try {
+                                                      await ref
+                                                          .read(
+                                                              repositoryProvider)
+                                                          .write(
+                                                              '/addresses/${a['id']}/default',
+                                                              {});
+                                                      ref.invalidate(
+                                                          resourceProvider(
+                                                              '/addresses'));
+                                                    } catch (e) {
+                                                      if (context.mounted) {
+                                                        ScaffoldMessenger.of(
+                                                                context)
+                                                            .showSnackBar(SnackBar(
+                                                                content: Text(
+                                                                    friendlyErrorMessage(
+                                                                        e,
+                                                                        s))));
+                                                      }
+                                                    }
+                                                  },
+                                                  child: Text(s.makeDefault)),
+                                            TextButton(
+                                                onPressed: () async {
+                                                  try {
+                                                    await ref
+                                                        .read(
+                                                            repositoryProvider)
+                                                        .write(
+                                                            '/addresses/${a['id']}',
+                                                            {},
+                                                            method: 'DELETE');
+                                                    ref.invalidate(
+                                                        resourceProvider(
+                                                            '/addresses'));
+                                                  } catch (e) {
+                                                    if (context.mounted) {
+                                                      ScaffoldMessenger.of(
+                                                              context)
+                                                          .showSnackBar(SnackBar(
+                                                              content: Text(
+                                                                  friendlyErrorMessage(
+                                                                      e, s))));
+                                                    }
                                                   }
-                                                }
-                                              },
-                                              child: const Text('Remove'))
-                                        ])
-                                      ])))
-                          ])),
-                  const SizedBox(height: 16),
-                  OmoterraButton('Add address',
-                      onPressed: () => context.push('/addresses/new'))
-                ]));
+                                                },
+                                                child: Text(s.remove))
+                                          ])
+                                        ])))
+                            ])),
+                    const SizedBox(height: 16),
+                    OmoterraButton(s.addAddress,
+                        onPressed: () => context.push('/addresses/new'))
+                  ]));
+  }
 }
 
 class AccountInfoScreen extends StatelessWidget {
   final String page;
   const AccountInfoScreen(this.page, {super.key});
   @override
-  Widget build(BuildContext context) => Scaffold(
-      appBar: OmoterraAppBar(title: Text(label(page))),
-      body: ListView(padding: const EdgeInsets.all(20), children: [
-        if (page == 'support') ...[
-          ListTile(
-              title: const Text('Terms of service'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => context.push('/account/terms')),
-          ListTile(
-              title: const Text('Privacy notice'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => context.push('/account/privacy')),
-          ListTile(
-              title: const Text('Open-source licenses'),
-              trailing: const Icon(Icons.chevron_right),
-              onTap: () => showLicensePage(
-                  context: context, applicationName: 'Omoterra')),
-        ],
-        ResourceView('/config', builder: (config) {
-          final text = page == 'support'
-              ? config['support_phone']
-              : config['${page}_text'];
-          return Surface(
-              child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                if (page == 'support')
-                  const Text(
-                      'For help with supply, payment or delivery, contact the Omoterra team. Keep your order reference ready.'),
-                const SizedBox(height: 16),
-                SelectableText(text is String && text.isNotEmpty
-                    ? text
-                    : page == 'support'
-                        ? 'Use the Omoterra contact provided with your supply arrangement.'
-                        : 'Please contact Omoterra for the current ${page == 'terms' ? 'terms of service' : 'privacy notice'} before placing an order.'),
-              ]));
-        }),
-      ]));
+  Widget build(BuildContext context) {
+    final s = context.s;
+    return Scaffold(
+        appBar: OmoterraAppBar(title: Text(s.label(page))),
+        body: ListView(padding: const EdgeInsets.all(20), children: [
+          if (page == 'support') ...[
+            ListTile(
+                title: Text(s.termsOfService),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/account/terms')),
+            ListTile(
+                title: Text(s.privacyNotice),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => context.push('/account/privacy')),
+            SupportContact(topic: s.myAccountTopic),
+            ListTile(
+                title: Text(s.openSourceLicenses),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: () => showLicensePage(
+                    context: context, applicationName: 'Omoterra')),
+          ],
+          ResourceView('/config', builder: (config) {
+            final text = page == 'support'
+                ? config['support_phone']
+                : config['${page}_text'];
+            return Surface(
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                  if (page == 'support') Text(s.supportIntro),
+                  const SizedBox(height: 16),
+                  SelectableText(text is String && text.isNotEmpty
+                      ? text
+                      : page == 'support'
+                          ? s.supportFallback
+                          : s.contactForTerms(page == 'terms')),
+                ]));
+          }),
+        ]));
+  }
 }

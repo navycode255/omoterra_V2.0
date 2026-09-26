@@ -203,6 +203,9 @@ def test_fcm_sender_signs_in_once_and_sends_the_v1_message(tmp_path, monkeypatch
     assert sent['headers']['Authorization'] == 'Bearer at-1'
     assert sent['json']['message']['notification'] == {'title': 'Hi', 'body': 'Body'}
     assert sent['json']['message']['data'] == {'link': '/order/1', 'n': '3'}
+    # Rings and vibrates in the app's alert channel.
+    android = sent['json']['message']['android']['notification']
+    assert android['channel_id'] == 'omoterra_alerts' and android['sound'] == 'default'
 
 
 def test_push_settings_refuse_a_missing_or_wrong_key(tmp_path):
@@ -215,3 +218,43 @@ def test_push_settings_refuse_a_missing_or_wrong_key(tmp_path):
     with pytest.raises(RuntimeError, match='not a Firebase service-account key'):
         Settings(**base, fcm_credentials_file=str(wrong)).validate_runtime()
     Settings(**base, fcm_credentials_file=str(fake_service_account(tmp_path))).validate_runtime()
+
+
+def buyer_requirement(client, key='demand-note-001', category='broilers', unit='bird'):
+    from datetime import date
+    response = client.post('/api/v1/requirements', headers={**headers(), 'Idempotency-Key': key}, json={
+        'category': category, 'unit_type': unit, 'quantity': '200', 'needed_by_date': date.today().isoformat(),
+        'delivery_area': 'Kinondoni', 'delivery_region': 'Dar es Salaam'})
+    assert response.status_code == 200, response.text
+    return response.json()['id']
+
+
+def test_new_demand_alerts_suppliers_of_that_category_only(client, sessions, seeded, pushes):
+    with sessions.begin() as db:
+        other = m.User(phone='+255712340001', roles=['supplier'], name='Goat Farmer')
+        db.add(other); db.flush()
+        db.add(m.SupplierProfile(user_id=other.id, legal_name='G', internal_pickup_address='x',
+            status='approved', categories=['goats']))
+        pending = m.User(phone='+255712340002', roles=['supplier'], name='Pending Farmer')
+        db.add(pending); db.flush()
+        db.add(m.SupplierProfile(user_id=pending.id, legal_name='P', internal_pickup_address='x',
+            status='under_review', categories=['broilers']))
+        other_id, pending_id = other.id, pending.id
+    id = buyer_requirement(client)
+    supplier = inbox(client, 'supplier')['items']
+    assert supplier[0]['kind'] == 'demand_new' and supplier[0]['link'] == f'/supplier-demand/{id}'
+    assert 'Dar es Salaam' in supplier[0]['body'] and 'Buyer Test' not in supplier[0]['body']
+    with sessions() as db:
+        for user_id in (other_id, pending_id):
+            assert db.scalar(select(func.count()).select_from(m.Notification).where(m.Notification.user_id == user_id)) == 0
+
+
+def test_request_status_changes_reach_the_buyer(client, sessions, seeded, pushes):
+    id = buyer_requirement(client, key='demand-note-002')
+    moved = client.patch(f'/api/v1/ops/requirements/{id}/progress', headers=OPS, json={'status': 'cancelled'})
+    assert moved.status_code == 200, moved.text
+    buyer = inbox(client, 'buyer')['items']
+    assert buyer[0]['kind'] == 'request_cancelled' and buyer[0]['link'] == f'/requests/{id}'
+    # Saving the same status again doesn't repeat the notification.
+    client.patch(f'/api/v1/ops/requirements/{id}/progress', headers=OPS, json={'status': 'cancelled'})
+    assert [n['kind'] for n in inbox(client, 'buyer')['items']].count('request_cancelled') == 1

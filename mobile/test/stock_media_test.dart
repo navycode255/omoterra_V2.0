@@ -34,6 +34,10 @@ class _MediaRepository extends LocalRepository {
 
 Future<_MediaRepository> _open(WidgetTester tester, String status) async {
   final repository = _MediaRepository(status);
+  // A full phone height: the whole media screen is on screen at once.
+  tester.view.physicalSize = const Size(400, 1400);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
   await tester.pumpWidget(ProviderScope(
       overrides: [repositoryProvider.overrideWithValue(repository)],
       child: MaterialApp(
@@ -52,20 +56,38 @@ void main() {
 
     await tester.tap(find.text('Remove video'));
     await tester.pumpAndSettle();
+    expect(find.text('Remove this video?'), findsOneWidget);
+    await tester.tap(find.byKey(const Key('confirm_remove')));
+    await tester.pumpAndSettle();
     expect(find.text('Add video'), findsOneWidget);
     expect(find.byKey(const Key('media_review_notice')), findsOneWidget);
+    // The server is told straight away so it can delete the file.
+    expect(repository.writes.single.$1, '/media/clip');
+    expect(repository.writes.single.$3, 'DELETE');
 
-    await tester.tap(find.text('Save photos & video'));
+    await tester.tap(find.text('Save changes'));
     await tester.pumpAndSettle();
-    expect(repository.writes.single.$1, '/supplier/stock/s1/media');
-    expect(repository.writes.single.$2, {'photos': <String>[], 'video': null});
-    expect(repository.writes.single.$3, 'PUT');
+    expect(repository.writes.last.$1, '/supplier/stock/s1/media');
+    expect(repository.writes.last.$2, {'photos': <String>[], 'video': null});
+    expect(repository.writes.last.$3, 'PUT');
+  });
+
+  testWidgets('cancelling the prompt keeps the video', (tester) async {
+    final repository = await _open(tester, 'live');
+    await tester.tap(find.text('Remove video'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(find.text('Watch video'), findsOneWidget);
+    expect(repository.writes, isEmpty);
   });
 
   testWidgets('stock still in review changes media without the warning',
       (tester) async {
     await _open(tester, 'pending_review');
     await tester.tap(find.text('Remove video'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm_remove')));
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('media_review_notice')), findsNothing);
   });

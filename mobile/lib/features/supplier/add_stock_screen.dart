@@ -68,9 +68,8 @@ class _AddStockState extends ConsumerState<AddStockScreen>
           .write('/supplier/stock', preview!, key: key);
       ref.invalidate(resourceProvider('/supplier/stock'));
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text(
-                'Stock submitted — Omoterra will review it before it appears to buyers.')));
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text(ref.read(stringsProvider).stockSubmitted)));
         // Replace the form with the new stock so back returns to the list
         // it was opened from, not to a submitted form.
         context.pushReplacement('/stock/${row['id']}');
@@ -83,207 +82,213 @@ class _AddStockState extends ConsumerState<AddStockScreen>
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-      appBar: OmoterraAppBar(title: const Text('Add Production / Stock')),
-      body: ListView(padding: const EdgeInsets.all(20), children: [
-        ResourceView('/supplier/profile', builder: (profile) {
-          if (profile == null) {
-            return Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('First, your pickup details',
-                      style: Theme.of(context).textTheme.headlineMedium),
-                  const SizedBox(height: 12),
-                  const Text(
-                      'These details are for Omoterra operations only. Buyers never see your legal name or pickup address.'),
-                  const SizedBox(height: 24),
-                  DataForm(
-                      path: '/supplier/profile',
-                      method: 'PUT',
-                      fields: const [
-                        FormFieldSpec('legal_name', 'Legal name'),
-                        FormFieldSpec('internal_pickup_address',
-                            'Internal pickup address',
-                            multiline: true)
-                      ],
-                      button: 'Save & add stock',
-                      onSuccess: (_) =>
-                          ref.invalidate(resourceProvider('/supplier/profile')))
-                ]);
-          }
-          return Form(
-              key: form,
-              child: Column(
+  Widget build(BuildContext context) {
+    final s = ref.s;
+    return Scaffold(
+        appBar: OmoterraAppBar(title: Text(s.addProductionStock)),
+        body: ListView(padding: const EdgeInsets.all(20), children: [
+          ResourceView('/supplier/profile', builder: (profile) {
+            if (profile == null) {
+              return Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _StepDots(current: step, total: 5),
-                    const SizedBox(height: 20),
-                    Text(
-                        [
-                          ref.s.selectCategory,
-                          ref.s.stockDetails,
-                          ref.s.priceAndLocation,
-                          ref.s.addPhotos,
-                          ref.s.previewSubmit
-                        ][step],
+                    Text(s.firstPickupDetails,
                         style: Theme.of(context).textTheme.headlineMedium),
-                    const SizedBox(height: 20),
-                    if (step == 0)
-                      LayoutBuilder(
-                          builder: (context, box) => Wrap(
-                              spacing: 12,
-                              runSpacing: 12,
-                              children: categories
-                                  .map((c) => SizedBox(
-                                      width: (box.maxWidth - 12) / 2,
-                                      child: CategoryCard(c,
-                                          selected: category == c,
-                                          onTap: () =>
-                                              setState(() => category = c))))
-                                  .toList())),
-                    if (step == 1) ...[
-                      const Text(
-                          'Register livestock that is still growing or ready now. Tell us when this batch will be ready.'),
-                      const SizedBox(height: 16),
-                      OmoterraTextField('Quantity (${unitFor(category)})',
-                          field('quantity_total'),
-                          keyboard: const TextInputType.numberWithOptions(
-                              decimal: true)),
-                      for (final k in specKeys)
-                        if (k.endsWith('date'))
-                          OmoterraDateField(
-                              k == 'ready_date'
-                                  ? 'Expected ready date'
-                                  : label(k),
-                              field(
-                                  k,
-                                  DateTime.now()
-                                      .toIso8601String()
-                                      .split('T')
-                                      .first),
-                              pastAllowed: k == 'slaughter_date')
-                        else if ([
-                          'live_or_dressed',
-                          'chilled_or_frozen',
-                          'sex',
-                          'tray_size',
-                          'egg_size'
-                        ].contains(k))
-                          OmoterraDropdown<String>(
-                              value: field(
-                                      k,
-                                      switch (k) {
-                                        'live_or_dressed' => 'live',
-                                        'sex' => 'mixed',
-                                        'tray_size' => '30',
-                                        'egg_size' => 'medium',
-                                        _ => 'chilled',
-                                      })
-                                  .text,
-                              label: label(k),
-                              items: switch (k) {
-                                'live_or_dressed' => ['live', 'dressed'],
-                                'sex' => ['male', 'female', 'mixed'],
-                                'tray_size' => ['12', '24', '30'],
-                                'egg_size' => ['small', 'medium', 'large'],
-                                _ => ['chilled', 'frozen'],
-                              }
-                                  .map((v) => DropdownMenuItem(
-                                      value: v,
-                                      child: Text(k == 'tray_size'
-                                          ? '$v eggs'
-                                          : label(v))))
-                                  .toList(),
-                              onChanged: (value) => field(k).text = value!)
-                        else
-                          OmoterraTextField(label(k), field(k),
-                              keyboard:
-                                  ['avg_weight_kg', 'age_weeks'].contains(k)
-                                      ? const TextInputType.numberWithOptions(
-                                          decimal: true)
-                                      : TextInputType.text),
-                    ],
-                    if (step == 2) ...[
-                      OmoterraTextField(
-                          'Your asking price per ${unitFor(category)} (TZS)',
-                          field('farmer_asking_price_per_unit'),
-                          keyboard: TextInputType.number),
-                      OmoterraTextField(
-                          'General region',
-                          field(
-                              'region',
-                              ref.read(sessionProvider).valueOrNull?.region ??
-                                  '')),
-                      const Text(
-                          'Omoterra reviews your asking price before the stock becomes available to buyers.')
-                    ],
-                    if (step == 3) ...[
-                      PhotoPicker(
-                          photos: photos,
-                          onChanged: (value) => setState(() => photos = value)),
-                      const SizedBox(height: 28),
-                      StockVideoPicker(
-                          video: video,
-                          onChanged: (value) => setState(() => video = value)),
-                    ],
-                    if (step == 4) ...[
-                      ProductImage(photos, category: category, height: 150),
-                      if (video != null) ...[
-                        const SizedBox(height: 10),
-                        StockVideoTile(video!),
-                      ],
-                      const SizedBox(height: 16),
-                      MoneySummary({
-                        'Category': label(category),
-                        'Quantity':
-                            '${preview!['quantity_total']} ${unitFor(category)}',
-                        'Asking price':
-                            tsh(preview!['farmer_asking_price_per_unit']),
-                        'Region': preview!['region']
-                      }),
-                      const SizedBox(height: 12),
-                      MoneySummary(Map<String, dynamic>.from(preview!['specs'])
-                          .map((k, v) => MapEntry(label(k), '$v')))
-                    ],
-                    if (error != null) ErrorState(error!),
+                    const SizedBox(height: 12),
+                    Text(s.pickupDetailsPrivate),
                     const SizedBox(height: 24),
-                    OmoterraButton(step == 4 ? 'Submit for review' : 'Continue',
-                        busy: busy, onPressed: () {
-                      if (step == 4) {
-                        submit();
-                        return;
-                      }
-                      if (!form.currentState!.validate()) return;
-                      setState(() {
-                        if (step == 3) {
-                          preview = {
-                            'category': category,
-                            'unit_type': unitFor(category),
-                            'quantity_total':
-                                field('quantity_total').text.trim(),
-                            'farmer_asking_price_per_unit':
-                                field('farmer_asking_price_per_unit')
-                                    .text
-                                    .trim(),
-                            'region': field('region').text.trim(),
-                            'specs': {
-                              for (final k in specKeys) k: field(k).text.trim()
-                            },
-                            'photos': photos,
-                            'video': video,
-                          };
+                    DataForm(
+                        path: '/supplier/profile',
+                        method: 'PUT',
+                        fields: [
+                          FormFieldSpec('legal_name', s.legalName),
+                          FormFieldSpec('internal_pickup_address',
+                              s.internalPickupAddress,
+                              multiline: true)
+                        ],
+                        button: s.saveAndAddStock,
+                        onSuccess: (_) => ref
+                            .invalidate(resourceProvider('/supplier/profile')))
+                  ]);
+            }
+            return Form(
+                key: form,
+                child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _StepDots(current: step, total: 5),
+                      const SizedBox(height: 20),
+                      Text(
+                          [
+                            s.selectCategory,
+                            s.stockDetails,
+                            s.priceAndLocation,
+                            s.addPhotos,
+                            s.previewSubmit
+                          ][step],
+                          style: Theme.of(context).textTheme.headlineMedium),
+                      const SizedBox(height: 20),
+                      if (step == 0)
+                        LayoutBuilder(
+                            builder: (context, box) => Wrap(
+                                spacing: 12,
+                                runSpacing: 12,
+                                children: categories
+                                    .map((c) => SizedBox(
+                                        width: (box.maxWidth - 12) / 2,
+                                        child: CategoryCard(c,
+                                            selected: category == c,
+                                            onTap: () =>
+                                                setState(() => category = c))))
+                                    .toList())),
+                      if (step == 1) ...[
+                        Text(s.registerLivestockIntro),
+                        const SizedBox(height: 16),
+                        OmoterraTextField(
+                            s.quantityIn(s.unit(unitFor(category), 1)),
+                            field('quantity_total'),
+                            keyboard: const TextInputType.numberWithOptions(
+                                decimal: true)),
+                        for (final k in specKeys)
+                          if (k.endsWith('date'))
+                            OmoterraDateField(
+                                k == 'ready_date'
+                                    ? s.expectedReadyDate
+                                    : s.label(k),
+                                field(
+                                    k,
+                                    DateTime.now()
+                                        .toIso8601String()
+                                        .split('T')
+                                        .first),
+                                pastAllowed: k == 'slaughter_date')
+                          else if ([
+                            'live_or_dressed',
+                            'chilled_or_frozen',
+                            'sex',
+                            'tray_size',
+                            'egg_size'
+                          ].contains(k))
+                            OmoterraDropdown<String>(
+                                value: field(
+                                        k,
+                                        switch (k) {
+                                          'live_or_dressed' => 'live',
+                                          'sex' => 'mixed',
+                                          'tray_size' => '30',
+                                          'egg_size' => 'medium',
+                                          _ => 'chilled',
+                                        })
+                                    .text,
+                                label: s.label(k),
+                                items: switch (k) {
+                                  'live_or_dressed' => ['live', 'dressed'],
+                                  'sex' => ['male', 'female', 'mixed'],
+                                  'tray_size' => ['12', '24', '30'],
+                                  'egg_size' => ['small', 'medium', 'large'],
+                                  _ => ['chilled', 'frozen'],
+                                }
+                                    .map((v) => DropdownMenuItem(
+                                        value: v,
+                                        child: Text(k == 'tray_size'
+                                            ? s.nEggs(v)
+                                            : s.label(v))))
+                                    .toList(),
+                                onChanged: (value) => field(k).text = value!)
+                          else
+                            OmoterraTextField(s.label(k), field(k),
+                                keyboard:
+                                    ['avg_weight_kg', 'age_weeks'].contains(k)
+                                        ? const TextInputType.numberWithOptions(
+                                            decimal: true)
+                                        : TextInputType.text),
+                      ],
+                      if (step == 2) ...[
+                        OmoterraTextField(
+                            s.askingPricePer(s.unit(unitFor(category), 1)),
+                            field('farmer_asking_price_per_unit'),
+                            keyboard: TextInputType.number),
+                        OmoterraTextField(
+                            s.generalRegion,
+                            field(
+                                'region',
+                                ref.read(sessionProvider).valueOrNull?.region ??
+                                    '')),
+                        Text(s.priceReviewNote)
+                      ],
+                      if (step == 3) ...[
+                        PhotoPicker(
+                            photos: photos,
+                            onChanged: (value) =>
+                                setState(() => photos = value)),
+                        const SizedBox(height: 28),
+                        StockVideoPicker(
+                            video: video,
+                            onChanged: (value) =>
+                                setState(() => video = value)),
+                      ],
+                      if (step == 4) ...[
+                        ProductImage(photos, category: category, height: 150),
+                        if (video != null) ...[
+                          const SizedBox(height: 10),
+                          StockVideoTile(video!),
+                        ],
+                        const SizedBox(height: 16),
+                        MoneySummary({
+                          s.category: s.label(category),
+                          s.quantity:
+                              '${preview!['quantity_total']} ${s.unit(unitFor(category), num.tryParse('${preview!['quantity_total']}'))}',
+                          s.askingPriceShort:
+                              tsh(preview!['farmer_asking_price_per_unit']),
+                          s.regionLabel: preview!['region']
+                        }),
+                        const SizedBox(height: 12),
+                        MoneySummary(
+                            Map<String, dynamic>.from(preview!['specs'])
+                                .map((k, v) => MapEntry(s.label(k), '$v')))
+                      ],
+                      if (error != null) ErrorState(error!),
+                      const SizedBox(height: 24),
+                      OmoterraButton(
+                          step == 4 ? s.submitForReviewLower : s.continueLabel,
+                          busy: busy, onPressed: () {
+                        if (step == 4) {
+                          submit();
+                          return;
                         }
-                        step++;
-                      });
-                      pushStep(() => step--);
-                    }),
-                    if (step > 0)
-                      TextButton(
-                          onPressed: busy ? null : popStep,
-                          child: const Text('Back'))
-                  ]));
-        })
-      ]));
+                        if (!form.currentState!.validate()) return;
+                        setState(() {
+                          if (step == 3) {
+                            preview = {
+                              'category': category,
+                              'unit_type': unitFor(category),
+                              'quantity_total':
+                                  field('quantity_total').text.trim(),
+                              'farmer_asking_price_per_unit':
+                                  field('farmer_asking_price_per_unit')
+                                      .text
+                                      .trim(),
+                              'region': field('region').text.trim(),
+                              'specs': {
+                                for (final k in specKeys)
+                                  k: field(k).text.trim()
+                              },
+                              'photos': photos,
+                              'video': video,
+                            };
+                          }
+                          step++;
+                        });
+                        pushStep(() => step--);
+                      }),
+                      if (step > 0)
+                        TextButton(
+                            onPressed: busy ? null : popStep,
+                            child: Text(s.back))
+                    ]));
+          })
+        ]));
+  }
 }
 
 /// Numbered progress dots across the Add Stock steps, as drawn.

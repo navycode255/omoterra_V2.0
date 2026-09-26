@@ -123,7 +123,7 @@ class _SetupState extends ConsumerState<SetupScreen> {
                                 padding: const EdgeInsets.only(bottom: 10),
                                 child: _ChoiceRow(
                                     icon: entry.value,
-                                    label: label(entry.key),
+                                    label: s.label(entry.key),
                                     selected: buyerType == entry.key,
                                     onTap: () =>
                                         setState(() => buyerType = entry.key))),
@@ -146,9 +146,7 @@ class _SetupState extends ConsumerState<SetupScreen> {
                           return;
                         }
                         if (!buy && !sell) {
-                          setState(() => error = s.isSwahili
-                              ? 'Chagua Nunua Bidhaa au Uuze Bidhaa.'
-                              : 'Choose Buy Supply or Sell Supply.');
+                          setState(() => error = s.chooseBuyOrSell);
                           return;
                         }
                         setState(() {

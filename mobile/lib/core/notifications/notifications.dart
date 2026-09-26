@@ -3,10 +3,12 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../api/repository.dart';
 import '../auth/session.dart';
+import '../l10n/strings.dart';
 
 /// The signed-in user's inbox: `{unread, items}`. Kept apart from
 /// resourceProvider so a failed badge check never replaces the screen with
@@ -120,6 +122,7 @@ class NotificationsHost extends ConsumerStatefulWidget {
 }
 
 class _NotificationsHostState extends ConsumerState<NotificationsHost> {
+  static const _alerts = MethodChannel('omoterra/alerts');
   late final AppLifecycleListener _lifecycle = AppLifecycleListener(
       onResume: () => ref.invalidate(notificationsProvider));
 
@@ -142,12 +145,14 @@ class _NotificationsHostState extends ConsumerState<NotificationsHost> {
     ref.read(pushProvider).start(
         onForeground: (message) {
           ref.invalidate(notificationsProvider);
+          // The system stays silent while the app is open: ring and buzz here.
+          _alerts.invokeMethod<void>('alert').catchError((_) {});
           final title = message.notification?.title;
           if (title == null) return;
           widget.messenger.currentState?.showSnackBar(SnackBar(
               content: Text(title),
               action: SnackBarAction(
-                  label: 'View',
+                  label: ref.read(stringsProvider).view,
                   onPressed: () => _open(message, replace: false))));
         },
         onOpened: (message) => _open(message, replace: true));

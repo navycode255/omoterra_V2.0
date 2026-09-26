@@ -73,6 +73,12 @@ class WelcomeScreen extends ConsumerWidget {
                             textAlign: TextAlign.center,
                             style: const TextStyle(
                                 fontSize: 13, color: OColors.secondary)),
+                        // Small on purpose: only Omoterra staff need it.
+                        TextButton(
+                            onPressed: () => context.push('/admin'),
+                            child: Text(s.omoterraStaff,
+                                style: const TextStyle(
+                                    fontSize: 12, color: OColors.muted))),
                       ]))))),
     ])));
   }

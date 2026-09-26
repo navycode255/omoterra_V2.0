@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/repository.dart';
+import '../../core/l10n/strings.dart';
 import 'components.dart';
 
 class FormFieldSpec {
@@ -23,7 +24,10 @@ class FormFieldSpec {
 
 class DataForm extends ConsumerStatefulWidget {
   final List<FormFieldSpec> fields;
-  final String path, method, button;
+  final String path, method;
+
+  /// The submit button's text; "Submit" when omitted.
+  final String? button;
   final String? reviewTitle, reviewCopy;
   final Map<String, dynamic> fixed;
   final Map<String, dynamic> Function(Map<String, dynamic>)? transform;
@@ -36,7 +40,7 @@ class DataForm extends ConsumerStatefulWidget {
       this.reviewTitle,
       this.reviewCopy,
       this.method = 'POST',
-      this.button = 'Submit',
+      this.button,
       this.fixed = const {},
       this.transform});
   @override
@@ -89,11 +93,11 @@ class _DataFormState extends ConsumerState<DataForm> {
                   f.title: controllers[f.key]!.text
             }),
             const SizedBox(height: 24),
-            OmoterraButton(widget.button,
+            OmoterraButton(widget.button ?? context.s.submit,
                 onPressed: () => Navigator.pop(context, true)),
             TextButton(
                 onPressed: () => Navigator.pop(context, false),
-                child: const Text('Go back'))
+                child: Text(context.s.goBack))
           ]));
       if (approved != true || !mounted) return;
     }
@@ -147,7 +151,7 @@ class _DataFormState extends ConsumerState<DataForm> {
                           runSpacing: 4,
                           children: field.multiOptions!
                               .map((value) => FilterChip(
-                                    label: Text(label(value)),
+                                    label: Text(ref.s.label(value)),
                                     selected: multiSelections[field.key]!
                                         .contains(value),
                                     showCheckmark: false,
@@ -171,7 +175,7 @@ class _DataFormState extends ConsumerState<DataForm> {
                 value: selections[field.key]!,
                 items: field.options!
                     .map((v) =>
-                        DropdownMenuItem(value: v, child: Text(label(v))))
+                        DropdownMenuItem(value: v, child: Text(ref.s.label(v))))
                     .toList(),
                 onChanged: busy
                     ? null
@@ -182,7 +186,7 @@ class _DataFormState extends ConsumerState<DataForm> {
           else
             OmoterraTextField(
                 field.key == 'quantity' && selections.containsKey('category')
-                    ? '${field.title} (${unitFor(selections['category']!)})'
+                    ? '${field.title} (${ref.s.unit(unitFor(selections['category']!))})'
                     : field.title,
                 controllers[field.key]!,
                 keyboard: field.numeric
@@ -191,6 +195,7 @@ class _DataFormState extends ConsumerState<DataForm> {
                 lines: field.multiline ? 3 : 1,
                 requiredField: !field.optional),
         if (error != null) ErrorState(error!),
-        OmoterraButton(widget.button, busy: busy, onPressed: submit)
+        OmoterraButton(widget.button ?? ref.s.submit,
+            busy: busy, onPressed: submit)
       ]));
 }

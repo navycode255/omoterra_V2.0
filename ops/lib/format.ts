@@ -133,7 +133,7 @@ export function paymentTone(status: string): Tone {
 export function listingTone(status: string): Tone {
   if (status === 'live') return 'positive';
   if (status === 'rejected') return 'error';
-  if (status === 'pending_review' || status === 'needs_confirmation') return 'warning';
+  if (status === 'pending_review' || status === 'needs_confirmation' || status === 'changes_requested') return 'warning';
   return 'neutral';
 }
 

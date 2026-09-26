@@ -217,3 +217,59 @@ def test_buyer_can_create_recurring_requirement(client, sessions, seeded):
         assert row.created_by == 'buyer'
         assert row.minimum_weight_kg == Decimal('1.8')
         assert row.maximum_weight_kg == Decimal('2.2')
+
+
+def _request_body(**changes):
+    from datetime import date, timedelta
+    body = {'category': 'broilers', 'unit_type': 'bird', 'quantity': '20',
+            'needed_by_date': (date.today() + timedelta(days=2)).isoformat(),
+            'delivery_area': 'Kinondoni', 'delivery_region': 'Dar es Salaam'}
+    return {**body, **changes}
+
+
+def test_buyer_edits_request_until_supply_is_secured(client, sessions, seeded):
+    created = client.post('/api/v1/requests', headers={**headers(), 'Idempotency-Key': 'edit-req-001'},
+        json=_request_body())
+    assert created.status_code == 200, created.text
+    id = created.json()['id']
+    assert created.json()['editable'] is True
+    edited = client.put(f'/api/v1/requests/{id}', headers=headers(), json=_request_body(quantity='35', delivery_area='Kigamboni'))
+    assert edited.status_code == 200, edited.text
+    assert edited.json()['quantity'] in ('35', '35.000', 35) and edited.json()['delivery_area'] == 'Kigamboni'
+    # Someone else's request can't be edited.
+    assert client.put(f'/api/v1/requests/{id}', headers=headers('other'), json=_request_body()).status_code == 404
+    # Once confirmed, it is locked.
+    with sessions.begin() as db:
+        db.get(m.SourcingRequest, id).status = 'confirmed'
+    locked = client.put(f'/api/v1/requests/{id}', headers=headers(), json=_request_body(quantity='40'))
+    assert locked.status_code == 409
+    assert client.get(f'/api/v1/requests/{id}', headers=headers()).json()['editable'] is False
+
+
+def test_a_member_never_sees_or_supplies_their_own_demand(client, sessions, seeded):
+    today = date.today().isoformat()
+    with sessions.begin() as db:
+        # The seeded supplier also buys: their own request, and one from someone else.
+        member = db.get(m.User, seeded['supplier'])
+        member.roles = ['buyer', 'supplier']
+        db.get(m.SupplierProfile, seeded['supplier']).categories = ['broilers']
+        own = m.SourcingRequest(buyer_id=seeded['supplier'], requirement_number='REQ-OWN00001', category='broilers',
+            quantity=20, unit_type='bird', needed_by_date=today, delivery_area='Kinondoni', delivery_region='Dar es Salaam', status='open',
+            created_by='buyer')
+        other = m.SourcingRequest(buyer_id=seeded['buyer'], requirement_number='REQ-OTHER001', category='broilers',
+            quantity=10, unit_type='bird', needed_by_date=today, delivery_area='Kinondoni', delivery_region='Dar es Salaam', status='open',
+            created_by='buyer')
+        ops_made = m.SourcingRequest(buyer_id=None, requirement_number='REQ-OPS00001', category='broilers',
+            quantity=5, unit_type='bird', needed_by_date=today, delivery_area='Kinondoni', delivery_region='Dar es Salaam', status='open',
+            created_by='operator')
+        batch = m.SupplierBatch(supplier_id=seeded['supplier'], category='broilers', initial_quantity=40,
+            current_quantity=40, expected_ready_date=today, region='Dar es Salaam', status='ready')
+        db.add_all([own, other, ops_made, batch]); db.flush()
+        own_id, other_id, ops_id, batch_id = own.id, other.id, ops_made.id, batch.id
+    listed = {row['id'] for row in client.get('/api/v1/supplier/demand', headers=headers('supplier')).json()}
+    assert own_id not in listed and {other_id, ops_id} <= listed
+    assert client.get(f'/api/v1/supplier/demand/{own_id}', headers=headers('supplier')).status_code == 404
+    offer = client.post(f'/api/v1/supplier/demand/{own_id}/offers',
+        headers={**headers('supplier'), 'Idempotency-Key': 'offer-own-demand'},
+        json={'batch_id': batch_id, 'offered_quantity': '5'})
+    assert offer.status_code == 404

@@ -18,20 +18,29 @@ import httpx
 from sqlalchemy import delete, event, select
 from sqlalchemy.orm import Session
 
-from . import models as m
+from . import i18n, models as m
 from .config import settings
 
 log = logging.getLogger(__name__)
 _PENDING = 'omoterra_pending_push'
 
 
-def notify(db, user_id, role, kind, title, body='', link=''):
-    """Queue a notification for one user. Deleted accounts get nothing."""
+def notify(db, user_id, role, kind, message, link='', extra=None):
+    """Queue a notification for one user. Deleted accounts get nothing.
+
+    `message` is an i18n.M whose key has `.title` and `.body` entries; both
+    are written in the recipient's language, with `extra` (another M)
+    appended to the body."""
     if not user_id:
         return None
     user = db.get(m.User, user_id)
     if not user or user.deleted:
         return None
+    lang = user.language or 'en'
+    title = i18n.t(f'{message.key}.title', lang, **message.values)
+    body = i18n.t(f'{message.key}.body', lang, **message.values)
+    if extra:
+        body = f'{body} {i18n.render(extra, lang)}'
     row = m.Notification(user_id=user_id, role=role, kind=kind, title=title, body=body, link=link)
     db.add(row)
     db.flush()
@@ -123,7 +132,11 @@ class FcmPushSender:
         response = httpx.post(self.url, timeout=15, headers={'Authorization': f'Bearer {self._access_token()}'}, json={
             'message': {'token': token, 'notification': {'title': title, 'body': body},
                         'data': {k: str(v) for k, v in data.items()},
-                        'android': {'priority': 'high'}}})
+                        # The app's "Omoterra alerts" channel rings and vibrates.
+                        'android': {'priority': 'high', 'notification': {
+                            'channel_id': 'omoterra_alerts', 'sound': 'default',
+                            'default_vibrate_timings': True,
+                            'notification_priority': 'PRIORITY_HIGH'}}}})
         if response.status_code == 404 or (response.status_code == 400 and 'registration token' in response.text):
             return 'unregistered'
         response.raise_for_status()

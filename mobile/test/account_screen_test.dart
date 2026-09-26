@@ -30,12 +30,18 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('Preview Account'), findsOneWidget);
       expect(tester.takeException(), isNull);
+      // Deleting the account is never one tap away from Log out.
+      expect(find.text('Delete account'), findsNothing);
       await tester.tap(find.text('Edit'));
       await tester.pumpAndSettle();
       expect(find.byType(ProfileScreen), findsOneWidget);
+      await tester.scrollUntilVisible(
+          find.byKey(const Key('delete_account_link')), 200,
+          scrollable: find.byType(Scrollable).last);
+      expect(find.text('Delete my account'), findsOneWidget);
       router.pop();
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Saved delivery address'));
+      await tester.tap(find.text('Delivery location'));
       await tester.pumpAndSettle();
       expect(find.byType(AddressesScreen), findsOneWidget);
       router.pop();
@@ -47,7 +53,9 @@ void main() {
       await tester.pumpAndSettle();
       expect(state.read(activeRoleProvider), 'supplier');
       expect(find.text('SUPPLIER'), findsOneWidget);
-      expect(find.text('Saved delivery address'), findsNothing);
+      // Suppliers set their farm location; buyers their delivery location.
+      expect(find.text('Delivery location'), findsNothing);
+      expect(find.text('Farm location'), findsOneWidget);
       expect(tester.takeException(), isNull);
     });
   }

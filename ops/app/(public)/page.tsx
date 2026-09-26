@@ -54,8 +54,8 @@ export default function MarketingHome() {
         </nav>
         <div className="marketing-actions">
           <Link className="search-link" href="#explore-livestock" aria-label="Explore livestock"><Mark kind="search" /></Link>
-          <Link className="button button-light" href="/sign-in">Login</Link>
-          <Link className="button button-primary" href="#for-buyers">Get Started</Link>
+          <Link className="button button-light" href="/login">Login</Link>
+          <Link className="button button-primary" href="/register">Get Started</Link>
         </div>
       </header>
 
@@ -68,7 +68,7 @@ export default function MarketingHome() {
           <p className="hero-description">Omoterra connects farmers, buyers and markets to make livestock supply simple, transparent and reliable across Tanzania.</p>
           <div className="hero-buttons">
             <Link className="button button-primary" href="#for-buyers">Buy Livestock</Link>
-            <Link className="button button-outline" href="#for-suppliers">Request Supply</Link>
+            <Link className="button button-outline" href="/register/buyer">Request Supply</Link>
           </div>
           <div className="trust-points">
             <span><Mark kind="shield" /> Verified supply</span>
@@ -84,7 +84,7 @@ export default function MarketingHome() {
         <div id="explore-livestock" />
         <div className="section-heading-row">
           <p className="eyebrow">Explore livestock</p>
-          <Link className="text-link" href="#for-buyers">View all <span aria-hidden="true">→</span></Link>
+          <Link className="button button-primary" href="/register/buyer">Register as Buyer</Link>
         </div>
         <div className="category-grid">
           {categories.map((category) => (
@@ -112,7 +112,17 @@ export default function MarketingHome() {
         </div>
       </section>
 
-      <section className="process-section" id="for-suppliers">
+      <section className="supplier-section" id="for-suppliers">
+        <div className="supplier-copy">
+          <p className="eyebrow">For suppliers</p>
+          <h2>Sell your livestock to reliable markets</h2>
+          <p>List your stock with Omoterra and we bring the buyers, collection and payment.</p>
+          <Link className="button button-primary" href="/register/supplier">Register as Supplier</Link>
+        </div>
+        <div className="supplier-photo" role="img" aria-label="Farmer holding a young calf on a Tanzanian farm" />
+      </section>
+
+      <section className="process-section">
         <p className="eyebrow" id="how-it-works">How Omoterra works</p>
         <div className="process-grid">
           <article><span className="process-icon"><Mark kind="document" /></span><h3>1. Tell us what you need</h3><p>Buy available stock or request specific supply.</p></article>
@@ -132,7 +142,7 @@ export default function MarketingHome() {
           <h2>Let’s build better<br />livestock markets</h2>
           <p>Join farmers and businesses creating a stronger, more food-secure Tanzania with Omoterra.</p>
           <div className="hero-buttons">
-            <Link className="button button-primary" href="#for-buyers">Get Started</Link>
+            <Link className="button button-primary" href="/register">Get Started</Link>
             <a className="button button-outline" href="mailto:hello@omoterra.co.tz">Contact Sales</a>
           </div>
         </div>

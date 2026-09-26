@@ -21,6 +21,7 @@ const GROUPS = [
   { label: 'Partners', modules: [
     { href: '/suppliers', label: 'Suppliers', icon: Icons.users, key: null },
     { href: '/buyers', label: 'Buyers', icon: Icons.users, key: null },
+    { href: '/ratings', label: 'Ratings', icon: Icons.star, key: null },
   ] },
 ] as const;
 

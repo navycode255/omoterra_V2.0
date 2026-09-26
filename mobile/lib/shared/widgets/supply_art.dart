@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/theme/theme.dart';
 
 /// Original vector artwork: livestock, meat and the managed supply journey.
@@ -10,7 +11,7 @@ class SupplyArt extends StatelessWidget {
   const SupplyArt(this.kind, {super.key, this.size = 80, this.surface = true});
   @override
   Widget build(BuildContext context) => Semantics(
-      label: '${kind.replaceAll('_', ' ')} illustration',
+      label: context.s.illustration(kind),
       image: true,
       child: Container(
           width: size,
@@ -27,7 +28,7 @@ class FarmScene extends StatelessWidget {
   const FarmScene({super.key, this.height = 200});
   @override
   Widget build(BuildContext context) => Semantics(
-      label: 'Chicken, goats and cattle from farms, coordinated by Omoterra',
+      label: context.s.farmSceneLabel,
       image: true,
       child: ClipRRect(
           borderRadius: BorderRadius.circular(22),

@@ -4,6 +4,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:geolocator/geolocator.dart';
 import 'package:latlong2/latlong.dart';
 import '../../core/api/repository.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/theme/theme.dart';
 import 'components.dart';
 
@@ -130,10 +131,10 @@ class _FarmLocationFieldState extends State<FarmLocationField> {
   Future<void> _useLink() async {
     final link = extractLink(_link.text.trim());
     if (link == null || !isGoogleMapsLink(link)) {
-      setState(() => _error =
-          'Paste the link from Google Maps (Share → Copy link), or pick the farm on the map.');
+      setState(() => _error = context.s.pasteMapsLinkError);
       return;
     }
+    final s = context.s;
     setState(() {
       _busy = true;
       _error = null;
@@ -142,16 +143,13 @@ class _FarmLocationFieldState extends State<FarmLocationField> {
       final full = await widget.resolve(link);
       final point = parseGoogleMapsLocation(full);
       if (point == null) {
-        throw const ApiFailure(
-            'We couldn’t read a location from this link. Drop a pin in Google Maps and share that, or pick the farm on the map.');
+        throw ApiFailure(s.linkNoLocation);
       }
       widget.onChanged(FarmLocation(point.latitude, point.longitude, link));
       _link.clear();
     } catch (e) {
       if (mounted) {
-        setState(() => _error = e is ApiFailure
-            ? e.message
-            : 'We couldn’t open this link. Check your connection, or pick the farm on the map.');
+        setState(() => _error = e is ApiFailure ? e.message : s.linkOpenFailed);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -170,15 +168,14 @@ class _FarmLocationFieldState extends State<FarmLocationField> {
   @override
   Widget build(BuildContext context) {
     final value = widget.value;
+    final s = context.s;
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        Text('Farm location on the map',
-            style: Theme.of(context).textTheme.titleMedium),
+        Text(s.farmOnMap, style: Theme.of(context).textTheme.titleMedium),
         const SizedBox(height: 4),
-        const Text(
-            'So Omoterra can find the exact farm. Only Omoterra staff see this.',
-            style: TextStyle(fontSize: 12, color: OColors.secondary)),
+        Text(s.farmOnMapBody,
+            style: const TextStyle(fontSize: 12, color: OColors.secondary)),
         const SizedBox(height: 12),
         if (value != null) ...[
           ClipRRect(
@@ -200,8 +197,7 @@ class _FarmLocationFieldState extends State<FarmLocationField> {
                     key: const Key('farm_location_label'),
                     style: const TextStyle(fontWeight: FontWeight.w700))),
             TextButton(
-                onPressed: () => widget.onChanged(null),
-                child: const Text('Remove')),
+                onPressed: () => widget.onChanged(null), child: Text(s.remove)),
           ]),
         ] else ...[
           TextField(
@@ -209,7 +205,7 @@ class _FarmLocationFieldState extends State<FarmLocationField> {
               controller: _link,
               keyboardType: TextInputType.url,
               decoration: InputDecoration(
-                  labelText: 'Paste Google Maps link',
+                  labelText: s.pasteMapsLink,
                   hintText: 'https://maps.app.goo.gl/…',
                   suffixIcon: _busy
                       ? const Padding(
@@ -219,16 +215,17 @@ class _FarmLocationFieldState extends State<FarmLocationField> {
                               height: 16,
                               child: CircularProgressIndicator(strokeWidth: 2)))
                       : IconButton(
-                          tooltip: 'Use this link',
+                          tooltip: s.useThisLink,
                           icon: const Icon(Icons.check_circle_outline),
                           onPressed: _useLink)),
               onSubmitted: (_) => _useLink()),
           const SizedBox(height: 8),
-          const Center(
-              child: Text('or', style: TextStyle(color: OColors.secondary))),
+          Center(
+              child:
+                  Text(s.or, style: const TextStyle(color: OColors.secondary))),
           const SizedBox(height: 8),
         ],
-        OmoterraButton(value == null ? 'Pick on map' : 'Change on map',
+        OmoterraButton(value == null ? s.pickOnMap : s.changeOnMap,
             icon: Icons.map_outlined,
             secondary: true,
             onPressed: _busy ? null : _pickOnMap),
@@ -303,13 +300,14 @@ class _FarmMapPickerState extends State<FarmMapPicker> {
   String? _error;
 
   Future<void> _here() async {
+    final s = context.s;
     setState(() {
       _locating = true;
       _error = null;
     });
     try {
       if (!await Geolocator.isLocationServiceEnabled()) {
-        throw const ApiFailure('Turn on location on your phone, then retry.');
+        throw ApiFailure(s.turnOnLocation);
       }
       var permission = await Geolocator.checkPermission();
       if (permission == LocationPermission.denied) {
@@ -317,8 +315,7 @@ class _FarmMapPickerState extends State<FarmMapPicker> {
       }
       if (permission == LocationPermission.denied ||
           permission == LocationPermission.deniedForever) {
-        throw const ApiFailure(
-            'Allow location access to use where you are now, or move the map to the farm.');
+        throw ApiFailure(s.allowLocation);
       }
       final position = await Geolocator.getCurrentPosition(
           locationSettings:
@@ -326,9 +323,7 @@ class _FarmMapPickerState extends State<FarmMapPicker> {
       _map.move(LatLng(position.latitude, position.longitude), 17);
     } catch (e) {
       if (mounted) {
-        setState(() => _error = e is ApiFailure
-            ? e.message
-            : 'We couldn’t get your location. Move the map to the farm instead.');
+        setState(() => _error = e is ApiFailure ? e.message : s.locationFailed);
       }
     } finally {
       if (mounted) setState(() => _locating = false);
@@ -336,56 +331,58 @@ class _FarmMapPickerState extends State<FarmMapPicker> {
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-      appBar: const OmoterraAppBar(title: Text('Pick farm location')),
-      body: Stack(children: [
-        _FarmMap(
-            controller: _map,
-            center: widget.initial ?? _tanzania,
-            zoom: widget.initial == null ? 6 : 16),
-        // The pin stays put; the supplier moves the map beneath it.
-        const IgnorePointer(
-            child: Center(
-                child: Padding(
-                    padding: EdgeInsets.only(bottom: 40),
-                    child: Icon(Icons.location_pin,
-                        size: 44, color: OColors.forest)))),
-        Positioned(
-            left: 16,
-            right: 16,
-            top: 12,
-            child: Material(
-                color: Colors.white,
-                elevation: 2,
-                borderRadius: BorderRadius.circular(12),
-                child: const Padding(
-                    padding: EdgeInsets.all(12),
-                    child: Text(
-                        'Move the map until the pin sits on the farm, then confirm.')))),
-        Positioned(
-            left: 16,
-            right: 16,
-            bottom: 16,
-            child: SafeArea(
-                child: Column(mainAxisSize: MainAxisSize.min, children: [
-              if (_error != null)
-                Container(
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.all(10),
-                    decoration: BoxDecoration(
-                        color: Colors.white,
-                        borderRadius: BorderRadius.circular(10)),
-                    child: Text(_error!)),
-              OmoterraButton('Use my current location',
-                  icon: Icons.my_location,
-                  secondary: true,
-                  busy: _locating,
-                  onPressed: _here),
-              const SizedBox(height: 8),
-              OmoterraButton('Confirm farm location',
-                  icon: Icons.check,
-                  onPressed: () =>
-                      Navigator.of(context).pop(_map.camera.center)),
-            ]))),
-      ]));
+  Widget build(BuildContext context) {
+    final s = context.s;
+    return Scaffold(
+        appBar: OmoterraAppBar(title: Text(s.pickFarmLocation)),
+        body: Stack(children: [
+          _FarmMap(
+              controller: _map,
+              center: widget.initial ?? _tanzania,
+              zoom: widget.initial == null ? 6 : 16),
+          // The pin stays put; the supplier moves the map beneath it.
+          const IgnorePointer(
+              child: Center(
+                  child: Padding(
+                      padding: EdgeInsets.only(bottom: 40),
+                      child: Icon(Icons.location_pin,
+                          size: 44, color: OColors.forest)))),
+          Positioned(
+              left: 16,
+              right: 16,
+              top: 12,
+              child: Material(
+                  color: Colors.white,
+                  elevation: 2,
+                  borderRadius: BorderRadius.circular(12),
+                  child: Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: Text(s.moveMapHint)))),
+          Positioned(
+              left: 16,
+              right: 16,
+              bottom: 16,
+              child: SafeArea(
+                  child: Column(mainAxisSize: MainAxisSize.min, children: [
+                if (_error != null)
+                  Container(
+                      margin: const EdgeInsets.only(bottom: 8),
+                      padding: const EdgeInsets.all(10),
+                      decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(10)),
+                      child: Text(_error!)),
+                OmoterraButton(s.useCurrentLocation,
+                    icon: Icons.my_location,
+                    secondary: true,
+                    busy: _locating,
+                    onPressed: _here),
+                const SizedBox(height: 8),
+                OmoterraButton(s.confirmFarmLocation,
+                    icon: Icons.check,
+                    onPressed: () =>
+                        Navigator.of(context).pop(_map.camera.center)),
+              ]))),
+        ]));
+  }
 }

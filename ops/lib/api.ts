@@ -108,14 +108,19 @@ export function del<T>(path: string) {
 }
 
 // Photos are fetched server-side and streamed through this app, because the
-// backend media route is ops-authenticated and the browser has no token.
+// backend media route is ops-authenticated and the browser has no token. The
+// backend answers with a short-lived signed URL: an R2 link, or a path under
+// the API when media is on the server's disk.
 export async function media(id: string): Promise<{ body: ArrayBuffer; type: string } | null> {
   if (!token) return null;
   const operator = (await cookies()).get('omoterra_operator')?.value ?? '';
-  const response = await fetch(`${base}/ops/media/${id}`, {
+  const signed = await fetch(`${base}/ops/media/${id}`, {
     headers: { 'X-Ops-Token': token, 'X-Operator-Session': operator },
     cache: 'no-store',
   });
+  if (!signed.ok) return null;
+  const { url } = (await signed.json()) as { url: string };
+  const response = await fetch(/^https:\/\//.test(url) ? url : `${base}${url}`, { cache: 'no-store' });
   if (!response.ok) return null;
   return {
     body: await response.arrayBuffer(),

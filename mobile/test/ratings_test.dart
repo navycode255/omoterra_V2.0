@@ -17,12 +17,12 @@ class _Recorder extends LocalRepository {
 }
 
 Widget _host(Widget child, [OmoterraRepository? repository]) => ProviderScope(
-    overrides: [
-      repositoryProvider.overrideWithValue(repository ?? LocalRepository())
-    ],
-    child: MaterialApp(
-        theme: omoterraTheme(),
-        home: Scaffold(body: SingleChildScrollView(child: child))));
+        overrides: [
+          repositoryProvider.overrideWithValue(repository ?? LocalRepository())
+        ],
+        child: MaterialApp(
+            theme: omoterraTheme(),
+            home: Scaffold(body: SingleChildScrollView(child: child))));
 
 void main() {
   testWidgets('a buyer must pick stars before submitting, then it is sent',
@@ -83,7 +83,13 @@ void main() {
         child: MaterialApp(
             theme: omoterraTheme(), home: const SupplierReviewsScreen())));
     await tester.pumpAndSettle();
-    expect(find.text('4.6 of 5 from 12 buyer ratings'), findsOneWidget);
     expect(find.text('Healthy birds and collected on time.'), findsOneWidget);
+    // The explanation lives behind the info icon, not on the page.
+    expect(find.textContaining('Buyers never see comments'), findsNothing);
+    await tester.tap(find.byTooltip('About your ratings'));
+    await tester.pumpAndSettle();
+    expect(
+        find.textContaining('4.6 of 5 from 12 buyer ratings'), findsOneWidget);
+    expect(find.textContaining('Buyers never see comments'), findsOneWidget);
   });
 }

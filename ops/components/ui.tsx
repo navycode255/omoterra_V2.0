@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react';
 import type { Tone } from '@/lib/format';
 import { RetryButton } from '@/components/retry-button';
+import { InfoTip } from '@/components/info-tip';
 
 export function Status({ children, tone = 'neutral' }: { children: ReactNode; tone?: Tone }) {
   return (
@@ -53,10 +54,14 @@ export function Definition({ items }: { items: [string, ReactNode][] }) {
   );
 }
 
-export function PageHeader({ title, subtitle }: { title: string; subtitle?: string }) {
+// `info` goes behind an ⓘ next to the title instead of taking space on the page.
+export function PageHeader({ title, subtitle, info }: { title: string; subtitle?: string; info?: string }) {
   return (
     <div>
-      <h1>{title}</h1>
+      <h1 className={info ? 'title-with-info' : undefined}>
+        {title}
+        {info && <InfoTip label={`About ${title}`}>{info}</InfoTip>}
+      </h1>
       {subtitle && <p className="topbar-sub">{subtitle}</p>}
     </div>
   );

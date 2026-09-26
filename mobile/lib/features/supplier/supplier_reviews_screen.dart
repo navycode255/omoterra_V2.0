@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:intl/intl.dart';
 import '../../core/api/repository.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/theme/theme.dart';
 import '../../shared/widgets/components.dart';
+import '../../shared/widgets/decor.dart';
 import '../../shared/widgets/rating.dart';
 
 /// The supplier's own reputation and what buyers said, without who said it.
@@ -15,16 +16,14 @@ final supplierReputationProvider =
   return Map<String, dynamic>.from(data as Map);
 });
 
-String reputationSummary(Map<String, dynamic> r) {
+String reputationSummary(Map<String, dynamic> r, Strings s) {
   final average = (r['rating'] as num?)?.toDouble();
   final count = (r['ratings'] as num?)?.toInt() ?? 0;
   if (average != null) {
-    return '${average.toStringAsFixed(1)} of 5 from $count buyer ratings';
+    return s.ratingSummary(average.toStringAsFixed(1), count);
   }
   final needed = ((r['minimum_ratings'] as num?)?.toInt() ?? 3) - count;
-  return count == 0
-      ? 'No ratings yet. Buyers rate orders after delivery.'
-      : '$count rating${count == 1 ? '' : 's'} so far; your average shows after $needed more';
+  return count == 0 ? s.noRatingsYetDelivery : s.ratingsSoFar(count, needed);
 }
 
 class SupplierReviewsScreen extends ConsumerWidget {
@@ -32,68 +31,100 @@ class SupplierReviewsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final state = ref.watch(supplierReputationProvider);
+    final s = ref.s;
+    final about = s.aboutRatingsBody;
     return Scaffold(
-        appBar: const OmoterraAppBar(title: Text('Buyer ratings')),
-        body: RefreshIndicator(
+        // The leaves sit behind the title, so the page runs under the bar.
+        extendBodyBehindAppBar: true,
+        appBar: OmoterraAppBar(
+            backgroundColor: Colors.transparent,
+            title: Text(s.buyerRatingsTitle,
+                style: const TextStyle(
+                    fontSize: 27,
+                    fontWeight: FontWeight.w800,
+                    color: OColors.ink,
+                    letterSpacing: -.5)),
+            actions: [
+              InfoButton(
+                  color: OColors.forest,
+                  title: s.aboutYourRatings,
+                  message: state.valueOrNull == null
+                      ? about
+                      : '${reputationSummary(state.value!, s)}.\n\n$about'),
+              const SizedBox(width: 8),
+            ]),
+        body: Stack(children: [
+          Positioned(
+              right: 30,
+              top: MediaQuery.paddingOf(context).top - 6,
+              child: const LeafSprig(
+                  size: 64, angle: .15, color: Color(0xFFD7E8DB))),
+          const Positioned(
+              right: -10, top: 250, child: LeafSprig(size: 58, angle: .35)),
+          RefreshIndicator(
             onRefresh: () => ref.refresh(supplierReputationProvider.future),
-            child: ListView(padding: const EdgeInsets.all(20), children: [
-              ...state.when(
-                  loading: () => const [LoadingSkeleton()],
-                  error: (e, _) => [
-                        ErrorState(e,
-                            retry: () =>
-                                ref.invalidate(supplierReputationProvider))
-                      ],
-                  data: (r) {
-                    final reviews = List<Map<String, dynamic>>.from(
-                        (r['reviews'] as List? ?? const [])
-                            .map((e) => Map<String, dynamic>.from(e as Map)));
-                    return [
-                      Text(reputationSummary(r),
-                          style: Theme.of(context).textTheme.titleMedium),
-                      const SizedBox(height: 12),
-                      ReputationStrip(r),
-                      const SizedBox(height: 8),
-                      const Text(
-                          'Buyers see your average once you have enough ratings, with your deliveries and quality results. They never see comments, and you never see who wrote them.',
-                          style: TextStyle(
-                              fontSize: 12, color: OColors.secondary)),
-                      const SectionHeader('What buyers said'),
-                      if (reviews.isEmpty)
-                        const EmptyState('No ratings yet',
-                            'After Omoterra delivers your supply, buyers can rate the order.')
-                      else
-                        for (final review in reviews)
+            child: ListView(
+                padding: EdgeInsets.fromLTRB(
+                    // Below the status bar and the (transparent) top bar.
+                    16,
+                    MediaQuery.paddingOf(context).top + kToolbarHeight + 14,
+                    16,
+                    24),
+                children: [
+                  ...state.when(
+                      loading: () => const [LoadingSkeleton()],
+                      error: (e, _) => [
+                            ErrorState(e,
+                                retry: () =>
+                                    ref.invalidate(supplierReputationProvider))
+                          ],
+                      data: (r) {
+                        final reviews = List<Map<String, dynamic>>.from(
+                            (r['reviews'] as List? ?? const []).map(
+                                (e) => Map<String, dynamic>.from(e as Map)));
+                        return [
+                          ReputationStrip(r),
                           Padding(
-                              padding: const EdgeInsets.only(bottom: 10),
-                              child: Surface(
-                                  child: Column(
-                                      crossAxisAlignment:
-                                          CrossAxisAlignment.start,
-                                      children: [
-                                    Row(children: [
-                                      StarRow(
-                                          (review['stars'] as num).toDouble(),
-                                          size: 18),
-                                      const Spacer(),
-                                      Text(_date('${review['created_at']}'),
-                                          style: const TextStyle(
-                                              fontSize: 11,
-                                              color: OColors.secondary)),
-                                    ]),
-                                    if ('${review['comment'] ?? ''}'
-                                        .isNotEmpty) ...[
-                                      const SizedBox(height: 8),
-                                      Text('${review['comment']}'),
-                                    ],
-                                  ]))),
-                    ];
-                  }),
-            ])));
-  }
-
-  static String _date(String iso) {
-    final at = DateTime.tryParse(iso)?.toLocal();
-    return at == null ? '' : DateFormat('d MMM yyyy').format(at);
+                              padding:
+                                  const EdgeInsets.only(top: 26, bottom: 14),
+                              child: Text(s.whatBuyersSaid,
+                                  style: const TextStyle(
+                                      fontSize: 24,
+                                      fontWeight: FontWeight.w800,
+                                      color: OColors.ink,
+                                      letterSpacing: -.4))),
+                          if (reviews.isEmpty)
+                            EmptyState(s.noRatingsYet, s.noRatingsYetBody)
+                          else
+                            for (final review in reviews)
+                              Padding(
+                                  padding: const EdgeInsets.only(bottom: 10),
+                                  child: Surface(
+                                      child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                        Row(children: [
+                                          StarRow(
+                                              (review['stars'] as num)
+                                                  .toDouble(),
+                                              size: 18),
+                                          const Spacer(),
+                                          Text(s.dateText(review['created_at']),
+                                              style: const TextStyle(
+                                                  fontSize: 11,
+                                                  color: OColors.secondary)),
+                                        ]),
+                                        if ('${review['comment'] ?? ''}'
+                                            .isNotEmpty) ...[
+                                          const SizedBox(height: 8),
+                                          Text('${review['comment']}'),
+                                        ],
+                                      ]))),
+                        ];
+                      }),
+                ]),
+          ),
+        ]));
   }
 }

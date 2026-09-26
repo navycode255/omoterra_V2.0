@@ -9,7 +9,8 @@ Widget host(SupplyListing listing) => MaterialApp(
     home: Scaffold(body: ListingCard(listing, onTap: () {})));
 
 void main() {
-  testWidgets('the In stock badge is shown on the photo', (tester) async {
+  testWidgets('In stock is plain green text beside the name, not a pill',
+      (tester) async {
     await tester.pumpWidget(host(const SupplyListing(
         id: '1',
         category: 'broilers',
@@ -18,7 +19,40 @@ void main() {
         price: '11000',
         available: '240')));
     await tester.pump();
+    final label = find.text('In stock');
+    expect(label, findsOneWidget);
+    // Same line as the category name.
+    expect(tester.getCenter(label).dy,
+        closeTo(tester.getCenter(find.text('Broilers')).dy, 4));
+    // Nothing drawn behind it: the card's own box is its only decoration.
+    expect(
+        find.ancestor(
+            of: label,
+            matching: find.byWidgetPredicate((w) =>
+                w is Container &&
+                w.decoration is BoxDecoration &&
+                (w.decoration as BoxDecoration).borderRadius != null)),
+        findsOneWidget);
+  });
+
+  testWidgets('a long category name is shown in full, never cut short',
+      (tester) async {
+    tester.view.physicalSize = const Size(320, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(host(const SupplyListing(
+        id: '1',
+        category: 'local_chicken',
+        unitType: 'bird',
+        region: 'Morogoro',
+        price: '18000',
+        available: '75')));
+    await tester.pump();
+    final name = tester.widget<Text>(find.text('Local Chicken'));
+    expect(name.overflow, isNot(TextOverflow.ellipsis));
+    expect(name.maxLines, isNull);
     expect(find.text('In stock'), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('there is no separate View button — the whole card is tappable',

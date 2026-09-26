@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../auth/session.dart';
+import '../l10n/strings.dart';
 import '../api/repository.dart';
 import '../../features/authentication/screens.dart';
 import '../../features/buyer/screens.dart';
@@ -14,10 +15,14 @@ import '../../features/account/screens.dart';
 import '../../features/account/role_registration_screen.dart';
 import '../../features/account/delete_account_screen.dart';
 import '../../features/account/notifications_screen.dart';
+import '../../features/account/farm_location_screen.dart';
+import '../../features/admin/admin_screens.dart';
 import '../../shared/widgets/components.dart';
+import '../../shared/widgets/screen_error.dart';
 import '../theme/theme.dart';
 import 'animated_route.dart';
 import 'back_navigation.dart';
+import '../../shared/widgets/decor.dart';
 
 String? routeGuard(String path,
     {required bool signedIn,
@@ -35,8 +40,10 @@ String? routeGuard(String path,
       path.startsWith('/batches') ||
       path.startsWith('/payouts') ||
       path.startsWith('/sales');
-  final commonPath =
-      path.startsWith('/account') || path.startsWith('/register-role');
+  // Open in either role: the inbox holds both roles' notifications.
+  final commonPath = path.startsWith('/account') ||
+      path.startsWith('/register-role') ||
+      path == '/notifications';
   if (activeRole != null && !commonPath) {
     final selected = preferredRole(roles, activeRole);
     if (supplierPath != (selected == 'supplier')) return '/$selected';
@@ -61,6 +68,9 @@ final routerProvider = Provider<GoRouter>((ref) {
           return state.uri.path == '/session' ? null : '/session';
         }
         final user = session.valueOrNull;
+        // Staff screens have their own sign-in and work whether or not a
+        // member is signed in on this phone.
+        if (state.uri.path.startsWith('/admin')) return null;
         if (state.uri.path == '/session') {
           return user == null
               ? '/welcome'
@@ -170,10 +180,31 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/order/:id',
             builder: (_, s) => OrderDetail(s.pathParameters['id']!)),
         omoterraRoute(
-            path: '/request', builder: (_, __) => const RequestSupplyScreen()),
+            path: '/admin',
+            builder: (_, __) => const AdminGate(child: AdminHome())),
+        omoterraRoute(
+            path: '/admin/buyer',
+            builder: (_, __) => const AdminGate(child: AdminRegisterBuyer())),
+        omoterraRoute(
+            path: '/admin/supplier',
+            builder: (_, __) =>
+                const AdminGate(child: AdminRegisterSupplier())),
+        omoterraRoute(
+            path: '/request',
+            builder: (_, s) => RequestSupplyScreen(
+                search: s.uri.queryParameters['q'],
+                category: s.uri.queryParameters['category'])),
         omoterraRoute(
             path: '/request-submitted/:id',
             builder: (_, s) => RequestSubmitted(s.pathParameters['id']!)),
+        omoterraRoute(
+            path: '/requests/:id/edit',
+            builder: (_, s) => s.extra is Map<String, dynamic>
+                ? RequestSupplyScreen(
+                    editId: s.pathParameters['id'],
+                    initial: s.extra! as Map<String, dynamic>)
+                // Opened without its data (e.g. a restored link): show the request.
+                : RequestDetail(s.pathParameters['id']!)),
         omoterraRoute(
             path: '/requests/:id',
             builder: (_, s) => RequestDetail(s.pathParameters['id']!)),
@@ -192,9 +223,9 @@ final routerProvider = Provider<GoRouter>((ref) {
                 appBar: const OmoterraAppBar(),
                 body: Padding(
                     padding: const EdgeInsets.all(20),
-                    child: EmptyState('Request received',
-                        'Your request has been received. An Omoterra team member will contact you.',
-                        action: OmoterraButton('Back to Home',
+                    child: EmptyState(context.s.requestReceived,
+                        context.s.requestReceivedBody,
+                        action: OmoterraButton(context.s.backHome,
                             onPressed: () => context.go('/buyer')))))),
         omoterraRoute(
             path: '/account/support',
@@ -207,6 +238,9 @@ final routerProvider = Provider<GoRouter>((ref) {
             builder: (_, __) => const AccountInfoScreen('privacy')),
         omoterraRoute(
             path: '/account/edit', builder: (_, __) => const ProfileScreen()),
+        omoterraRoute(
+            path: '/account/farm-location',
+            builder: (_, __) => const FarmLocationScreen()),
         omoterraRoute(
             path: '/supplier-reviews',
             builder: (_, __) => const SupplierReviewsScreen()),
@@ -243,10 +277,13 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/stock/new', builder: (_, __) => const AddStockScreen()),
         omoterraRoute(
             path: '/batches/new',
-            builder: (_, __) => const SupplierBatchScreen()),
+            builder: (_, s) => SupplierBatchScreen(
+                category: s.uri.queryParameters['category'],
+                returnToDemand: s.uri.queryParameters['from'] == 'demand')),
         omoterraRoute(
             path: '/stock/:id',
-            builder: (_, s) => StockDetail(s.pathParameters['id']!)),
+            builder: (_, s) => StockDetail(s.pathParameters['id']!,
+                askConfirm: s.uri.queryParameters['confirm'] == '1')),
         omoterraRoute(
             path: '/payouts', builder: (_, __) => const PayoutScreen()),
         omoterraRoute(
@@ -257,9 +294,8 @@ final routerProvider = Provider<GoRouter>((ref) {
           appBar: const OmoterraAppBar(),
           body: Padding(
               padding: const EdgeInsets.all(20),
-              child: EmptyState(
-                  'Page unavailable', 'Return to your home to continue.',
-                  action: OmoterraButton('Home',
+              child: EmptyState(context.s.pageUnavailable, context.s.returnHome,
+                  action: OmoterraButton(context.s.home,
                       onPressed: () => context.go('/buyer'))))));
   ref.onDispose(() {
     router.dispose();
@@ -292,7 +328,7 @@ class SessionScreen extends ConsumerWidget {
                                     .logout();
                               } catch (_) {}
                             },
-                            child: const Text('Sign in again'))
+                            child: Text(ref.s.signInAgain))
                       ])
                     : const SizedBox.shrink())));
   }
@@ -320,9 +356,10 @@ class AppShell extends ConsumerWidget {
     // nav Row below is never role-conditional: same logo, same padding,
     // same role pill in the same place, whichever role is active.
     final onSupplierHome = path == '/supplier';
-    final resourceFailures = ref.watch(resourceFailuresProvider);
-    final showScreenError = resourceFailures.isNotEmpty && !onSupplierHome;
-    final screenError = resourceFailures.values.firstOrNull;
+    // Screens whose hero photo runs to the top edge, with the logo, bell and
+    // role pill floating over it: Supplier Home and a market demand.
+    final overPhoto =
+        onSupplierHome || RegExp(r'^/supplier-demand/[^/]+$').hasMatch(path);
     // Only the role homes let the system back gesture leave the app; every
     // other tab steps back to Home. The guard sits on the shell page because
     // go_router hands back to the root navigator when a tab has nothing to pop.
@@ -332,7 +369,7 @@ class AppShell extends ConsumerWidget {
             // The hero can sit under the chrome on Home. Other supplier
             // screens reserve the same transparent chrome height so their
             // first controls never hide beneath it.
-            extendBodyBehindAppBar: onSupplierHome,
+            extendBodyBehindAppBar: overPhoto,
             appBar: PreferredSize(
                 preferredSize: const Size.fromHeight(64),
                 child: SafeArea(
@@ -345,10 +382,16 @@ class AppShell extends ConsumerWidget {
                         child: Row(children: [
                           // On the narrowest phones the logo scales down
                           // rather than pushing the bell and role pill off.
-                          const Flexible(child: BrandMark(size: 21)),
-                          const Spacer(),
+                          // The logo takes the free width (left-aligned) so it
+                          // can show at full size, shrinking only on narrow phones.
+                          const Expanded(
+                              child: Align(
+                                  alignment: Alignment.centerLeft,
+                                  // Only as tall as the logo, so the bar keeps its height.
+                                  heightFactor: 1,
+                                  child: BrandMark(size: 25))),
                           const NotificationBell(),
-                          _RoleSwitcher(supplier: supplier),
+                          _RoleSwitcher(supplier: supplier, onPhoto: overPhoto),
                         ])))),
             body: SafeArea(
                 top: false,
@@ -357,34 +400,18 @@ class AppShell extends ConsumerWidget {
                       ref.invalidate(resourceProvider);
                       ref.invalidate(listingsProvider);
                     },
-                    child: Stack(
-                      fit: StackFit.expand,
-                      children: [
-                        Visibility(
-                          visible: !showScreenError,
-                          maintainState: true,
-                          child: child,
-                        ),
-                        if (showScreenError)
-                          ListView(
-                            padding: const EdgeInsets.fromLTRB(18, 16, 18, 24),
-                            children: [
-                              ErrorState(
-                                screenError!,
-                                retry: () {
-                                  for (final path in resourceFailures.keys) {
-                                    if (path.startsWith('@listing|')) {
-                                      ref.invalidate(listingsProvider(
-                                          path.substring('@listing|'.length)));
-                                    } else {
-                                      ref.invalidate(resourceProvider(path));
-                                    }
-                                  }
-                                },
-                              ),
-                            ],
-                          ),
-                      ],
+                    child: ScreenErrorGate(
+                      enabled: !onSupplierHome,
+                      // Clear of the floating chrome on photo screens.
+                      padding: EdgeInsets.fromLTRB(
+                          18,
+                          16 +
+                              (overPhoto
+                                  ? 64 + MediaQuery.paddingOf(context).top
+                                  : 0),
+                          18,
+                          24),
+                      child: child,
                     ))),
             bottomNavigationBar: _BottomNav(
                 selected: routes.indexOf(path),
@@ -411,6 +438,7 @@ class _BottomNav extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final s = context.s;
     // A white surface on the light page, outlined and shadowed so its edge
     // and the cradle around the demand button read clearly (a plain elevation
     // shadow falls below the bar and left the top edge invisible).
@@ -423,16 +451,17 @@ class _BottomNav extends StatelessWidget {
           child: CustomPaint(
               painter: _NavLeavesPainter(),
               child: Row(children: [
-                _tab(0, Icons.home_outlined, Icons.home, 'Home'),
+                _tab(0, Icons.home_outlined, Icons.home, s.home),
                 _tab(
                     1,
                     supplier ? Icons.inventory_2_outlined : Icons.search,
                     supplier ? Icons.inventory_2 : Icons.search,
-                    supplier ? 'Stock' : 'Explore'),
+                    supplier ? s.stock : s.explore,
+                    // Supplier Stock: an outline cube until it is selected.
+                    idle: supplier ? const CubeOutlineIcon() : null),
                 const Spacer(),
-                _tab(
-                    2, Icons.inventory_2_outlined, Icons.inventory_2, 'Orders'),
-                _tab(3, Icons.person_outline, Icons.person, 'Account'),
+                _tab(2, Icons.assignment_outlined, Icons.assignment, s.orders),
+                _tab(3, Icons.person_outline, Icons.person, s.account),
               ])),
         ),
       ),
@@ -482,14 +511,15 @@ class _BottomNav extends StatelessWidget {
                   child: Semantics(
                       button: true,
                       selected: selected == -1,
-                      label: supplier ? 'Demand' : 'Explore',
+                      label: supplier ? s.demand : s.explore,
                       child: demandButton))),
         ]),
       ),
     );
   }
 
-  Widget _tab(int i, IconData icon, IconData selectedIcon, String label) {
+  Widget _tab(int i, IconData icon, IconData selectedIcon, String label,
+      {Widget? idle}) {
     final active = i == selected;
     return Expanded(
         child: Semantics(
@@ -519,12 +549,15 @@ class _BottomNav extends StatelessWidget {
                                       scale: animation,
                                       child: FadeTransition(
                                           opacity: animation, child: child)),
-                              child: Icon(active ? selectedIcon : icon,
-                                  key: ValueKey(active),
-                                  size: 23,
-                                  color: active
-                                      ? OColors.forest
-                                      : const Color(0xFF6F7775)))),
+                              child: !active && idle != null
+                                  ? KeyedSubtree(
+                                      key: const ValueKey(false), child: idle)
+                                  : Icon(active ? selectedIcon : icon,
+                                      key: ValueKey(active),
+                                      size: 23,
+                                      color: active
+                                          ? OColors.forest
+                                          : const Color(0xFF6F7775)))),
                       const SizedBox(height: 3),
                       AnimatedDefaultTextStyle(
                           duration: AppMotion.control,
@@ -652,40 +685,44 @@ class _NavLeavesPainter extends CustomPainter {
 /// Explicit role selection is persisted before navigating to its home.
 class _RoleSwitcher extends ConsumerWidget {
   final bool supplier;
-  const _RoleSwitcher({required this.supplier});
+
+  /// Over Supplier Home's photo the pill is white, as in the design.
+  final bool onPhoto;
+  const _RoleSwitcher({required this.supplier, this.onPhoto = false});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final roles =
         ref.watch(sessionProvider).valueOrNull?.roles ?? const <String>[];
+    final s = ref.s;
     final options = <OmoterraPickerOption<String>>[
       if (roles.contains('buyer'))
-        const OmoterraPickerOption(
+        OmoterraPickerOption(
             value: 'buyer',
-            title: Text('Buyer'),
+            title: Text(s.label('buyer')),
             icon: Icons.shopping_basket_outlined,
-            subtitle: 'Browse and buy supply'),
+            subtitle: s.browseAndBuy),
       if (roles.contains('supplier'))
-        const OmoterraPickerOption(
+        OmoterraPickerOption(
             value: 'supplier',
-            title: Text('Supplier'),
+            title: Text(s.label('supplier')),
             icon: Icons.storefront_outlined,
-            subtitle: 'Manage and sell your supply'),
+            subtitle: s.manageAndSell),
       if (!roles.contains('buyer'))
-        const OmoterraPickerOption(
+        OmoterraPickerOption(
             value: 'register:buyer',
-            title: Text('Register as buyer'),
+            title: Text(s.registerAsBuyerShort),
             icon: Icons.shopping_basket_outlined,
-            subtitle: 'Complete buyer details to add this role'),
+            subtitle: s.completeBuyerDetails),
       if (!roles.contains('supplier'))
-        const OmoterraPickerOption(
+        OmoterraPickerOption(
             value: 'register:supplier',
-            title: Text('Register as supplier'),
+            title: Text(s.registerAsSupplier),
             icon: Icons.storefront_outlined,
-            subtitle: 'Complete supplier details to add this role'),
+            subtitle: s.completeSupplierDetails),
     ];
     return OmoterraActionDropdown(
-      title: 'Choose account type',
+      title: s.chooseAccountType,
       selected: supplier ? 'supplier' : 'buyer',
       options: options,
       onSelected: (role) async {
@@ -700,20 +737,28 @@ class _RoleSwitcher extends ConsumerWidget {
           }
         } catch (error) {
           if (context.mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-                content: Text(
-                    'We couldn’t switch roles just now. Please try again.')));
+            ScaffoldMessenger.of(context)
+                .showSnackBar(SnackBar(content: Text(s.switchRolesFailed)));
           }
         }
       },
       child: Container(
         padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
         decoration: BoxDecoration(
-            color: OColors.soft, borderRadius: BorderRadius.circular(20)),
+            color: onPhoto ? Colors.white : OColors.soft,
+            borderRadius: BorderRadius.circular(20),
+            boxShadow: onPhoto
+                ? [
+                    BoxShadow(
+                        color: Colors.black.withValues(alpha: .08),
+                        blurRadius: 10,
+                        offset: const Offset(0, 3))
+                  ]
+                : null),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           const Icon(Icons.person, size: 15, color: OColors.forest),
           const SizedBox(width: 5),
-          Text(supplier ? 'SUPPLIER' : 'BUYER',
+          Text(s.label(supplier ? 'supplier' : 'buyer').toUpperCase(),
               style: const TextStyle(
                   fontSize: 11,
                   fontWeight: FontWeight.w700,

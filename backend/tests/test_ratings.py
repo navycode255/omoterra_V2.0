@@ -99,13 +99,15 @@ def test_ops_can_hide_a_rating_and_it_stops_counting(client, sessions, seeded):
     for i, id in enumerate(ids):
         rate(client, id, 1 if i == 0 else 5, 'rude words' if i == 0 else '')
     assert listing_reputation(client, seeded)['rating'] == pytest.approx(3.7)
-    listed = client.get('/api/v1/ops/ratings', headers=OPS).json()
+    listed = client.get('/api/v1/ops/ratings', headers=OPS).json()['items']
     abusive = next(r for r in listed if r['comment'] == 'rude words')
     assert abusive['buyer_name'] == 'Buyer Test'
     hidden = client.patch(f"/api/v1/ops/ratings/{abusive['id']}", headers=OPS, json={'hidden': True})
     assert hidden.status_code == 200
     rep = listing_reputation(client, seeded)
     assert rep['ratings'] == 2 and rep['rating'] is None  # below the minimum again
-    again = next(r for r in client.get('/api/v1/ops/ratings', headers=OPS).json() if r['id'] == abusive['id'])
+    again = next(r for r in client.get('/api/v1/ops/ratings', headers=OPS).json()['items'] if r['id'] == abusive['id'])
     assert again['hidden'] is True and again['hidden_by'] == 'Test Staff'
+    assert client.get('/api/v1/ops/ratings?status=hidden', headers=OPS).json()['total'] == 1
+    assert client.get('/api/v1/ops/ratings?q=rude', headers=OPS).json()['total'] == 1
     assert client.get(f"/api/v1/ops/suppliers/{seeded['supplier']}", headers=OPS).json()['reputation']['ratings'] == 2

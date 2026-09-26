@@ -26,10 +26,23 @@ Set `OMOTERRA_ENVIRONMENT=live` for a real deployment. In `live` mode the
 server also requires a real `OMOTERRA_OTP_SECRET` and `OMOTERRA_OPS_TOKEN`
 and refuses to start without them.
 
-OTP delivery stays separate from that: keep `OMOTERRA_SMS_PROVIDER=development`
-so verification codes are returned in the API response instead of being sent
-by SMS. That is deliberate and currently the only supported value — no SMS
-provider adapter exists yet, and neither does a payment one, so
+OTP delivery is separate from that. `OMOTERRA_SMS_PROVIDER=development` returns
+codes in the API response (shown on screen, no SMS cost). To text real codes
+through Sema set:
+
+```
+OMOTERRA_SMS_PROVIDER=sema
+SEMA_API_ID=<API ID from the Sema email / customer panel>   # no OMOTERRA_ prefix,
+SEMA_API_PASSWORD=<API password>                            # shared with other apps
+OMOTERRA_SEMA_SENDER_ID=<approved sender ID, e.g. OMOTERRA>
+OMOTERRA_SEMA_SMS_TYPE=P          # P promotional, T transactional
+OMOTERRA_SEMA_URL=https://api.sema.co.tz/api/SendSMS
+```
+
+The server refuses to start with `sema` if any of these is missing. Website
+members sign in with phone + PIN (no SMS); a code is texted only when they
+register or reset a forgotten PIN. The app and staff sign-in still text a code
+each time. No payment adapter exists yet, so
 `OMOTERRA_PAYMENT_PROVIDER` must stay `disabled`. Buyers can order with
 pay-on-delivery; Pay Now is not available.
 
@@ -148,7 +161,67 @@ OMOTERRA_PRIVACY_TEXT=
 # outside public_html and outside the app folder, readable only by you.
 OMOTERRA_PUSH_PROVIDER=fcm
 OMOTERRA_FCM_CREDENTIALS_FILE=/home/CPANEL_USERNAME/secrets/firebase-key.json
+# Livestock photos and videos in a private Cloudflare R2 bucket, under the
+# livestock/ folder. Leave 'local' to keep files in OMOTERRA_MEDIA_DIRECTORY.
+# The bucket stays private: no public access, no r2.dev URL.
+OMOTERRA_MEDIA_STORAGE=r2
+OMOTERRA_R2_ACCOUNT_ID=
+OMOTERRA_R2_ACCESS_KEY_ID=
+OMOTERRA_R2_SECRET_ACCESS_KEY=
+OMOTERRA_R2_BUCKET_LIVESTOCK=
 ```
+
+To move to R2: create an R2 API token with **Object Read & Write** on the
+livestock bucket only, fill in the four `OMOTERRA_R2_*` values while
+`OMOTERRA_MEDIA_STORAGE` is still `local`, then from `~/omoterra_backend`:
+
+```bash
+python -m app.storage check     # proves the keys and bucket work
+python -m app.storage migrate   # copies existing photos/videos; safe to re-run
+```
+
+Then set `OMOTERRA_MEDIA_STORAGE=r2`, restart, and run `migrate` once more to
+catch anything uploaded in between. Keep the local media folder for a week
+before deleting it.
+
+The API never streams media. After its permission check it answers
+`GET /media/{id}` with `{url, expires_at}`: a signed link valid 10 minutes
+for photos and 30 minutes for videos. With R2 the phone downloads straight
+from Cloudflare; with `local` storage the link points to the API's own
+`/media/local/...` route and is signed with `OMOTERRA_OTP_SECRET`, so changing
+that secret also invalidates any outstanding media links. Videos upload in
+5 MB parts straight to the bucket (`/media/video/uploads`, then
+`/media/video/confirm`), under `livestock/pending/` until confirmed.
+
+#### Cloudflare R2 bucket settings (dashboard → R2 → the livestock bucket → Settings)
+
+1. **Keep it private.** Public access stays off: no custom public domain and
+   the **r2.dev** subdomain **disabled**. Every read goes through a signed
+   link the API hands out after checking permission.
+2. **CORS policy** (browsers need it for signed `PUT` uploads; the Android
+   app does not, but keep it for the dashboard and any web build):
+
+   ```json
+   [
+     {
+       "AllowedOrigins": ["https://omoterra.co.tz"],
+       "AllowedMethods": ["GET", "PUT"],
+       "AllowedHeaders": ["content-type", "content-length"],
+       "ExposeHeaders": ["ETag"],
+       "MaxAgeSeconds": 3600
+     }
+   ]
+   ```
+
+   Add any other dashboard or web-app origin to `AllowedOrigins`. `ETag` must
+   be exposed: each uploaded part's ETag is sent back to finish the upload.
+3. **Object lifecycle rules:**
+   - *Abort incomplete multipart uploads* after **1 day** (whole bucket):
+     removes uploads a phone started and never finished.
+   - *Delete objects* with prefix `livestock/pending/` after **1 day**:
+     removes finished uploads that were never confirmed (for example a file
+     that failed the video check). The hourly `reminders-omoterra.sh` cron
+     (step 8b) also drops their records.
 
 Upload the Firebase key with **File Manager** into `/home/CPANEL_USERNAME/secrets/`
 (create the folder), then protect it:

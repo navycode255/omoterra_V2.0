@@ -173,8 +173,8 @@ class _PhoneField extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Semantics(
-      label: 'Phone number',
-      value: value.isEmpty ? 'empty' : _grouped.split('').join(' '),
+      label: context.s.phoneLabel,
+      value: value.isEmpty ? context.s.empty : _grouped.split('').join(' '),
       textField: true,
       container: true,
       explicitChildNodes: false,

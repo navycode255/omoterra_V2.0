@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:omoterra/core/api/repository.dart';
+import 'package:omoterra/core/l10n/strings.dart';
 import 'package:omoterra/shared/widgets/components.dart';
 
 void main() {
@@ -10,7 +12,8 @@ void main() {
       home: Scaffold(
         body: ErrorState(
           const ApiFailure(
-              'Omoterra is temporarily unavailable. Please try again shortly.'),
+              'Omoterra is temporarily unavailable. Please try again shortly.',
+              FailureKind.unavailable),
         ),
       ),
     ));
@@ -37,5 +40,37 @@ void main() {
     expect(find.text('Try again'), findsOneWidget);
     await tester.tap(find.text('Try again'));
     expect(retried, isTrue);
+  });
+
+  // The server writes its reasons in the member's language, so the app
+  // chooses the copy from the HTTP status, never from the words.
+  testWidgets('a Swahili 404 reason is shown as written, under a gone title',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: ErrorState(
+            const ApiFailure('Bidhaa hii haipatikani tena.', null, 404)),
+      ),
+    ));
+    expect(find.text('This is no longer available'), findsOneWidget);
+    expect(find.text('Bidhaa hii haipatikani tena.'), findsOneWidget);
+  });
+
+  testWidgets('an unknown route and a 5xx get friendly copy in Swahili',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      locale: const Locale('sw'),
+      localizationsDelegates: GlobalMaterialLocalizations.delegates,
+      supportedLocales: const [Locale('en'), Locale('sw')],
+      home: const Scaffold(
+        body: Column(children: [
+          ErrorState(ApiFailure('Not Found', null, 404)),
+          ErrorState(ApiFailure('Hitilafu', null, 502)),
+        ]),
+      ),
+    ));
+    expect(find.text(const Strings('sw').errNotFoundTitle), findsOneWidget);
+    expect(find.text(const Strings('sw').errDelayTitle), findsOneWidget);
+    expect(find.text('Hitilafu'), findsNothing);
   });
 }

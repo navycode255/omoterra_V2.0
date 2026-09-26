@@ -4,14 +4,24 @@ import { Card, Empty, Notice, PageHeader, Status } from '@/components/ui';
 import { reconcilePayment } from '@/lib/actions';
 import { ApiError, get } from '@/lib/api';
 import { date, paymentTone, reference, titleCase, tzs } from '@/lib/format';
+import { ListControls } from '@/components/list-controls';
+import { listPath, type ListParams, type Page } from '@/lib/paging';
 import type { Payment } from '@/lib/types';
 
 export const metadata = { title: 'Payments · Omoterra Operations' };
 
-export default async function Payments() {
-  let payments: Payment[];
+const TABS = [
+  { key: '', label: 'All' },
+  { key: 'outstanding', label: 'Outstanding' },
+  { key: 'paid', label: 'Paid' },
+  { key: 'failed', label: 'Failed' },
+];
+
+export default async function Payments({ searchParams }: { searchParams: Promise<ListParams> }) {
+  const params = await searchParams;
+  let data: Page<Payment>;
   try {
-    payments = await get<Payment[]>('/ops/payments');
+    data = await get<Page<Payment>>(listPath('/ops/payments', params));
   } catch (error) {
     return (
       <>
@@ -27,6 +37,8 @@ export default async function Payments() {
     );
   }
 
+  const payments = data.items;
+  // Every outstanding payment is on page 1, so the receipt form lists them all.
   const outstanding = payments.filter((p) => Number(p.balance) > 0 && p.status !== 'failed');
 
   return (
@@ -38,9 +50,11 @@ export default async function Payments() {
         />
       </div>
       <div className="workspace">
+        <ListControls path="/payments" params={params} data={data} tabs={TABS} noun={['payment', 'payments']}
+          actionLabel="outstanding" placeholder="Search order reference, buyer or transaction">
         <div className="table-wrap">
           {payments.length === 0 ? (
-            <Empty>No payments recorded yet.</Empty>
+            <Empty>No payments in this view.</Empty>
           ) : (
             <table>
               <thead>
@@ -79,6 +93,7 @@ export default async function Payments() {
             </table>
           )}
         </div>
+        </ListControls>
 
         {outstanding.length > 0 && (
           <Card title="Record a receipt">

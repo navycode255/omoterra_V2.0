@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter/widgets.dart';
+import '../../shared/media_cache.dart';
 import '../../shared/models/domain.dart';
 import '../api/repository.dart';
 import '../notifications/notifications.dart';
@@ -132,6 +133,8 @@ class SessionController extends AsyncNotifier<AppUser?> {
         .read(repositoryProvider)
         .write('/auth/verify', {'challenge_id': challenge, 'code': code});
     await storage.write(key: 'session', value: response['access_token']);
+    // Start clean: photos cached for whoever used this phone before.
+    await clearMediaCache();
     final user = AppUser.fromJson(Map<String, dynamic>.from(response['user']));
     await _restoreRole(user);
     final signedInAt = DateTime.now();
@@ -150,12 +153,26 @@ class SessionController extends AsyncNotifier<AppUser?> {
     state = AsyncData(user);
   }
 
-  Future<void> setLanguage(String language) async {
+  /// Switches the app's language. For a signed-in member it is also saved on
+  /// their profile, because the server writes errors and notifications in
+  /// the saved language (it wins over the app's Accept-Language header).
+  /// Pass [saveToServer] false when the profile was just saved with it.
+  Future<void> setLanguage(String language, {bool saveToServer = true}) async {
     if (language != 'en' && language != 'sw') {
       throw ArgumentError.value(language, 'language');
     }
     await storage.write(key: 'selected_language', value: language);
     ref.read(selectedLanguageProvider.notifier).state = language;
+    final user = state.valueOrNull;
+    if (saveToServer && user != null && user.language != language) {
+      await profile({
+        'name': user.name,
+        'region': user.region,
+        'language': language,
+        'roles': user.roles,
+        if (user.buyerType != null) 'buyer_type': user.buyerType,
+      });
+    }
   }
 
   Future<void> acceptRegisteredRole(dynamic response, String role) async {
@@ -190,6 +207,7 @@ class SessionController extends AsyncNotifier<AppUser?> {
       ref.read(greetingUntilProvider.notifier).state = null;
       PaintingBinding.instance.imageCache.clear();
       PaintingBinding.instance.imageCache.clearLiveImages();
+      await clearMediaCache();
       ref.invalidate(resourceProvider);
       ref.invalidate(listingsProvider);
       state = const AsyncData(null);

@@ -37,7 +37,9 @@ def test_summary_excludes_cancelled_orders_from_sales(client, sessions, seeded):
 
 def test_payments_list_exposes_balance_for_reconciliation(client, sessions, seeded):
     id = order(sessions, seeded)
-    rows = ops(client, '/payments').json()
+    body = ops(client, '/payments').json()
+    assert body['total'] == 1 and body['actionable'] == 1
+    rows = body['items']
     assert len(rows) == 1
     row = rows[0]
     assert row['order_id'] == id
@@ -48,7 +50,7 @@ def test_payments_list_exposes_balance_for_reconciliation(client, sessions, seed
 
 
 def test_suppliers_list_is_internal_only_and_never_buyer_facing(client, sessions, seeded):
-    rows = ops(client, '/suppliers').json()
+    rows = ops(client, '/suppliers').json()['items']
     assert len(rows) == 1
     row = rows[0]
     assert row['legal_name'] == 'Secret legal name'
@@ -62,7 +64,7 @@ def test_suppliers_list_is_internal_only_and_never_buyer_facing(client, sessions
 
 def test_buyers_list_never_leaks_to_supplier_surface(client, sessions, seeded):
     order(sessions, seeded)
-    rows = ops(client, '/buyers').json()
+    rows = ops(client, '/buyers').json()['items']
     row = next(r for r in rows if r['name'] == 'Buyer Test')
     assert row['order_count'] == 1
     assert row['buyer_type'] is None or isinstance(row['buyer_type'], str)

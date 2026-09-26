@@ -145,7 +145,8 @@ class _OtpState extends ConsumerState<OtpScreen> {
                                   border: Border.all(
                                       color: const Color(0xFFF0DEC4))),
                               child: Text(
-                                  'Development code: ${challenge['development_code']}',
+                                  s.developmentCode(
+                                      '${challenge['development_code']}'),
                                   textAlign: TextAlign.center,
                                   style: const TextStyle(
                                       color: OColors.warning,
@@ -188,8 +189,8 @@ class _OtpCells extends StatelessWidget {
     // Sized to fit six boxes plus a dash on the narrowest supported screen
     // (320px) without overflowing: content width must clear ~272px.
     return Semantics(
-        label: 'Verification code',
-        value: code.isEmpty ? 'empty' : code.split('').join(' '),
+        label: context.s.verificationCode,
+        value: code.isEmpty ? context.s.empty : code.split('').join(' '),
         textField: true,
         container: true,
         explicitChildNodes: false,

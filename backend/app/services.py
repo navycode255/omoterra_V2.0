@@ -2,12 +2,12 @@ import hashlib
 import json
 from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
-from fastapi import HTTPException
 from sqlalchemy import select, text
 from . import models as m
 from .config import settings
 from . import inventory as inv
-from . import notifications as notes
+from . import notifications as notes, i18n
+from .i18n import M, fail  # noqa: F401  (s.fail is used across the app)
 
 STATUS = {
     'requested': 'confirmed', 'supply_confirmed': 'confirmed', 'reserved': 'confirmed',
@@ -28,10 +28,6 @@ TRANSITIONS = {
 }
 
 
-def fail(message, status=409):
-    raise HTTPException(status, detail=message)
-
-
 def money(value):
     return Decimal(value).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
 
@@ -48,19 +44,19 @@ def owned(db, model, id, owner, field='user_id', lock=False):
         q = q.with_for_update()
     result = db.scalar(q)
     if not result:
-        fail('This record is unavailable.', 404)
+        fail('err.record_unavailable', 404)
     return result
 
 
 def replay(db, actor, operation, key, payload):
     if not key or not 8 <= len(key) <= 128:
-        fail('Provide an Idempotency-Key between 8 and 128 characters.', 422)
+        fail('err.provide_idempotency_key_between_8', 422)
     commerce_lock(db)
     scoped = hashlib.sha256(f'{actor}:{operation}:{key}'.encode()).hexdigest()
     fingerprint = hashlib.sha256(json.dumps(payload, sort_keys=True, default=str).encode()).hexdigest()
     previous = db.get(m.Idempotency, scoped)
     if previous and previous.fingerprint != fingerprint:
-        fail('This retry key was already used for a different action.')
+        fail('err.retry_key_already_used_different')
     return scoped, fingerprint, previous.resource_id if previous else None
 
 
@@ -101,20 +97,20 @@ def reserve(db, buyer, data):
     commerce_lock(db)
     listing = db.scalar(select(m.Listing).where(m.Listing.id == data.listing_id).with_for_update())
     if not listing:
-        fail('This supply is no longer available.', 404)
+        fail('err.supply_no_longer_available', 404)
     refresh_listing(db, listing)
     supplier_profile = db.get(m.SupplierProfile, listing.supplier_id)
     if not supplier_profile or supplier_profile.status != 'approved':
-        fail('This supply is not available right now.', 404)
+        fail('err.supply_not_available_right_now', 404)
     if listing.supplier_id == buyer:
-        fail('You cannot reserve your own stock.')
+        fail('err.cannot_reserve_own_stock')
     if not fresh(listing):
         db.commit()
-        fail('This stock is awaiting confirmation or has been paused. Browse other supply.')
+        fail('err.stock_awaiting_confirmation_paused_browse')
     if listing.unit_type != 'kg' and data.quantity % 1:
-        fail('Choose a whole number of birds or animals.', 422)
+        fail('err.choose_whole_number_birds_animals', 422)
     if data.quantity > listing.quantity_available:
-        fail('The requested quantity is no longer available. Choose a smaller quantity.')
+        fail('err.requested_quantity_no_longer_available')
     inv.ensure_history(db, listing)
     before = inv.balances(listing)
     hold = m.StockReservation(listing_id=listing.id, buyer_id=buyer, quantity=data.quantity, expires_at=m.now() + timedelta(minutes=settings().reservation_minutes))
@@ -134,16 +130,16 @@ def checkout(db, buyer, data, key, sourcing_id=None):
     refresh_listing(db, listing)
     if hold.status != 'active':
         db.commit()  # Preserve exact expiry releases even though checkout is rejected.
-        fail('Your reservation has expired or has already been used. Reserve stock again.')
+        fail('err.reservation_expired_already_used_reserve')
     if not fresh(listing):
         release(db, hold, listing, 'released')
         db.commit()
-        fail('This listing is no longer available. Release your reservation and browse other supply.')
+        fail('err.listing_no_longer_available_release')
     address = owned(db, m.Address, data.delivery_address_id, buyer)
     if address.deleted:
-        fail('Select a current delivery address.', 422)
+        fail('err.select_current_delivery_address', 422)
     if data.payment_method != 'pay_on_delivery':
-        fail('Pay Now is not available until the payment provider is connected.', 422)
+        fail('err.pay_now_not_available_until', 422)
     total = money(hold.quantity * listing.buyer_price_per_unit)
     order = m.Order(buyer_id=buyer, delivery_address_id=address.id,
         delivery_snapshot={k: getattr(address, k) for k in ['label', 'recipient_name', 'phone', 'region', 'district_area', 'address_text']},
@@ -159,8 +155,8 @@ def checkout(db, buyer, data, key, sourcing_id=None):
     hold.order_id = order.id
     inv.movement(db, listing, 'hold_confirmed', inv.balances(listing), f'hold:{hold.id}:confirmed')
     remember(db, scoped, fingerprint, order.id)
-    notes.notify(db, listing.supplier_id, 'supplier', 'order_new', 'New order for your stock',
-        f'A buyer ordered {quantity(hold.quantity)} {category(listing.category)}. Omoterra will arrange collection.',
+    notes.notify(db, listing.supplier_id, 'supplier', 'order_new',
+        M('notify.order_new', quantity=quantity(hold.quantity), what=i18n.category(listing.category)),
         f'/supplier-orders/{hold.id}')
     return order
 
@@ -174,34 +170,30 @@ def category(value):
 
 
 BUYER_UPDATES = {
-    'supply_confirmed': ('Stock secured', 'Omoterra has secured the stock for your order.'),
-    'pickup_scheduled': ('Order being prepared', 'Collection from the farm is scheduled.'),
-    'in_transit': ('Order on the way', 'Your order has left for delivery.'),
-    'delivered': ('Order delivered', 'Your order was delivered. Tap to rate it and help other buyers choose.'),
-    'cancelled': ('Order cancelled', 'Your order was cancelled and its reserved stock released.'),
-    'payment_failed': ('Payment failed', 'Payment for your order failed, so its reservation was released.'),
+    'supply_confirmed': 'notify.order_supply_confirmed', 'pickup_scheduled': 'notify.order_pickup_scheduled',
+    'in_transit': 'notify.order_in_transit', 'delivered': 'notify.order_delivered',
+    'cancelled': 'notify.order_cancelled', 'payment_failed': 'notify.order_payment_failed',
 }
 
 
 def _notify_order_update(db, order, target, holds, by_buyer):
     if target in BUYER_UPDATES and not (by_buyer and target == 'cancelled'):
-        title, body = BUYER_UPDATES[target]
-        notes.notify(db, order.buyer_id, 'buyer', f'order_{target}', title, body, f'/order/{order.id}')
+        notes.notify(db, order.buyer_id, 'buyer', f'order_{target}', M(BUYER_UPDATES[target]), f'/order/{order.id}')
     if target not in ('pickup_scheduled', 'delivered', 'cancelled', 'payment_failed'):
         return
     for hold in holds:
         listing = db.get(m.Listing, hold.listing_id)
-        what = f'{quantity(hold.quantity)} {category(listing.category)}'
+        what = dict(quantity=quantity(hold.quantity), what=i18n.category(listing.category))
         if target == 'pickup_scheduled':
-            when = f' on {order.expected_collection_date}' if order.expected_collection_date else ''
-            notes.notify(db, listing.supplier_id, 'supplier', 'collection_scheduled', 'Collection scheduled',
-                f'Omoterra will collect {what}{when}.', f'/supplier-orders/{hold.id}')
+            when = M('notify.on_date', date=order.expected_collection_date) if order.expected_collection_date else ''
+            notes.notify(db, listing.supplier_id, 'supplier', 'collection_scheduled',
+                M('notify.collection_scheduled', when=when, **what), f'/supplier-orders/{hold.id}')
         elif target == 'delivered':
-            notes.notify(db, listing.supplier_id, 'supplier', 'supply_delivered', 'Supply delivered',
-                f'Your {category(listing.category)} reached the buyer. Omoterra is preparing your payout.', '/payouts')
+            notes.notify(db, listing.supplier_id, 'supplier', 'supply_delivered',
+                M('notify.supply_delivered', what=i18n.category(listing.category)), '/payouts')
         else:
-            notes.notify(db, listing.supplier_id, 'supplier', 'order_cancelled', 'Order cancelled',
-                f'An order for {what} was cancelled. The stock is available again.', f'/stock/{listing.id}')
+            notes.notify(db, listing.supplier_id, 'supplier', 'order_cancelled',
+                M('notify.supplier_order_cancelled', **what), f'/stock/{listing.id}')
 
 
 def advance(db, order, data, by_buyer=False):
@@ -212,11 +204,11 @@ def advance(db, order, data, by_buyer=False):
     if target == order.internal_status:
         return order
     if target not in TRANSITIONS[order.internal_status]:
-        fail('This order cannot move to the requested status.')
+        fail('err.order_cannot_move_requested_status')
     holds = db.scalars(select(m.StockReservation).where(m.StockReservation.order_id == order.id).with_for_update()).all()
     if target in ['cancelled', 'payment_failed']:
         if order.payment_status in ['paid', 'partial']:
-            fail('A recorded payment requires manual refund reconciliation before cancellation.')
+            fail('err.recorded_payment_requires_manual_refund')
         for hold in holds:
             listing = db.scalar(select(m.Listing).where(m.Listing.id == hold.listing_id).with_for_update())
             release(db, hold, listing, 'cancelled')
@@ -229,28 +221,28 @@ def advance(db, order, data, by_buyer=False):
             by_id = {item.id: item for item in items}
             submitted = {row.order_item_id: row for row in data.collection_results}
             if len(submitted) != len(data.collection_results) or set(submitted) != set(by_id):
-                fail('Record collection results for every supplier allocation exactly once.', 422)
+                fail('err.record_collection_results_every_supplier', 422)
             accepted_total = rejected_total = Decimal('0')
             for item in items:
                 row = submitted[item.id]
                 if row.actual_quantity + row.rejected_quantity != item.quantity:
-                    fail('Accepted plus rejected quantity must equal each supplier allocation.', 422)
+                    fail('err.accepted_plus_rejected_quantity_must', 422)
                 listing = db.get(m.Listing, item.listing_id)
                 if listing.unit_type != 'kg' and (row.actual_quantity % 1 or row.rejected_quantity % 1):
-                    fail('Birds and animals require whole quantities.', 422)
+                    fail('err.birds_animals_require_whole_quantities', 422)
                 item.actual_quantity, item.rejected_quantity = row.actual_quantity, row.rejected_quantity
                 accepted_total += row.actual_quantity
                 rejected_total += row.rejected_quantity
             order.actual_quantity, order.rejected_quantity = accepted_total, rejected_total
         else:
             if len(items) != 1 or data.actual_quantity is None or data.rejected_quantity is None:
-                fail('Record collection results for every supplier allocation.', 422)
+                fail('err.record_collection_results_every_supplier_2', 422)
             item = items[0]
             if data.actual_quantity + data.rejected_quantity != item.quantity:
-                fail('Accepted plus rejected quantity must equal the reserved quantity.', 422)
+                fail('err.accepted_plus_rejected_quantity_must_2', 422)
             listing = db.get(m.Listing, item.listing_id)
             if listing.unit_type != 'kg' and (data.actual_quantity % 1 or data.rejected_quantity % 1):
-                fail('Birds and animals require whole quantities.', 422)
+                fail('err.birds_animals_require_whole_quantities', 422)
             item.actual_quantity, item.rejected_quantity = data.actual_quantity, data.rejected_quantity
             order.actual_quantity, order.rejected_quantity = data.actual_quantity, data.rejected_quantity
         order.actual_weight, order.collection_notes = data.actual_weight, data.collection_notes
@@ -263,11 +255,11 @@ def advance(db, order, data, by_buyer=False):
             payment.paid_at = m.now()
     if target == 'delivered':
         if order.actual_quantity is None:
-            fail('Complete the quality check before delivery.')
+            fail('err.complete_quality_check_before_delivery')
         for hold in holds:
             listing = db.scalar(select(m.Listing).where(m.Listing.id == hold.listing_id).with_for_update())
             if hold.status != 'confirmed':
-                fail('Order reservation is no longer confirmed.')
+                fail('err.order_reservation_no_longer_confirmed')
             # Release the exact original hold; only this supplier item's accepted units become sold.
             item = db.scalar(select(m.OrderItem).where(m.OrderItem.order_id == order.id, m.OrderItem.listing_id == listing.id))
             accepted = item.actual_quantity if item.actual_quantity is not None else order.actual_quantity
@@ -294,7 +286,7 @@ def advance(db, order, data, by_buyer=False):
                     allocation.rejected_quantity = item.rejected_quantity or Decimal('0')
                     allocation.status = 'delivered'
     if target == 'completed' and order.payment_status != 'paid':
-        fail('Reconcile the buyer payment before completing this order.')
+        fail('err.reconcile_buyer_payment_before_completing')
     order.internal_status = target
     if order.sourcing_request_id:
         from . import demand as dm
@@ -342,8 +334,9 @@ def buyer_listing(db, listing, detail=False, reputations=None):
 
 
 def supplier_listing(listing):
-    result = {k: getattr(listing, k) for k in ['id', 'category', 'unit_type', 'region', 'photos', 'video', 'specs', 'farmer_asking_price_per_unit', 'quantity_total', 'quantity_reserved', 'quantity_sold', 'listing_status', 'confirmation_due_at']}
+    result = {k: getattr(listing, k) for k in ['id', 'category', 'unit_type', 'region', 'photos', 'video', 'specs', 'farmer_asking_price_per_unit', 'quantity_total', 'quantity_reserved', 'quantity_sold', 'listing_status', 'confirmation_due_at', 'review_note']}
     result['quantity_available'] = listing.quantity_available
+    result['approved'] = listing.approved_at is not None
     return result
 
 

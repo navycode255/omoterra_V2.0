@@ -10,15 +10,15 @@ import type { Dashboard as DashboardData, DashboardActivity, Summary } from '@/l
 export const metadata = { title: 'Dashboard · Omoterra Operations' };
 
 const ATTENTION: { key: keyof Summary['attention']; label: string; href: string }[] = [
-  { key: 'listings_pending_review', label: 'Listings awaiting approval', href: '/supply?tab=pending_review' },
-  { key: 'listings_needing_confirmation', label: 'Listings needing supplier confirmation', href: '/supply?tab=needs_confirmation' },
+  { key: 'listings_pending_review', label: 'Listings awaiting approval', href: '/supply?status=pending_review' },
+  { key: 'listings_needing_confirmation', label: 'Listings needing supplier confirmation', href: '/supply?status=needs_confirmation' },
   { key: 'demand_no_matching_supply', label: 'Demand without matching supply', href: '/sourcing' },
   { key: 'partially_secured_near_deadline', label: 'Partially secured demand near deadline', href: '/sourcing?status=partially_matched' },
   { key: 'batches_ready_unallocated', label: 'Supply ready without allocation', href: '/batches' },
   { key: 'reservations_awaiting_confirmation', label: 'Reservations awaiting confirmation', href: '/sourcing' },
   { key: 'verification_overdue', label: 'Batch verification overdue', href: '/batches?status=pending_review' },
-  { key: 'payments_pending', label: 'Buyer payments outstanding', href: '/payments' },
-  { key: 'settlements_pending', label: 'Supplier payouts pending', href: '/settlements' },
+  { key: 'payments_pending', label: 'Buyer payments outstanding', href: '/payments?status=outstanding' },
+  { key: 'settlements_pending', label: 'Supplier payouts pending', href: '/settlements?status=pending' },
 ];
 
 const ACTIVITY_ICON: Record<DashboardActivity['kind'], { icon: typeof Icons.users; tone: string }> = {

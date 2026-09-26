@@ -7,6 +7,7 @@ import '../../core/theme/theme.dart';
 import '../../shared/models/domain.dart';
 import '../../shared/widgets/components.dart';
 import '../../shared/widgets/rating.dart';
+import '../../shared/widgets/support_contact.dart';
 import '../../shared/widgets/data_form.dart';
 
 class OrderConfirmation extends ConsumerWidget {
@@ -104,44 +105,108 @@ class _OrdersState extends State<OrdersScreen> {
                             onTap: () => setState(() => past = true))),
                   ])),
               const SizedBox(height: 18),
-              ResourceView('/orders', builder: (rows) {
-                final orders = (rows as List)
-                    .map((r) =>
-                        BuyerOrder.fromJson(Map<String, dynamic>.from(r)))
-                    .where((o) =>
-                        ['delivered', 'cancelled'].contains(o.status) == past)
-                    .toList();
-                if (orders.isEmpty) {
-                  return EmptyState(s.noOrdersTitle, s.noOrdersBody,
-                      action: Column(children: [
-                        OmoterraButton(s.buySupplyCard,
-                            onPressed: () => context.go('/explore')),
-                        TextButton(
-                            onPressed: () => context.push('/request'),
-                            child: Text(s.requestSupply))
-                      ]));
-                }
-                return Column(
-                    children: orders
-                        .map((o) => Padding(
-                            padding: const EdgeInsets.only(bottom: 12),
-                            child: _OrderCard(order: o, statusLabel: s)))
-                        .toList());
-              }),
-              SectionHeader(s.requestSupply),
-              ResourceView('/requests',
-                  builder: (rows) => Column(children: [
-                        for (final r in rows)
-                          ListTile(
-                              contentPadding: EdgeInsets.zero,
-                              title: Text(
-                                  '${label(r['category'])} · ${amount(r['quantity'])} ${r['unit_type']}'),
-                              subtitle: StatusText(r['status']),
-                              trailing: const Icon(Icons.chevron_right),
-                              onTap: () => context.push('/requests/${r['id']}'))
-                      ]))
+              // Orders and supply requests share the tabs; the empty state
+              // only shows when a tab has neither.
+              ResourceView('/orders',
+                  builder: (orderRows) =>
+                      ResourceView('/requests', builder: (requestRows) {
+                        final orders = (orderRows as List)
+                            .map((r) => BuyerOrder.fromJson(
+                                Map<String, dynamic>.from(r)))
+                            .where((o) =>
+                                ['delivered', 'cancelled'].contains(o.status) ==
+                                past)
+                            .toList();
+                        final requests = (requestRows as List)
+                            .map((r) => Map<String, dynamic>.from(r))
+                            .where((r) =>
+                                ['completed', 'cancelled']
+                                    .contains(r['status']) ==
+                                past)
+                            .toList();
+                        if (orders.isEmpty && requests.isEmpty) {
+                          return EmptyState(s.noOrdersTitle, s.noOrdersBody,
+                              action: Column(children: [
+                                OmoterraButton(s.buySupplyCard,
+                                    onPressed: () => context.go('/explore')),
+                                TextButton(
+                                    onPressed: () => context.push('/request'),
+                                    child: Text(s.requestSupply))
+                              ]));
+                        }
+                        return Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              for (final o in orders)
+                                Padding(
+                                    padding: const EdgeInsets.only(bottom: 12),
+                                    child:
+                                        _OrderCard(order: o, statusLabel: s)),
+                              if (requests.isNotEmpty) ...[
+                                if (orders.isNotEmpty)
+                                  SectionHeader(s.requestSupply),
+                                for (final r in requests)
+                                  Padding(
+                                      padding:
+                                          const EdgeInsets.only(bottom: 12),
+                                      child: _RequestCard(r)),
+                              ],
+                            ]);
+                      })),
             ]);
       });
+}
+
+class _RequestCard extends StatelessWidget {
+  final Map<String, dynamic> request;
+  const _RequestCard(this.request);
+  @override
+  Widget build(BuildContext context) {
+    final r = request;
+    final category = '${r['category']}';
+    final quantity = num.tryParse('${r['quantity']}') ?? 0;
+    final s = context.s;
+    final unit = s.unit(unitFor(category), quantity);
+    final needed = DateTime.tryParse('${r['needed_by_date']}');
+    return InkWell(
+        onTap: () => context.push('/requests/${r['id']}'),
+        borderRadius: BorderRadius.circular(16),
+        child: Container(
+            padding: const EdgeInsets.all(12),
+            decoration: BoxDecoration(
+                color: Colors.white,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: OColors.border)),
+            child: Row(children: [
+              SizedBox(
+                  width: 64,
+                  child:
+                      ProductImage(const [], category: category, height: 64)),
+              const SizedBox(width: 13),
+              Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                    Text(
+                        s.requestNo('${r['id']}'.substring(0, 8).toUpperCase()),
+                        style: const TextStyle(
+                            fontSize: 13.5, fontWeight: FontWeight.w700)),
+                    const SizedBox(height: 3),
+                    Text('${s.label(category)} · ${amount(quantity)} $unit',
+                        style: const TextStyle(
+                            fontSize: 12.5, color: OColors.secondary)),
+                    if (needed != null) ...[
+                      const SizedBox(height: 3),
+                      Text(s.neededByDate(s.date(needed)),
+                          style: const TextStyle(
+                              fontSize: 12.5, color: OColors.secondary)),
+                    ],
+                    const SizedBox(height: 6),
+                    StatusText(r['status']),
+                  ])),
+              const Icon(Icons.chevron_right, color: OColors.muted),
+            ])));
+  }
 }
 
 class _Segment extends StatelessWidget {
@@ -199,7 +264,7 @@ class _OrderCard extends StatelessWidget {
                     const SizedBox(height: 3),
                     if (item != null)
                       Text(
-                          '${label(item['category'])} × ${amount(item['quantity'])}',
+                          '${statusLabel.label(item['category'])} × ${amount(item['quantity'])}',
                           style: const TextStyle(
                               fontSize: 12.5, color: OColors.secondary)),
                     const SizedBox(height: 5),
@@ -218,98 +283,103 @@ class OrderDetail extends ConsumerWidget {
   final String id;
   const OrderDetail(this.id, {super.key});
   @override
-  Widget build(BuildContext context, WidgetRef ref) => Scaffold(
-      appBar: OmoterraAppBar(
-          title: Text('Order #${id.substring(0, 8).toUpperCase()}'),
-          actions: [
-            IconButton(
-                tooltip: 'Refresh order',
-                onPressed: () =>
-                    ref.invalidate(resourceProvider('/orders/$id')),
-                icon: const Icon(Icons.refresh))
-          ]),
-      body: ListView(padding: const EdgeInsets.all(20), children: [
-        ResourceView('/orders/$id', builder: (data) {
-          final order = BuyerOrder.fromJson(Map<String, dynamic>.from(data));
-          return Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Your supply, on its way',
-                    style: Theme.of(context).textTheme.headlineMedium),
-                const SizedBox(height: 16),
-                Surface(child: OrderProgress(order.status)),
-                if (order.message != null) ErrorState(order.message!),
-                if (order.canRate || order.rating != null) ...[
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.s;
+    return Scaffold(
+        appBar: OmoterraAppBar(
+            title: Text(s.orderNo(id.substring(0, 8).toUpperCase())),
+            actions: [
+              IconButton(
+                  tooltip: s.refreshOrder,
+                  onPressed: () =>
+                      ref.invalidate(resourceProvider('/orders/$id')),
+                  icon: const Icon(Icons.refresh))
+            ]),
+        body: ListView(padding: const EdgeInsets.all(20), children: [
+          ResourceView('/orders/$id', builder: (data) {
+            final order = BuyerOrder.fromJson(Map<String, dynamic>.from(data));
+            return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(s.supplyOnItsWay,
+                      style: Theme.of(context).textTheme.headlineMedium),
                   const SizedBox(height: 16),
-                  RateOrderCard(
-                      orderId: id,
-                      rating: order.rating,
-                      canRate: order.canRate,
-                      onRated: () =>
-                          ref.invalidate(resourceProvider('/orders/$id'))),
-                ],
-                const SectionHeader('Order summary'),
-                MoneySummary({
-                  for (final i in order.items)
-                    '${label(i['category'])} · ${amount(i['quantity'])} ${i['unit_type']}':
-                        tsh(i['subtotal']),
-                  'Total': tsh(order.total)
-                }),
-                const SectionHeader('Delivery'),
-                Surface(
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                      Text(order.address['recipient_name']),
-                      Text(
-                          '${order.address['address_text']}, ${order.address['district_area']}'),
-                      Text(order.address['region']),
-                      const SizedBox(height: 8),
-                      Text('Preferred date: ${order.deliveryDate}')
-                    ])),
-                const SectionHeader('Payment'),
-                MoneySummary({
-                  'Method': label(order.paymentMethod),
-                  'Status': label(order.paymentStatus)
-                }),
-                if (order.status == 'confirmed') ...[
-                  const SizedBox(height: 16),
-                  TextButton(
-                      onPressed: () => omoterraSheet(
-                          context,
-                          Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text('Cancel this order?',
-                                    style: TextStyle(
-                                        fontSize: 20,
-                                        fontWeight: FontWeight.w700)),
-                                const SizedBox(height: 12),
-                                const Text(
-                                    'Your reserved stock will be released. This is available before collection starts.'),
-                                const SizedBox(height: 20),
-                                DataForm(
-                                    path: '/orders/$id/cancel',
-                                    fields: const [],
-                                    button: 'Cancel order',
-                                    onSuccess: (_) {
-                                      ref.invalidate(
-                                          resourceProvider('/orders/$id'));
-                                      ref.invalidate(
-                                          resourceProvider('/orders'));
-                                      Navigator.pop(context);
-                                    })
-                              ])),
-                      child: const Text('Cancel order'))
-                ],
-                const SectionHeader('Activity'),
-                for (final event in order.activity)
-                  ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.check_circle_outline, size: 20),
-                      title: Text(event['label']),
-                      subtitle: Text(event['at'].toString().split('T').first))
-              ]);
-        })
-      ]));
+                  Surface(child: OrderProgress(order.status)),
+                  if (order.message != null) ErrorState(order.message!),
+                  if (order.canRate || order.rating != null) ...[
+                    const SizedBox(height: 16),
+                    RateOrderCard(
+                        orderId: id,
+                        rating: order.rating,
+                        canRate: order.canRate,
+                        onRated: () =>
+                            ref.invalidate(resourceProvider('/orders/$id'))),
+                  ],
+                  SectionHeader(s.orderSummary),
+                  MoneySummary({
+                    for (final i in order.items)
+                      '${s.label(i['category'])} · ${amount(i['quantity'])} ${s.unit('${i['unit_type']}', num.tryParse('${i['quantity']}'))}':
+                          tsh(i['subtotal']),
+                    s.total: tsh(order.total)
+                  }),
+                  SectionHeader(s.deliveryHeader),
+                  Surface(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Text(order.address['recipient_name']),
+                        Text(
+                            '${order.address['address_text']}, ${order.address['district_area']}'),
+                        Text(order.address['region']),
+                        const SizedBox(height: 8),
+                        Text(s.preferredDateIs(s.dateText(order.deliveryDate)))
+                      ])),
+                  SectionHeader(s.payment),
+                  MoneySummary({
+                    s.method: s.label(order.paymentMethod),
+                    s.statusWord: s.status(order.paymentStatus)
+                  }),
+                  SupportContact(
+                      topic: s.orderTopic(id.substring(0, 8).toUpperCase())),
+                  if (order.status == 'confirmed') ...[
+                    const SizedBox(height: 16),
+                    TextButton(
+                        onPressed: () => omoterraSheet(
+                            context,
+                            Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(s.cancelOrderQ,
+                                      style: const TextStyle(
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.w700)),
+                                  const SizedBox(height: 12),
+                                  Text(s.cancelOrderBody),
+                                  const SizedBox(height: 20),
+                                  DataForm(
+                                      path: '/orders/$id/cancel',
+                                      fields: const [],
+                                      button: s.cancelOrder,
+                                      onSuccess: (_) {
+                                        ref.invalidate(
+                                            resourceProvider('/orders/$id'));
+                                        ref.invalidate(
+                                            resourceProvider('/orders'));
+                                        Navigator.pop(context);
+                                      })
+                                ])),
+                        child: Text(s.cancelOrder))
+                  ],
+                  SectionHeader(s.activity),
+                  for (final event in order.activity)
+                    ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading:
+                            const Icon(Icons.check_circle_outline, size: 20),
+                        title: Text(event['label']),
+                        subtitle: Text(s.dateText(event['at'])))
+                ]);
+          })
+        ]));
+  }
 }

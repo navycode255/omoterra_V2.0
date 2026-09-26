@@ -3,7 +3,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/api/repository.dart';
 import '../../core/auth/session.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/routing/back_navigation.dart';
+import '../../core/phone.dart';
 import '../../core/theme/theme.dart';
 import '../../shared/widgets/components.dart';
 import '../../shared/widgets/data_form.dart';
@@ -15,23 +17,24 @@ class RoleRegistrationScreen extends ConsumerWidget {
   const RoleRegistrationScreen(this.role, {super.key});
   @override
   Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.s;
     if (role == 'supplier') return const SupplierOnboardingWizard();
     if (role != 'buyer') {
-      return const Scaffold(body: Center(child: Text('Unknown role')));
+      return Scaffold(body: Center(child: Text(s.unknownRole)));
     }
     return Scaffold(
-        appBar: const OmoterraAppBar(title: Text('Register as a buyer')),
+        appBar: OmoterraAppBar(title: Text(s.registerAsBuyer)),
         body: ListView(padding: const EdgeInsets.all(20), children: [
-          Text('Complete buyer registration',
+          Text(s.completeBuyerRegistration,
               style: Theme.of(context).textTheme.headlineMedium),
           const SizedBox(height: 8),
-          const Text('Choose the buyer profile that fits how you purchase.'),
+          Text(s.chooseBuyerProfile),
           const SizedBox(height: 24),
           DataForm(
               path: '/account/register-role',
               fixed: const {'role': 'buyer'},
-              fields: const [
-                FormFieldSpec('buyer_type', 'Buyer type', options: [
+              fields: [
+                FormFieldSpec('buyer_type', s.buyerType, options: const [
                   'personal',
                   'restaurant',
                   'butchery',
@@ -41,7 +44,7 @@ class RoleRegistrationScreen extends ConsumerWidget {
                   'other'
                 ])
               ],
-              button: 'Complete registration',
+              button: s.completeRegistration,
               onSuccess: (response) async {
                 try {
                   await ref
@@ -51,7 +54,7 @@ class RoleRegistrationScreen extends ConsumerWidget {
                 } catch (e) {
                   if (context.mounted) {
                     ScaffoldMessenger.of(context).showSnackBar(
-                        SnackBar(content: Text(friendlyErrorMessage(e))));
+                        SnackBar(content: Text(friendlyErrorMessage(e, s))));
                   }
                 }
               }),
@@ -83,7 +86,14 @@ const _units = {
 };
 
 class SupplierOnboardingWizard extends ConsumerStatefulWidget {
-  const SupplierOnboardingWizard({super.key});
+  /// Staff registering someone else: the phone is theirs to enter, private
+  /// staff notes are added, and the result is a referral from the signed-in
+  /// operator instead of this phone's own supplier registration. Every other
+  /// field is the same as self-registration, so the two never drift apart.
+  final bool onBehalf;
+  final VoidCallback? onRegistered;
+  const SupplierOnboardingWizard(
+      {super.key, this.onBehalf = false, this.onRegistered});
   @override
   ConsumerState<SupplierOnboardingWizard> createState() =>
       _SupplierOnboardingWizardState();
@@ -98,6 +108,8 @@ class _SupplierOnboardingWizardState
       _currentPhotos = <String>[],
       _futurePhotos = <String>[];
   int _step = 0;
+  // One key per registration, so a retried submit can't register twice.
+  final _key = newKey();
   FarmLocation? _farm;
   String? _error;
   bool _busy = false,
@@ -130,7 +142,8 @@ class _SupplierOnboardingWizardState
           bool numeric = false,
           bool multiline = false,
           String initial = '',
-          String? suffix}) =>
+          String? suffix,
+          String? Function(String)? check}) =>
       Padding(
           padding: const EdgeInsets.only(bottom: 14),
           child: TextFormField(
@@ -141,11 +154,16 @@ class _SupplierOnboardingWizardState
                   : TextInputType.text,
               maxLines: multiline ? 3 : 1,
               decoration: InputDecoration(labelText: title, suffixText: suffix),
-              validator: required
-                  ? (value) => value == null || value.trim().isEmpty
-                      ? 'This field is required'
-                      : null
-                  : null));
+              validator: (value) {
+                final text = value?.trim() ?? '';
+                if (text.isEmpty) {
+                  return required ? ref.s.fieldRequired : null;
+                }
+                return check?.call(text);
+              }));
+
+  String? _mobile(String text) =>
+      tanzanianMobile(text) == null ? ref.s.enterTzMobile : null;
 
   Widget _select(String title, String value, List<String> values,
           ValueChanged<String?> onChanged) =>
@@ -153,16 +171,17 @@ class _SupplierOnboardingWizardState
           label: title,
           value: value,
           items: values
-              .map((v) => DropdownMenuItem(value: v, child: Text(label(v))))
+              .map((v) =>
+                  DropdownMenuItem(value: v, child: Text(ref.s.label(v))))
               .toList(),
           onChanged: onChanged);
-  String get _title => const [
-        'Supplier identity',
-        'What you supply',
-        'Pickup & operations',
-        'Current production',
-        'Photos',
-        'Review'
+  String get _title => [
+        ref.s.stepSupplierIdentity,
+        ref.s.stepWhatYouSupply,
+        ref.s.stepPickupOperations,
+        ref.s.stepCurrentProduction,
+        ref.s.stepPhotos,
+        ref.s.stepReview
       ][_step];
 
   Widget _batchForm(
@@ -176,70 +195,78 @@ class _SupplierOnboardingWizardState
           List<String> photos,
           ValueChanged<List<String>> setPhotos) =>
       Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-        _select('Product category', category, _selected.toList(), setCategory),
-        _text('${prefix}_subtype', 'Breed / type (optional)'),
-        _text('${prefix}_quantity', 'Current quantity (${_unit(category)})',
+        _select(
+            ref.s.productCategory, category, _selected.toList(), setCategory),
+        _text('${prefix}_subtype', ref.s.breedTypeOptional),
+        _text('${prefix}_quantity',
+            ref.s.currentQuantityIn(ref.s.unit(_unit(category), 1)),
             required: true, numeric: true),
         Row(children: [
           Expanded(
-              child: _text('${prefix}_age', 'Current age (optional)',
+              child: _text('${prefix}_age', ref.s.currentAgeOptional,
                   numeric: true)),
           const SizedBox(width: 12),
           Expanded(
-              child: _select('Age unit', ageUnit,
+              child: _select(ref.s.ageUnit, ageUnit,
                   const ['days', 'weeks', 'months'], setAgeUnit))
         ]),
         if (!['eggs', 'chicken_meat', 'beef', 'goat_meat']
             .contains(category)) ...[
-          _text('${prefix}_min_weight', 'Expected minimum weight (kg)',
-              numeric: true),
-          _text('${prefix}_max_weight', 'Expected maximum weight (kg)',
-              numeric: true)
+          _text('${prefix}_min_weight', ref.s.expectedMinWeight, numeric: true),
+          _text('${prefix}_max_weight', ref.s.expectedMaxWeight, numeric: true)
         ],
         OmoterraDateField(
-            'Expected ready / collection date',
+            ref.s.expectedReadyCollectionDate,
             _c('${prefix}_ready_date',
                 initial: DateTime.now()
                     .add(const Duration(days: 1))
                     .toIso8601String()
                     .split('T')
                     .first)),
-        _select('Supply form', form,
+        _select(ref.s.supplyForm, form,
             const ['live', 'dressed', 'chilled', 'frozen'], setForm),
         _text('${prefix}_asking_price',
-            'Asking price per ${_unit(category)} (TZS)',
+            ref.s.askingPricePerTzs(ref.s.unit(_unit(category), 1)),
             required: true, numeric: true),
         PhotoPicker(photos: photos, onChanged: setPhotos),
       ]);
 
   Widget _body() {
-    final user = ref.read(sessionProvider).value;
+    // Registering someone else starts blank rather than from this phone's
+    // own account.
+    final user = widget.onBehalf ? null : ref.read(sessionProvider).value;
+    final s = ref.s;
     switch (_step) {
       case 0:
         return Column(children: [
-          _text('public_alias', 'Farm / supplier name', required: true),
-          _text('legal_name', 'Legal / full name',
+          _text('public_alias', s.farmSupplierName, required: true),
+          _text('legal_name', s.legalFullName,
               required: true, initial: user?.name ?? ''),
-          TextFormField(
-              initialValue: user?.phone ?? '',
-              readOnly: true,
-              decoration: const InputDecoration(labelText: 'Primary phone')),
-          _text('alternate_phone', 'Alternate phone (optional)'),
-          _text('region', 'Region',
+          if (widget.onBehalf)
+            _text('phone', s.suppliersMobile, required: true, check: _mobile)
+          else
+            Padding(
+                padding: const EdgeInsets.only(bottom: 14),
+                child: TextFormField(
+                    initialValue: user?.phone ?? '',
+                    readOnly: true,
+                    decoration: InputDecoration(labelText: s.primaryPhone))),
+          _text('alternate_phone', s.alternatePhoneOptional, check: _mobile),
+          _text('region', s.regionLabel,
               required: true, initial: user?.region ?? ''),
-          _text('district', 'District', required: true),
-          _text('general_area', 'General area (optional)'),
+          _text('district', s.district, required: true),
+          _text('general_area', s.generalAreaOptional),
         ]);
       case 1:
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Choose the products you normally supply.'),
+          Text(s.chooseProductsYouSupply),
           const SizedBox(height: 10),
           Wrap(
               spacing: 8,
               runSpacing: 4,
               children: _categories
                   .map((c) => FilterChip(
-                      label: Text(label(c)),
+                      label: Text(s.label(c)),
                       selected: _selected.contains(c),
                       onSelected: (selected) => setState(() {
                             selected ? _selected.add(c) : _selected.remove(c);
@@ -259,37 +286,34 @@ class _SupplierOnboardingWizardState
                   .toList()),
           if (_selected.isNotEmpty) ...[
             const SizedBox(height: 18),
-            _select('Main category', _primary, _selected.toList(),
+            _select(s.mainCategory, _primary, _selected.toList(),
                 (value) => setState(() => _primary = value!)),
             for (final category in _selected)
-              _text('capacity_$category',
-                  '${label(category)} typical capacity (optional)',
-                  numeric: true, suffix: '${_unit(category)} / cycle')
+              _text('capacity_$category', s.typicalCapacity(s.label(category)),
+                  numeric: true, suffix: s.perCycle(s.unit(_unit(category), 1)))
           ],
-          _text('production_frequency', 'Usual production cycle (optional)',
-              suffix: 'e.g. every 6 weeks'),
+          _text('production_frequency', s.usualCycle, suffix: s.cycleHint),
         ]);
       case 2:
         return Column(children: [
           FarmLocationField(
               value: _farm, onChanged: (v) => setState(() => _farm = v)),
-          _text('internal_pickup_address',
-              'Pickup directions / landmarks (private)',
+          _text('internal_pickup_address', s.pickupDirectionsPrivate,
               required: true, multiline: true),
-          _text('pickup_instructions', 'Pickup instructions (optional)',
+          _text('pickup_instructions', s.pickupInstructionsOptional,
               multiline: true),
           SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Omoterra can collect from this location'),
+              title: Text(s.omoterraCanCollect),
               value: _canCollect,
               onChanged: (v) => setState(() => _canCollect = v)),
           SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Supplier can arrange transport'),
+              title: Text(s.supplierCanTransport),
               value: _canTransport,
               onChanged: (v) => setState(() => _canTransport = v)),
           _select(
-              'Preferred contact',
+              s.preferredContact,
               _contact,
               const ['phone', 'whatsapp', 'sms'],
               (v) => setState(() => _contact = v!)),
@@ -297,23 +321,21 @@ class _SupplierOnboardingWizardState
               spacing: 8,
               children: ['live', 'dressed', 'chilled', 'frozen']
                   .map((form) => FilterChip(
-                      label: Text(label(form)),
+                      label: Text(s.label(form)),
                       selected: _forms.contains(form),
                       onSelected: (yes) => setState(
                           () => yes ? _forms.add(form) : _forms.remove(form))))
                   .toList()),
-          _text('operating_notes', 'Operating schedule or notes (optional)',
-              multiline: true),
+          _text('operating_notes', s.operatingNotesOptional, multiline: true),
         ]);
       case 3:
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Do you have livestock or stock currently in production?',
+          Text(s.haveProductionQ,
               style: Theme.of(context).textTheme.titleMedium),
           SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: Text(_hasCurrent
-                  ? 'Yes, add the current batch'
-                  : 'No current batch'),
+              title:
+                  Text(_hasCurrent ? s.yesAddCurrentBatch : s.noCurrentBatch),
               value: _hasCurrent,
               onChanged: (v) => setState(() => _hasCurrent = v)),
           if (_hasCurrent)
@@ -330,11 +352,11 @@ class _SupplierOnboardingWizardState
                   ..clear()
                   ..addAll(v))),
           const Divider(height: 30),
-          Text('Next planned production',
+          Text(s.nextPlannedProduction,
               style: Theme.of(context).textTheme.titleMedium),
           SwitchListTile(
               contentPadding: EdgeInsets.zero,
-              title: const Text('Add a planned batch too'),
+              title: Text(s.addPlannedBatch),
               value: _hasFuture,
               onChanged: (v) => setState(() => _hasFuture = v)),
           if (_hasFuture)
@@ -353,45 +375,59 @@ class _SupplierOnboardingWizardState
         ]);
       case 4:
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text(
-              'Add farm and location photos for Omoterra staff to review.'),
+          Text(s.addFarmPhotosIntro),
           const SizedBox(height: 16),
-          const Text('Farm / location photos'),
+          Text(s.farmLocationPhotos),
           PhotoPicker(
               photos: _evidencePhotos,
               onChanged: (v) => setState(() => _evidencePhotos
                 ..clear()
-                ..addAll(v)))
+                ..addAll(v))),
+          if (widget.onBehalf) ...[
+            const SizedBox(height: 20),
+            _text('internal_notes', s.privateStaffNotes, multiline: true),
+          ],
         ]);
       default:
         return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          _summary('Farm / supplier', _c('public_alias').text),
-          _summary('Legal name', _c('legal_name').text),
-          _summary('Contact', user?.phone ?? ''),
-          _summary('Location', '${_c('district').text}, ${_c('region').text}'),
-          _summary('Supply categories', _selected.map(label).join(', ')),
+          _summary(s.farmSupplier, _c('public_alias').text),
+          _summary(s.legalName, _c('legal_name').text),
           _summary(
-              'Typical cycle',
+              s.contact,
+              widget.onBehalf
+                  ? tanzanianMobile(_c('phone').text) ?? ''
+                  : user?.phone ?? ''),
+          _summary(s.location, '${_c('district').text}, ${_c('region').text}'),
+          _summary(s.supplyCategories, _selected.map(s.label).join(', ')),
+          _summary(
+              s.typicalCycle,
               _c('production_frequency').text.isEmpty
-                  ? 'Not provided'
+                  ? s.notProvided
                   : _c('production_frequency').text),
-          _summary('Farm location', _farm?.label ?? ''),
-          _summary('Pickup', _c('internal_pickup_address').text),
-          _summary('Omoterra collection',
-              _canCollect ? 'Available' : 'Not available'),
+          _summary(s.farmLocation, _farm?.label ?? ''),
+          _summary(s.pickup, _c('internal_pickup_address').text),
+          _summary(s.omoterraCollection,
+              _canCollect ? s.availableStat : s.notAvailable),
           _summary(
-              'Current production',
+              s.stepCurrentProduction,
               _hasCurrent
-                  ? '${_c('current_quantity').text} ${_unit(_currentCategory)} · ready ${_c('current_ready_date').text}'
-                  : 'No current batch'),
+                  ? s.quantityReady(
+                      _c('current_quantity').text,
+                      s.unit(_unit(_currentCategory),
+                          num.tryParse(_c('current_quantity').text)),
+                      s.dateText(_c('current_ready_date').text))
+                  : s.noCurrentBatch),
           _summary(
-              'Next planned production',
+              s.nextPlannedProduction,
               _hasFuture
-                  ? '${_c('future_quantity').text} ${_unit(_futureCategory)} · ready ${_c('future_ready_date').text}'
-                  : 'Not provided'),
+                  ? s.quantityReady(
+                      _c('future_quantity').text,
+                      s.unit(_unit(_futureCategory),
+                          num.tryParse(_c('future_quantity').text)),
+                      s.dateText(_c('future_ready_date').text))
+                  : s.notProvided),
           const SizedBox(height: 12),
-          const Text(
-              'Registration will be reviewed by Omoterra before supply is shown to buyers.'),
+          Text(s.registrationReviewNote),
         ]);
     }
   }
@@ -409,30 +445,30 @@ class _SupplierOnboardingWizardState
       ]));
 
   bool _validStep() {
+    final s = ref.read(stringsProvider);
     if ((_step == 0 || _step == 2) &&
         !(_form.currentState?.validate() ?? false)) {
       return false;
     }
     if (_step == 1 && _selected.isEmpty) {
-      setState(() => _error = 'Choose at least one supply category.');
+      setState(() => _error = s.chooseOneCategory);
       return false;
     }
     if (_step == 1) {
       for (final c in _selected) {
         final value = double.tryParse(_c('capacity_$c').text);
         if (value != null && value < 0) {
-          setState(() => _error = 'Production capacity cannot be negative.');
+          setState(() => _error = s.capacityNotNegative);
           return false;
         }
       }
     }
     if (_step == 2 && _farm == null) {
-      setState(() => _error =
-          'Add the farm location: paste a Google Maps link or pick it on the map.');
+      setState(() => _error = s.addFarmLocation);
       return false;
     }
     if (_step == 2 && _forms.isEmpty) {
-      setState(() => _error = 'Choose at least one supply form.');
+      setState(() => _error = s.chooseOneForm);
       return false;
     }
     if (_step == 3) {
@@ -442,24 +478,22 @@ class _SupplierOnboardingWizardState
       ].whereType<String>()) {
         final qty = double.tryParse(_c('${prefix}_quantity').text);
         if (qty == null || qty <= 0) {
-          setState(() =>
-              _error = 'Enter a quantity greater than zero for each batch.');
+          setState(() => _error = s.quantityAboveZeroEach);
           return false;
         }
         final low = double.tryParse(_c('${prefix}_min_weight').text),
             high = double.tryParse(_c('${prefix}_max_weight').text);
         if (low != null && high != null && high < low) {
-          setState(() =>
-              _error = 'Expected maximum weight must be at least the minimum.');
+          setState(() => _error = s.maxWeightAtLeastMin);
           return false;
         }
         if (_c('${prefix}_ready_date').text.isEmpty) {
-          setState(() => _error = 'Choose an expected ready date.');
+          setState(() => _error = s.chooseReadyDate);
           return false;
         }
         final price = double.tryParse(_c('${prefix}_asking_price').text);
         if (price == null || price <= 0) {
-          setState(() => _error = 'Enter an asking price greater than zero.');
+          setState(() => _error = s.priceAboveZero);
           return false;
         }
       }
@@ -513,7 +547,7 @@ class _SupplierOnboardingWizardState
         'name': _c('legal_name').text.trim(),
         'public_alias': _c('public_alias').text.trim(),
         'legal_name': _c('legal_name').text.trim(),
-        'alternate_phone': _c('alternate_phone').text.trim(),
+        'alternate_phone': tanzanianMobile(_c('alternate_phone').text) ?? '',
         'region': _c('region').text.trim(),
         'district': _c('district').text.trim(),
         'general_area': _c('general_area').text.trim(),
@@ -537,6 +571,19 @@ class _SupplierOnboardingWizardState
             ? [_batch('future', _futureCategory, _futureForm, _futureAgeUnit)]
             : <dynamic>[],
       };
+      if (widget.onBehalf) {
+        await ref.read(repositoryProvider).write(
+            '/referrals/supplier',
+            {
+              ...payload,
+              'phone': tanzanianMobile(_c('phone').text),
+              'internal_notes': _c('internal_notes').text.trim(),
+              'verification': <String, dynamic>{},
+            },
+            key: _key);
+        widget.onRegistered?.call();
+        return;
+      }
       final response = await ref
           .read(repositoryProvider)
           .write('/supplier/onboarding', payload, key: newKey());
@@ -545,67 +592,73 @@ class _SupplierOnboardingWizardState
           .acceptRegisteredRole(response['user'], 'supplier');
       if (mounted) context.go('/supplier');
     } catch (error) {
-      if (mounted) setState(() => _error = friendlyErrorMessage(error));
+      if (mounted) {
+        setState(() =>
+            _error = friendlyErrorMessage(error, ref.read(stringsProvider)));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
   }
 
   @override
-  Widget build(BuildContext context) => Scaffold(
-      appBar: OmoterraAppBar(title: Text(_title)),
-      body: SafeArea(
-          child: Form(
-              key: _form,
-              child: ListView(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
-                  children: [
-                    LinearProgressIndicator(
-                        value: (_step + 1) / 6,
-                        minHeight: 5,
-                        borderRadius: BorderRadius.circular(4),
-                        color: OColors.forest,
-                        backgroundColor: OColors.soft),
-                    const SizedBox(height: 18),
-                    Text('Step ${_step + 1} of 6',
-                        style: Theme.of(context)
-                            .textTheme
-                            .labelLarge
-                            ?.copyWith(color: OColors.secondary)),
-                    const SizedBox(height: 8),
-                    Text(_title,
-                        style: Theme.of(context).textTheme.headlineMedium),
-                    const SizedBox(height: 20),
-                    _body(),
-                    if (_error != null) ErrorState(ApiFailure(_error!)),
-                    const SizedBox(height: 20),
-                    Row(children: [
-                      if (_step > 0)
+  Widget build(BuildContext context) {
+    final s = ref.s;
+    return Scaffold(
+        appBar: OmoterraAppBar(title: Text(_title)),
+        body: SafeArea(
+            child: Form(
+                key: _form,
+                child: ListView(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+                    children: [
+                      LinearProgressIndicator(
+                          value: (_step + 1) / 6,
+                          minHeight: 5,
+                          borderRadius: BorderRadius.circular(4),
+                          color: OColors.forest,
+                          backgroundColor: OColors.soft),
+                      const SizedBox(height: 18),
+                      Text(s.stepNOf(_step + 1, 6),
+                          style: Theme.of(context)
+                              .textTheme
+                              .labelLarge
+                              ?.copyWith(color: OColors.secondary)),
+                      const SizedBox(height: 8),
+                      Text(_title,
+                          style: Theme.of(context).textTheme.headlineMedium),
+                      const SizedBox(height: 20),
+                      _body(),
+                      if (_error != null) ErrorState(ApiFailure(_error!)),
+                      const SizedBox(height: 20),
+                      Row(children: [
+                        if (_step > 0)
+                          Expanded(
+                              child: OutlinedButton(
+                                  onPressed: _busy ? null : popStep,
+                                  child: Text(s.back))),
+                        if (_step > 0) const SizedBox(width: 12),
                         Expanded(
-                            child: OutlinedButton(
-                                onPressed: _busy ? null : popStep,
-                                child: const Text('Back'))),
-                      if (_step > 0) const SizedBox(width: 12),
-                      Expanded(
-                          child: FilledButton(
-                              onPressed: _busy
-                                  ? null
-                                  : _step == 5
-                                      ? _submit
-                                      : () {
-                                          if (_validStep()) {
-                                            setState(() => _step++);
-                                            pushStep(() {
-                                              _step--;
-                                              _error = null;
-                                            });
-                                          }
-                                        },
-                              child: Text(_busy
-                                  ? 'Submitting…'
-                                  : _step == 5
-                                      ? 'Submit registration'
-                                      : 'Continue')))
-                    ]),
-                  ]))));
+                            child: FilledButton(
+                                onPressed: _busy
+                                    ? null
+                                    : _step == 5
+                                        ? _submit
+                                        : () {
+                                            if (_validStep()) {
+                                              setState(() => _step++);
+                                              pushStep(() {
+                                                _step--;
+                                                _error = null;
+                                              });
+                                            }
+                                          },
+                                child: Text(_busy
+                                    ? s.submitting
+                                    : _step == 5
+                                        ? s.submitRegistration
+                                        : s.continueLabel)))
+                      ]),
+                    ]))));
+  }
 }

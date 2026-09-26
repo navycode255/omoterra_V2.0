@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/theme/theme.dart';
 
 /// In-app numeric keypad, shared by PhoneScreen and OtpScreen. Replaces the
@@ -36,7 +37,8 @@ class NumberPad extends StatelessWidget {
                 icon: Icon(visible
                     ? Icons.keyboard_arrow_down_rounded
                     : Icons.keyboard_arrow_up_rounded),
-                label: Text(visible ? 'Hide keyboard' : 'Show keyboard'),
+                label: Text(
+                    visible ? context.s.hideKeyboard : context.s.showKeyboard),
                 style: TextButton.styleFrom(
                   foregroundColor: OColors.forest,
                   visualDensity: VisualDensity.compact,
@@ -76,7 +78,7 @@ class _Key extends StatelessWidget {
         padding: const EdgeInsets.all(4),
         child: Semantics(
             button: true,
-            label: backspace ? 'Delete' : value,
+            label: backspace ? context.s.delete : value,
             excludeSemantics: true,
             child: Material(
                 color: backspace ? Colors.transparent : Colors.white,

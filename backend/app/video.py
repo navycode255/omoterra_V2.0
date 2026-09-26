@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Protocol
 from urllib.parse import parse_qs, urlparse
 
-from fastapi import HTTPException
+from .i18n import fail
 
 from .config import settings
 
@@ -39,7 +39,7 @@ def youtube_id(url: str) -> str:
         elif len(parts) >= 2 and parts[0] in ('shorts', 'embed', 'live', 'v'):
             candidate = parts[1]
     if not VIDEO_ID.match(candidate):
-        raise HTTPException(422, 'Paste a YouTube video link, for example https://youtu.be/abc123XYZ00.')
+        fail('err.paste_youtube_video_link_example', 422)
     return candidate
 
 
@@ -71,7 +71,7 @@ class DisabledVideoPublisher:
     enabled = False
 
     def publish(self, path: Path, title: str, supplier_id: str) -> PublishedVideo:
-        raise HTTPException(503, 'Video uploads are not switched on yet. Paste a YouTube link instead.')
+        fail('err.video_uploads_are_not_switched', 503)
 
 
 def publisher() -> VideoPublisher:

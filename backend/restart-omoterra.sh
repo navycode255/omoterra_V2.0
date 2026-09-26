@@ -79,6 +79,13 @@ for _ in $(seq 1 10); do
         elif [ -n "$env_name" ]; then
             echo "Environment: $env_name"
         fi
+        # Staff sign-in from the app needs OMOTERRA_MOBILE_ADMIN_PASSPHRASE.
+        if curl -sS -m 2 "http://127.0.0.1:$PORT/api/v1/mobile-admin/me" 2>/dev/null \
+                | grep -q 'turned off'; then
+            echo "Staff sign-in (mobile admin): OFF — set OMOTERRA_MOBILE_ADMIN_PASSPHRASE in .env"
+        else
+            echo "Staff sign-in (mobile admin): ON"
+        fi
         exit 0
     fi
     sleep 1

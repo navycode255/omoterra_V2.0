@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../core/api/repository.dart';
+import '../../core/l10n/strings.dart';
 import '../../core/theme/theme.dart';
 import 'components.dart';
 
@@ -36,8 +37,8 @@ class RatingBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     final average = (rating?['rating'] as num?)?.toDouble();
     if (average == null) {
-      return const Text('New supplier',
-          style: TextStyle(fontSize: 11, color: OColors.secondary));
+      return Text(context.s.newSupplier,
+          style: const TextStyle(fontSize: 11, color: OColors.secondary));
     }
     return Row(mainAxisSize: MainAxisSize.min, children: [
       const Icon(Icons.star_rounded, size: 14, color: _star),
@@ -50,50 +51,60 @@ class RatingBadge extends StatelessWidget {
   }
 }
 
-/// The supplier's track record on the listing page: buyer rating,
-/// deliveries through Omoterra, and how much passed Omoterra's quality check.
+/// The supplier's track record: buyer rating, deliveries through Omoterra,
+/// and how much passed Omoterra's quality check. Shown to suppliers on their
+/// ratings page and to buyers on a listing.
 class ReputationStrip extends StatelessWidget {
   final Map<String, dynamic>? reputation;
   const ReputationStrip(this.reputation, {super.key});
   @override
   Widget build(BuildContext context) {
     final r = reputation ?? const {};
+    final s = context.s;
     final average = (r['rating'] as num?)?.toDouble();
+    final count = (r['ratings'] as num?)?.toInt() ?? 0;
     final deliveries = (r['deliveries'] as num?)?.toInt() ?? 0;
     final quality = (r['quality_passed'] as num?)?.toInt();
-    Widget stat(String value, String label, {Widget? leading}) => Expanded(
-            child: Column(children: [
-          Row(mainAxisSize: MainAxisSize.min, children: [
-            if (leading != null) ...[leading, const SizedBox(width: 3)],
-            Text(value,
-                style: const TextStyle(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
-                    color: OColors.forest)),
-          ]),
-          const SizedBox(height: 2),
+    Widget stat(IconData icon, String value, String label) => Expanded(
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Icon(icon, size: 26, color: OColors.forest),
+          const SizedBox(height: 6),
+          Text(value,
+              style: const TextStyle(
+                  fontSize: 21,
+                  height: 1.15,
+                  fontWeight: FontWeight.w800,
+                  color: OColors.forest)),
+          const SizedBox(height: 3),
           Text(label,
               textAlign: TextAlign.center,
-              style: const TextStyle(fontSize: 11, color: OColors.secondary)),
+              style: const TextStyle(fontSize: 13.5, color: OColors.secondary)),
         ]));
+    const divider = SizedBox(
+        height: 64, child: VerticalDivider(width: 1, color: Color(0xFFE5ECE7)));
     return Container(
         key: const Key('reputation_strip'),
-        padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 6),
+        padding: const EdgeInsets.symmetric(vertical: 18, horizontal: 4),
         decoration: BoxDecoration(
             color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-            border: Border.all(color: OColors.border)),
-        child: Row(children: [
+            borderRadius: BorderRadius.circular(22),
+            border: Border.all(color: const Color(0xFFE6EEE9)),
+            boxShadow: [
+              BoxShadow(
+                  color: OColors.forest.withValues(alpha: .06),
+                  blurRadius: 18,
+                  offset: const Offset(0, 6))
+            ]),
+        child: Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
           stat(
-              average == null ? 'New' : average.toStringAsFixed(1),
-              average == null
-                  ? 'Not enough ratings yet'
-                  : '${r['ratings']} buyer ratings',
-              leading: average == null
-                  ? null
-                  : const Icon(Icons.star_rounded, size: 17, color: _star)),
-          stat('$deliveries', deliveries == 1 ? 'delivery' : 'deliveries'),
-          stat(quality == null ? '—' : '$quality%', 'passed quality check'),
+              Icons.star_border,
+              average == null ? s.newLabel : average.toStringAsFixed(1),
+              average == null ? s.awaiting : s.nRatings(count)),
+          divider,
+          stat(Icons.local_shipping_outlined, '$deliveries', s.deliveries),
+          divider,
+          stat(Icons.verified_user_outlined,
+              quality == null ? '—' : '$quality%', s.quality),
         ]));
   }
 }
@@ -140,8 +151,8 @@ class _RateOrderCardState extends ConsumerState<RateOrderCard> {
           {'stars': stars, 'comment': comment.text.trim()});
       if (!mounted) return;
       setState(() => editing = false);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Thank you. Your rating helps other buyers.')));
+      ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(ref.read(stringsProvider).ratingThanks)));
       widget.onRated();
     } catch (e) {
       if (mounted) setState(() => error = e);
@@ -150,18 +161,17 @@ class _RateOrderCardState extends ConsumerState<RateOrderCard> {
     }
   }
 
-  static const _labels = ['', 'Poor', 'Fair', 'Good', 'Very good', 'Excellent'];
-
   @override
   Widget build(BuildContext context) {
+    final s = ref.s;
     if (!editing) {
       return Surface(
           child: Row(children: [
         Expanded(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('Your rating',
-              style: TextStyle(fontWeight: FontWeight.w700)),
+          Text(s.yourRating,
+              style: const TextStyle(fontWeight: FontWeight.w700)),
           const SizedBox(height: 6),
           StarRow(stars.toDouble(), size: 20),
           if (comment.text.isNotEmpty) ...[
@@ -172,24 +182,24 @@ class _RateOrderCardState extends ConsumerState<RateOrderCard> {
         if (widget.canRate)
           TextButton(
               onPressed: () => setState(() => editing = true),
-              child: const Text('Edit')),
+              child: Text(s.edit)),
       ]));
     }
     return Surface(
         key: const Key('rate_order_card'),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          const Text('How was this order?',
-              style: TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
+          Text(s.howWasOrder,
+              style:
+                  const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
           const SizedBox(height: 4),
-          const Text(
-              'Your rating builds the supplier’s reputation. Suppliers never see who rated them.',
-              style: TextStyle(fontSize: 12, color: OColors.secondary)),
+          Text(s.ratingPrivacy,
+              style: const TextStyle(fontSize: 12, color: OColors.secondary)),
           const SizedBox(height: 12),
           Row(children: [
             for (var i = 1; i <= 5; i++)
               Semantics(
                   button: true,
-                  label: '$i star${i == 1 ? '' : 's'}',
+                  label: s.nStars(i),
                   selected: stars == i,
                   child: InkResponse(
                       radius: 24,
@@ -204,7 +214,7 @@ class _RateOrderCardState extends ConsumerState<RateOrderCard> {
                               color: _star)))),
             const SizedBox(width: 8),
             Flexible(
-                child: Text(_labels[stars],
+                child: Text(s.starLabel(stars),
                     style: const TextStyle(fontWeight: FontWeight.w600))),
           ]),
           const SizedBox(height: 10),
@@ -213,12 +223,10 @@ class _RateOrderCardState extends ConsumerState<RateOrderCard> {
               maxLength: 500,
               maxLines: 3,
               minLines: 2,
-              decoration: const InputDecoration(
-                  hintText:
-                      'What went well, or what could be better? (optional)')),
+              decoration: InputDecoration(hintText: s.ratingCommentHint)),
           if (error != null) ErrorState(error!),
           OmoterraButton(
-              widget.rating == null ? 'Submit rating' : 'Update rating',
+              widget.rating == null ? s.submitRating : s.updateRating,
               busy: busy,
               onPressed: stars == 0 ? null : submit),
         ]));

@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { ActionForm } from '@/components/form';
 import { Card, Definition, PageHeader, Status } from '@/components/ui';
 import { updateOpportunity } from '@/lib/actions';
-import { get } from '@/lib/api';
+import { ApiError, get } from '@/lib/api';
 import { date, reference, titleCase } from '@/lib/format';
 import type { BusinessOpportunity, BuyerDetail, BusinessStatus } from '@/lib/types';
 
@@ -18,9 +18,12 @@ const PIPELINE: BusinessStatus[] = [
 
 export default async function OpportunityDetail({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const rows = await get<BusinessOpportunity[]>('/ops/business-opportunities');
-  const opportunity = rows.find((row) => row.id === id);
-  if (!opportunity) notFound();
+  let opportunity: BusinessOpportunity;
+  try { opportunity = await get<BusinessOpportunity>(`/ops/business-opportunities/${encodeURIComponent(id)}`); }
+  catch (error) {
+    if (error instanceof ApiError && error.status === 404) notFound();
+    throw error;
+  }
 
   const buyer = await get<BuyerDetail>(`/ops/buyers/${opportunity.buyer_id}`);
 

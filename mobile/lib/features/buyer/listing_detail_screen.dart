@@ -45,8 +45,7 @@ class _ListingDetailState extends ConsumerState<ListingDetail> {
           hold!.expiresAt.isBefore(DateTime.now())) {
         hold = null;
         key = newKey();
-        throw const ApiFailure(
-            'Your reservation expired. Select your quantity again.');
+        throw ApiFailure(ref.read(stringsProvider).reservationExpiredReselect);
       }
       if (checkout && mounted) {
         final id = hold!.id;
@@ -123,10 +122,11 @@ class _ListingDetailState extends ConsumerState<ListingDetail> {
                       StockVideoTile(listing.video!),
                       const SizedBox(height: 16),
                     ],
-                    Text(label(listing.category),
+                    Text(s.label(listing.category),
                         style: Theme.of(context).textTheme.headlineMedium),
                     const SizedBox(height: 8),
-                    Text('${tsh(listing.price)} / ${listing.unitType}',
+                    Text(
+                        '${tsh(listing.price)} / ${s.unit(listing.unitType, 1)}',
                         style: const TextStyle(
                             fontSize: 24,
                             fontWeight: FontWeight.w700,
@@ -144,13 +144,13 @@ class _ListingDetailState extends ConsumerState<ListingDetail> {
                     ]),
                     const SizedBox(height: 8),
                     Text(
-                        '${amount(listing.available)} ${listing.unitType} ${s.available} · ${listing.region}',
+                        '${amount(listing.available)} ${s.unit(listing.unitType, num.tryParse(listing.available))} ${s.available} · ${listing.region}',
                         style: const TextStyle(
                             fontSize: 13, color: OColors.secondary)),
                     const SizedBox(height: 18),
                     _SupplierCard(
-                        alias:
-                            '${listing.supplier?['public_alias'] ?? 'Omoterra supply partner'}',
+                        alias: listing.supplier?['public_alias'] ??
+                            s.supplyPartner,
                         region: listing.region,
                         approved: s.omoterraApproved),
                     const SizedBox(height: 10),
@@ -173,12 +173,12 @@ class _ListingDetailState extends ConsumerState<ListingDetail> {
                             const Icon(Icons.lock_clock,
                                 size: 17, color: OColors.forest),
                             const SizedBox(width: 8),
-                            const Expanded(
-                                child: Text('Stock reserved for 15 minutes.',
-                                    style: TextStyle(fontSize: 13))),
+                            Expanded(
+                                child: Text(s.reservedFor15,
+                                    style: const TextStyle(fontSize: 13))),
                             TextButton(
                                 onPressed: busy ? null : changeQuantity,
-                                child: const Text('Change')),
+                                child: Text(s.change)),
                           ])),
                     ],
                     const SizedBox(height: 8),
@@ -328,7 +328,7 @@ class _SpecTable extends StatelessWidget {
                     : const Border(bottom: BorderSide(color: OColors.border))),
             child: Row(children: [
               Expanded(
-                  child: Text(label(row.value.key),
+                  child: Text(context.s.label(row.value.key),
                       style: const TextStyle(
                           fontSize: 13, color: OColors.secondary))),
               Text('${row.value.value}',
