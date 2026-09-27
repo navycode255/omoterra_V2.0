@@ -2231,7 +2231,9 @@ def reserve_source(id: str, data: c.Reserve, idempotency_key: str = Header(), db
 @app.get(prefix + '/ops/media/{id}', dependencies=[Depends(auth.ops)])
 def ops_photo(id: str, db=Depends(database)):
     asset = db.get(m.MediaAsset, id)
-    if not asset:
+    # The stamp and signatures are served only printed on an issued LPO.
+    from .purchasing import is_mark
+    if not asset or is_mark(db, id):
         s.fail('err.photo_not_found', 404)
     return media.signed_link(asset)
 
@@ -3007,6 +3009,7 @@ def reverse_sale(id: str, data: c.SaleReversalInput, idempotency_key: str = Head
 
 
 # Sales, the debts ledger and promotions live in their own modules.
-from . import finance, promotions  # noqa: E402
+from . import finance, promotions, purchasing  # noqa: E402
 app.include_router(finance.router)
 app.include_router(promotions.router)
+app.include_router(purchasing.router)

@@ -11,6 +11,9 @@ const GROUPS = [
     { href: '/orders', label: 'Orders', icon: Icons.file, key: 'orders_in_progress' },
     { href: '/batches', label: 'Production Batches', icon: Icons.calendar, key: 'verification_overdue' },
   ] },
+  { label: 'Purchasing', modules: [
+    { href: '/lpos', label: 'LPOs', icon: Icons.clipboard, key: null },
+  ] },
   { label: 'Finance', modules: [
     { href: '/finance', label: 'Finance overview', icon: Icons.trend, key: null },
     { href: '/sales', label: 'Sales', icon: Icons.clipboard, key: null },

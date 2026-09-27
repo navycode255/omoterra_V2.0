@@ -38,12 +38,12 @@ export default async function Profit({ searchParams }: { searchParams: Promise<L
       {error instanceof ApiError ? error.message : 'Profit could not be calculated.'}</Notice></div></>;
   }
   const hasMarketplace = Number(data.marketplace_sales) > 0;
-  const active = data.days.filter((d) => Number(d.revenue) || Number(d.expenses));
+  const active = data.days.filter((d) => Number(d.revenue) || Number(d.expenses) || Number(d.stock_lost));
   return (
     <>
       <div className="topbar">
         <PageHeader title="Profit" subtitle={`${day(data.start)} – ${day(data.end)}: what you made, what it cost, what is left.`}
-          info="Sales count on the day sold, whether paid yet or not. Stock cost is what you owe or paid suppliers for the stock sold. Expenses count on the day incurred. Cancelled sales and expenses are left out." />
+          info="Sales count on the day sold, whether paid yet or not. Stock cost is what the stock sold cost you (supplier cost or LPO price). Expenses count on the day incurred, and so does LPO stock lost. Birds received but not yet sold are stock, not a cost yet." />
         <Link href="/finance/expenses" className="button">+ Expense</Link>
       </div>
       <div className="workspace">
@@ -63,7 +63,8 @@ export default async function Profit({ searchParams }: { searchParams: Promise<L
             {hasMarketplace && <div className="meta">incl. marketplace {tzs(data.marketplace_sales)}</div>}</div>
           <div className="stat"><div className="stat-label">Stock cost</div><div className="stat-value">{tzs(String(Number(data.stock_cost) + Number(data.marketplace_cost)))}</div>
             <div className="meta">gross profit <Signed value={data.gross_profit} /></div></div>
-          <div className="stat"><div className="stat-label">Expenses</div><div className="stat-value">{tzs(data.expenses)}</div></div>
+          <div className="stat"><div className="stat-label">Expenses</div><div className="stat-value">{tzs(data.expenses)}</div>
+            {Number(data.stock_lost) > 0 && <div className="meta">+ stock lost {tzs(data.stock_lost)}</div>}</div>
           <div className="stat"><div className="stat-label">Net profit</div><div className="stat-value"><Signed value={data.net_profit} /></div>
             {Number(data.revenue) > 0 && <div className="meta">{Math.round((Number(data.net_profit) / Number(data.revenue)) * 100)}% of sales</div>}</div>
         </div>
@@ -73,7 +74,7 @@ export default async function Profit({ searchParams }: { searchParams: Promise<L
             {active.length === 0 ? <Empty>No sales or expenses in this period.</Empty> : (
               <div className="table-wrap">
                 <table>
-                  <thead><tr><th>Day</th><th className="numeric">Sales</th><th className="numeric">Stock cost</th><th className="numeric">Expenses</th><th className="numeric">Net profit</th></tr></thead>
+                  <thead><tr><th>Day</th><th className="numeric">Sales</th><th className="numeric">Stock cost</th><th className="numeric">Expenses</th><th className="numeric">Stock lost</th><th className="numeric">Net profit</th></tr></thead>
                   <tbody>
                     {active.map((d) => (
                       <tr key={d.date}>
@@ -81,6 +82,7 @@ export default async function Profit({ searchParams }: { searchParams: Promise<L
                         <td className="numeric">{tzs(d.revenue)}</td>
                         <td className="numeric">{tzs(String(Number(d.stock_cost) + Number(d.marketplace_cost)))}</td>
                         <td className="numeric">{tzs(d.expenses)}</td>
+                        <td className="numeric">{Number(d.stock_lost) ? tzs(d.stock_lost) : '—'}</td>
                         <td className="numeric"><Signed value={d.net_profit} /></td>
                       </tr>
                     ))}

@@ -63,7 +63,7 @@ def debt_view(row):
     today = c.business_today()
     return {**{k: getattr(row, k) for k in ('id', 'direction', 'party_kind', 'buyer_profile_id', 'supplier_id',
         'party_name', 'party_phone', 'description', 'amount', 'paid_amount', 'incurred_on', 'due_on', 'source',
-        'expense_category', 'sale_id', 'status', 'created_at', 'cancelled_at', 'cancel_reason')},
+        'expense_category', 'sale_id', 'lpo_id', 'status', 'created_at', 'cancelled_at', 'cancel_reason')},
         'balance': row.balance, 'overdue': row.status == 'open' and row.due_on is not None and row.due_on < today}
 
 
@@ -103,7 +103,7 @@ def sale_view(db, sale, detail=False):
     if detail:
         items = db.scalars(select(m.SaleItem).where(m.SaleItem.sale_id == sale.id).order_by(m.SaleItem.position)).all()
         view['items'] = [{k: getattr(i, k) for k in ('id', 'category', 'description', 'unit', 'quantity', 'unit_price',
-            'subtotal', 'supplier_id', 'supplier_name', 'unit_cost', 'cost_total')} for i in items]
+            'subtotal', 'supplier_id', 'supplier_name', 'unit_cost', 'cost_total', 'lpo_line_id')} for i in items]
         view['debts'] = [{**debt_view(d), 'payments': [payment_view(db, p) for p in _payments(db, d.id)]} for d in debts]
     return view
 
@@ -189,11 +189,23 @@ def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operat
     sale_id = m.identifier()
     number = 'SL-' + sale_id.replace('-', '')[:8].upper()
     items, costs = [], defaultdict(lambda: {'amount': ZERO, 'lines': []})
+    taken = defaultdict(lambda: ZERO)
     for position, line in enumerate(data.items, 1):
         subtotal = s.money(line.quantity * line.unit_price)
-        cost_total = s.money(line.quantity * line.unit_cost) if line.unit_cost is not None else None
         if line.unit not in ('kg',) and line.quantity % 1:
             fail('err.birds_animals_require_whole_quantities', 422)
+        if line.lpo_line_id:
+            # LPO stock: costed at the LPO price and already owed through the
+            # LPO's receipts, so no payable here.
+            from .purchasing import take_stock
+            stock, lpo = take_stock(db, line.lpo_line_id, line.quantity, taken[line.lpo_line_id])
+            taken[line.lpo_line_id] += line.quantity
+            items.append(m.SaleItem(sale_id=sale_id, position=position, category=line.category or stock.category or '',
+                description=line.description or stock.item, unit=line.unit, quantity=line.quantity,
+                unit_price=line.unit_price, subtotal=subtotal, supplier_id=lpo.supplier_id,
+                unit_cost=stock.unit_price, cost_total=s.money(line.quantity * stock.unit_price), lpo_line_id=stock.id))
+            continue
+        cost_total = s.money(line.quantity * line.unit_cost) if line.unit_cost is not None else None
         items.append(m.SaleItem(sale_id=sale_id, position=position, category=line.category or '',
             description=line.description or '', unit=line.unit, quantity=line.quantity, unit_price=line.unit_price,
             subtotal=subtotal, supplier_id=line.supplier_id, supplier_name=line.supplier_name,
@@ -311,6 +323,8 @@ def cancel_debt(id: str, data: c.ReasonInput, idempotency_key: str = Header(), o
     key, fingerprint, prior = s.replay(db, operator.id, 'debt-cancel', idempotency_key, {'id': id, **data.model_dump()})
     debt = _lock_debt(db, id)
     if not prior:
+        if debt.source == 'lpo':
+            fail('err.cancel_the_receipt_instead')
         if debt.source not in ('manual', 'expense'):
             fail('err.cancel_the_sale_instead')
         if debt.status == 'cancelled':
@@ -581,21 +595,26 @@ def profit_between(db, start, end):
     market_cost = by_day(select(day, func.sum(m.OrderItem.payout_snapshot * func.coalesce(m.OrderItem.actual_quantity,
         m.OrderItem.quantity))).join(m.Order, m.Order.id == m.OrderItem.order_id).where(DELIVERED), day)
     spent = by_day(select(m.LedgerDebt.incurred_on, func.sum(m.LedgerDebt.amount)).where(EXPENSE), m.LedgerDebt.incurred_on)
+    # Received stock that died or was lost before it was sold, at cost.
+    lost = by_day(select(m.StockLoss.lost_on, func.sum(m.StockLoss.quantity * m.StockLoss.unit_cost))
+        .where(m.StockLoss.cancelled_at.is_(None)), m.StockLoss.lost_on)
     categories = db.execute(select(m.LedgerDebt.expense_category, func.sum(m.LedgerDebt.amount))
         .where(EXPENSE, m.LedgerDebt.incurred_on >= start, m.LedgerDebt.incurred_on <= end)
         .group_by(m.LedgerDebt.expense_category)).all()
     days = {}
     for d in (start + timedelta(n) for n in range((end - start).days + 1)):
         days[d] = {'date': d, 'sales': ZERO, 'stock_cost': ZERO, 'expenses': spent.get(d, ZERO),
-                   'marketplace_sales': market_sales.get(d, ZERO), 'marketplace_cost': s.money(market_cost.get(d, ZERO))}
+                   'marketplace_sales': market_sales.get(d, ZERO), 'marketplace_cost': s.money(market_cost.get(d, ZERO)),
+                   'stock_lost': s.money(lost.get(d, ZERO))}
     for d, total, cost in sales:
         days[d]['sales'], days[d]['stock_cost'] = total, cost
     for row in days.values():
         row['revenue'] = row['sales'] + row['marketplace_sales']
         row['gross_profit'] = row['revenue'] - row['stock_cost'] - row['marketplace_cost']
-        row['net_profit'] = row['gross_profit'] - row['expenses']
+        row['net_profit'] = row['gross_profit'] - row['expenses'] - row['stock_lost']
     totals = {key: sum((row[key] for row in days.values()), ZERO) for key in
-        ('sales', 'stock_cost', 'marketplace_sales', 'marketplace_cost', 'revenue', 'gross_profit', 'expenses', 'net_profit')}
+        ('sales', 'stock_cost', 'marketplace_sales', 'marketplace_cost', 'revenue', 'gross_profit', 'expenses',
+         'stock_lost', 'net_profit')}
     return {'start': start, 'end': end, **totals,
         'expenses_by_category': sorted(({'category': k, 'amount': v} for k, v in categories), key=lambda r: -r['amount']),
         'days': sorted(days.values(), key=lambda r: r['date'], reverse=True)}

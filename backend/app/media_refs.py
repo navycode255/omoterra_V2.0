@@ -24,7 +24,11 @@ REFERENCING = {
     m.BatchVerification: ('id', (('photos', True),)),
     m.SourcingRequest: ('id', (('reference_photo', False),)),
     m.Order: ('id', (('collection_photos', True),)),
+    # These hold a bare media id, not a /media/ URL.
+    m.DocumentMark: ('id', (('media_id', False),)),
+    m.Lpo: ('id', (('signed_copy_media_id', False),)),
 }
+BARE_ID = re.compile(r'^[0-9a-f-]{36}$')
 
 
 def _media_ids(row, fields):
@@ -33,7 +37,7 @@ def _media_ids(row, fields):
         value = getattr(row, field)
         for url in (value or []) if listed else [value]:
             if isinstance(url, str):
-                ids.update(MEDIA_ID.findall(url))
+                ids.update(MEDIA_ID.findall(url) or ([url] if BARE_ID.match(url) else []))
     return ids
 
 

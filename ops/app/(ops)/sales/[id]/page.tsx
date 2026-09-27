@@ -63,7 +63,7 @@ export default async function SaleWorkspace({ params, searchParams }: {
                         <td className="numeric">{quantity(item.quantity)} {unitLabel(item.unit)}</td>
                         <td className="numeric">{tzs(item.unit_price)}</td>
                         <td className="numeric money">{tzs(item.subtotal)}</td>
-                        <td className="small">{item.unit_cost ? <>{item.supplier_name || payables.find((p) => p.supplier_id === item.supplier_id)?.party_name || 'Supplier'}<div className="meta">cost {tzs(item.unit_cost)} each</div></> : 'Own stock'}</td>
+                        <td className="small">{item.lpo_line_id ? <>LPO stock<div className="meta">cost {tzs(item.unit_cost)} each</div></> : item.unit_cost ? <>{item.supplier_name || payables.find((p) => p.supplier_id === item.supplier_id)?.party_name || 'Supplier'}<div className="meta">cost {tzs(item.unit_cost)} each</div></> : 'Own stock'}</td>
                       </tr>
                     ))}
                   </tbody>

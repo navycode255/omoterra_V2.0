@@ -66,6 +66,7 @@ export interface SaleItem {
   supplier_name: string;
   unit_cost: string | null;
   cost_total: string | null;
+  lpo_line_id: string | null;
 }
 
 export interface Sale {
@@ -132,6 +133,7 @@ export interface ProfitTotals {
   revenue: string;
   gross_profit: string;
   expenses: string;
+  stock_lost: string;
   net_profit: string;
   expenses_by_category: { category: string; amount: string }[];
 }

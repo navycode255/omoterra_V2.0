@@ -4,6 +4,7 @@ import { useActionState, useMemo, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { createSale } from '@/lib/finance-actions';
 import { DEFAULT_UNIT, METHODS, PRODUCTS, UNITS, type Parties } from '@/lib/finance';
+import type { LpoStockRow } from '@/lib/lpo';
 import { tanzanianMobile } from '@/lib/phone';
 
 type Line = {
@@ -13,7 +14,8 @@ type Line = {
   unit: string;
   quantity: string;
   unit_price: string;
-  source: 'own' | 'supplier' | 'named';
+  source: 'own' | 'supplier' | 'named' | 'lpo';
+  lpo_line_id: string;
   supplier_id: string;
   supplier_name: string;
   unit_cost: string;
@@ -23,7 +25,7 @@ const BUYER_TYPES = ['personal', 'restaurant', 'butchery', 'hotel', 'retailer', 
 
 function blank(key: number): Line {
   return { key, category: 'local_chicken', description: '', unit: 'bird', quantity: '', unit_price: '',
-    source: 'own', supplier_id: '', supplier_name: '', unit_cost: '' };
+    source: 'own', supplier_id: '', supplier_name: '', unit_cost: '', lpo_line_id: '' };
 }
 
 // Money typed as "15,000" or "15000"; NaN when not a number.
@@ -36,7 +38,7 @@ function Submit({ disabled }: { disabled: boolean }) {
   return <button type="submit" className="button" disabled={pending || disabled}>{pending ? 'Saving…' : 'Save sale'}</button>;
 }
 
-export function SaleForm({ parties, today }: { parties: Parties; today: string }) {
+export function SaleForm({ parties, today, stock = [] }: { parties: Parties; today: string; stock?: LpoStockRow[] }) {
   const [state, action] = useActionState(createSale, null);
   // One key per filled-in form: a double click or retry records one sale.
   const [idempotencyKey] = useState(() => crypto.randomUUID());
@@ -56,7 +58,7 @@ export function SaleForm({ parties, today }: { parties: Parties; today: string }
   }, [search, parties.buyers]);
 
   const total = lines.reduce((sum, l) => sum + (num(l.quantity) * num(l.unit_price) || 0), 0);
-  const cost = lines.reduce((sum, l) => sum + (l.source !== 'own' ? num(l.quantity) * num(l.unit_cost) || 0 : 0), 0);
+  const cost = lines.reduce((sum, l) => sum + (l.source === 'supplier' || l.source === 'named' ? num(l.quantity) * num(l.unit_cost) || 0 : 0), 0);
   const paidNow = num(paid.amount) || 0;
   const phoneProblem = mode === 'new' && newBuyer.phone.trim() !== '' && !tanzanianMobile(newBuyer.phone);
 
@@ -81,6 +83,7 @@ export function SaleForm({ parties, today }: { parties: Parties; today: string }
         unit_price: clean(l.unit_price),
         ...(l.source === 'supplier' ? { supplier_id: l.supplier_id || null, unit_cost: clean(l.unit_cost) } : {}),
         ...(l.source === 'named' ? { supplier_name: l.supplier_name, unit_cost: clean(l.unit_cost) } : {}),
+        ...(l.source === 'lpo' ? { lpo_line_id: l.lpo_line_id || null } : {}),
       })),
       ...(paidNow > 0 ? { payment: { amount: clean(paid.amount), method: paid.method, reference: paid.reference, paid_on: paid.paid_on } } : {}),
     });
@@ -214,8 +217,30 @@ export function SaleForm({ parties, today }: { parties: Parties; today: string }
                     <option value="own">My own stock (nothing owed)</option>
                     <option value="supplier">A registered supplier (I owe them)</option>
                     <option value="named">Another supplier (I owe them)</option>
+                    {stock.length > 0 && <option value="lpo">Stock received on an LPO (already owed there)</option>}
                   </select>
                 </div>
+                {line.source === 'lpo' && (() => {
+                  const chosen = stock.find((row) => row.lpo_line_id === line.lpo_line_id);
+                  return (
+                    <div className="field">
+                      <label htmlFor={`lpo-${line.key}`}>LPO stock</label>
+                      <select id={`lpo-${line.key}`} className="input" required value={line.lpo_line_id}
+                        onChange={(e) => {
+                          const row = stock.find((r) => r.lpo_line_id === e.target.value);
+                          update(line.key, { lpo_line_id: e.target.value, ...(row ? { unit: row.unit, category: row.category || line.category } : {}) });
+                        }}>
+                        <option value="">Choose…</option>
+                        {stock.map((row) => (
+                          <option key={row.lpo_line_id} value={row.lpo_line_id}>
+                            {row.item} · {row.lpo_number} · {row.supplier_name} · {Number(row.on_hand)} on hand
+                          </option>
+                        ))}
+                      </select>
+                      {chosen && <span className="meta">Cost TZS {Number(chosen.unit_price).toLocaleString('en-US')} each (LPO price). Already owed on the LPO, not added again.</span>}
+                    </div>
+                  );
+                })()}
                 {line.source === 'supplier' && (
                   <div className="field">
                     <label htmlFor={`sup-${line.key}`}>Supplier</label>
@@ -235,7 +260,7 @@ export function SaleForm({ parties, today }: { parties: Parties; today: string }
                       onChange={(e) => update(line.key, { supplier_name: e.target.value })} />
                   </div>
                 )}
-                {line.source !== 'own' && (
+                {(line.source === 'supplier' || line.source === 'named') && (
                   <div className="field">
                     <label htmlFor={`cost-${line.key}`}>Buying cost per unit (TZS)</label>
                     <input id={`cost-${line.key}`} className="input" inputMode="decimal" required value={line.unit_cost}

@@ -125,9 +125,14 @@ export function del<T>(path: string) {
 // backend answers with a short-lived signed URL: an R2 link, or a path under
 // the API when media is on the server's disk.
 export async function media(id: string): Promise<{ body: ArrayBuffer; type: string } | null> {
+  return signedFile(`/ops/media/${id}`);
+}
+
+/** Any ops endpoint that answers with a signed link (e.g. an LPO's stamp). */
+export async function signedFile(path: string): Promise<{ body: ArrayBuffer; type: string } | null> {
   if (!token) return null;
   const operator = (await cookies()).get('omoterra_operator')?.value ?? '';
-  const signed = await fetch(`${base}/ops/media/${id}`, {
+  const signed = await fetch(`${base}${path}`, {
     headers: { 'X-Ops-Token': token, 'X-Operator-Session': operator },
     cache: 'no-store',
   });

@@ -807,11 +807,17 @@ class SaleItemInput(Input):
     supplier_id: Optional[str] = Field(default=None, max_length=36)
     supplier_name: str = Field(default='', max_length=150)
     unit_cost: Optional[Money] = None
+    # Stock received on an LPO: its cost and supplier come from the LPO.
+    lpo_line_id: Optional[str] = Field(default=None, max_length=36)
 
     @model_validator(mode='after')
     def complete(self):
         if not self.category and len(self.description) < 2:
             raise ValueError(M('err.describe_what_was_sold'))
+        if self.lpo_line_id:
+            if self.supplier_id or self.supplier_name or self.unit_cost is not None:
+                raise ValueError(M('err.lpo_stock_cost_comes_from_lpo'))
+            return self
         has_supplier = bool(self.supplier_id or self.supplier_name)
         if has_supplier != (self.unit_cost is not None):
             raise ValueError(M('err.supplier_and_cost_go_together'))
@@ -917,3 +923,109 @@ class ExpenseInput(Input):
     @classmethod
     def not_future(cls, value):
         return _not_future(value)
+
+
+
+# ---- Local purchase orders (app/purchasing.py)
+
+Weight = Annotated[Decimal, Field(gt=0, max_digits=8, decimal_places=3)]
+
+
+class LpoLineInput(Input):
+    category: Optional[Category] = None
+    item: str = Field(min_length=2, max_length=150)
+    specification: str = Field(default='', max_length=1000)
+    unit: Literal['bird', 'animal', 'kg', 'tray', 'piece']
+    unit_price: Money
+    # Empty: as requested per batch (call-off).
+    quantity: Optional[Quantity] = None
+    min_weight_kg: Optional[Weight] = None
+    max_weight_kg: Optional[Weight] = None
+
+    @model_validator(mode='after')
+    def weights(self):
+        if self.min_weight_kg and self.max_weight_kg and self.max_weight_kg < self.min_weight_kg:
+            raise ValueError(M('err.max_weight_below_min'))
+        return self
+
+
+class LpoInput(Input):
+    supplier_id: str = Field(min_length=36, max_length=36)
+    demand_id: Optional[str] = Field(default=None, max_length=36)
+    lpo_date: date
+    delivery_start: date
+    delivery_end: date
+    payment_terms_days: int = Field(default=2, ge=0, le=180)
+    supply_basis: Literal['call_off', 'fixed'] = 'call_off'
+    collection_point: str = Field(default='', max_length=300)
+    delivery_notes: list[Annotated[str, Field(min_length=1, max_length=400)]] = Field(default_factory=list, max_length=10)
+    terms: list[Annotated[str, Field(min_length=1, max_length=800)]] = Field(default_factory=list, max_length=20)
+    internal_notes: str = Field(default='', max_length=2000)
+    lines: list[LpoLineInput] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode='after')
+    def consistent(self):
+        if self.delivery_end < self.delivery_start:
+            raise ValueError(M('err.delivery_window_ends_before_start'))
+        if self.supply_basis == 'fixed' and any(line.quantity is None for line in self.lines):
+            raise ValueError(M('err.fixed_lpo_needs_quantities'))
+        return self
+
+
+class LpoIssueInput(Input):
+    issuer_position: str = Field(default='Authorized Signatory', min_length=2, max_length=80)
+    # Only to carry over an LPO already issued on paper, e.g. LPO-OMO-2026-0927.
+    lpo_number: Optional[str] = Field(default=None, pattern=r'^LPO-[A-Z0-9]+(-[A-Z0-9]+)*$', max_length=32)
+
+
+class LpoAcceptanceInput(Input):
+    accepted_on: date
+    name: str = Field(min_length=2, max_length=150)
+    position: str = Field(default='', max_length=80)
+
+    @field_validator('accepted_on')
+    @classmethod
+    def not_future(cls, value):
+        return _not_future(value)
+
+
+class LpoReceiptLineInput(Input):
+    lpo_line_id: str = Field(min_length=36, max_length=36)
+    delivered_quantity: Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)]
+    accepted_quantity: Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)]
+    average_weight_kg: Optional[Weight] = None
+
+    @model_validator(mode='after')
+    def counts(self):
+        if self.accepted_quantity > self.delivered_quantity:
+            raise ValueError(M('err.accepted_more_than_delivered'))
+        return self
+
+
+class LpoReceiptInput(Input):
+    received_on: date
+    notes: str = Field(default='', max_length=1000)
+    lines: list[LpoReceiptLineInput] = Field(min_length=1, max_length=20)
+
+    @field_validator('received_on')
+    @classmethod
+    def not_future(cls, value):
+        return _not_future(value)
+
+
+class StockLossInput(Input):
+    lpo_line_id: str = Field(min_length=36, max_length=36)
+    lost_on: date
+    quantity: Quantity
+    reason: Literal['died', 'sick', 'stolen', 'spoiled', 'other']
+    note: str = Field(default='', max_length=500)
+
+    @field_validator('lost_on')
+    @classmethod
+    def not_future(cls, value):
+        return _not_future(value)
+
+
+class LpoExtendInput(Input):
+    delivery_end: date
+    reason: str = Field(min_length=3, max_length=500)

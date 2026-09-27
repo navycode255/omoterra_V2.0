@@ -689,6 +689,8 @@ class SaleItem(Entity, Base):
     supplier_name: Mapped[str] = mapped_column(Text, default='')
     unit_cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))
     cost_total: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))
+    # Stock received on an LPO: costed at its price, owed through the LPO.
+    lpo_line_id: Mapped[Optional[str]] = mapped_column(ForeignKey('lpo_lines.id', use_alter=True), index=True)
     __table_args__ = (
         CheckConstraint('quantity > 0', name='sale_items_quantity_check'),
         CheckConstraint('unit_price > 0', name='sale_items_unit_price_check'),
@@ -724,6 +726,8 @@ class LedgerDebt(Entity, Base):
     # Set on operating expenses only (source 'expense').
     expense_category: Mapped[Optional[str]] = mapped_column(String(24))
     sale_id: Mapped[Optional[str]] = mapped_column(ForeignKey('sales.id'), index=True)
+    # Payables for batches received on an LPO (source 'lpo').
+    lpo_id: Mapped[Optional[str]] = mapped_column(ForeignKey('lpos.id', use_alter=True), index=True)
     status: Mapped[str] = mapped_column(String(16), default='open')
     created_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
     cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
@@ -733,13 +737,14 @@ class LedgerDebt(Entity, Base):
         CheckConstraint("direction IN ('receivable','payable')", name='ledger_debts_direction_check'),
         CheckConstraint("party_kind IN ('buyer','supplier','other')", name='ledger_debts_party_kind_check'),
         CheckConstraint('amount > 0', name='ledger_debts_amount_check'),
-        CheckConstraint("source IN ('sale','sale_cost','manual','expense')", name='ledger_debts_source_check'),
+        CheckConstraint("source IN ('sale','sale_cost','manual','expense','lpo')", name='ledger_debts_source_check'),
+        CheckConstraint("(source = 'lpo') = (lpo_id IS NOT NULL)", name='ledger_lpo_source'),
         CheckConstraint(f"expense_category IN ({', '.join(repr(v) for v in EXPENSE_CATEGORIES)})", name='ledger_debts_expense_category_check'),
         CheckConstraint("(source = 'expense') = (expense_category IS NOT NULL)", name='ledger_expense_category'),
         Index('ix_ledger_debts_expenses', 'incurred_on', postgresql_where=text("source = 'expense'")),
         CheckConstraint("status IN ('open','settled','cancelled')", name='ledger_debts_status_check'),
         CheckConstraint('paid_amount >= 0 AND paid_amount <= amount', name='ledger_paid_within_amount'),
-        CheckConstraint("source = 'expense' OR (source = 'manual') = (sale_id IS NULL)", name='ledger_sale_source'),
+        CheckConstraint("source = 'expense' OR (source IN ('sale','sale_cost')) = (sale_id IS NOT NULL)", name='ledger_sale_source'),
         Index('ix_ledger_debts_open', 'direction', 'status'),
     )
 
@@ -815,6 +820,140 @@ class PromotionOptOut(Base):
     phone: Mapped[str] = mapped_column(String(20), primary_key=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
     note: Mapped[str] = mapped_column(Text, default='')
+
+
+class DocumentMark(Entity, Base):
+    """The company stamp, or one admin's signature, as put on issued
+    documents. Uploading a new one retires the old; issued LPOs keep the
+    marks they were issued with. Only admins upload them."""
+    __tablename__ = 'document_marks'
+    kind: Mapped[str] = mapped_column(String(16))
+    operator_id: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    media_id: Mapped[str] = mapped_column(ForeignKey('media_assets.id'))
+    uploaded_by: Mapped[str] = mapped_column(ForeignKey('operators.id'))
+    retired_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        CheckConstraint("kind IN ('stamp','signature')", name='document_marks_kind_check'),
+        CheckConstraint("(kind = 'signature') = (operator_id IS NOT NULL)", name='mark_owner'),
+        Index('uq_document_marks_live', 'kind', text("COALESCE(operator_id, '')"), unique=True,
+            postgresql_where=text('retired_at IS NULL')),
+    )
+
+
+class Lpo(Entity, Base):
+    """A local purchase order to one supplier. Drafted by staff, issued (and
+    so frozen, signed and stamped) only by an admin."""
+    __tablename__ = 'lpos'
+    lpo_number: Mapped[str] = mapped_column(String(32), unique=True)
+    supplier_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    supplier_snapshot: Mapped[dict] = mapped_column(JSON)
+    demand_id: Mapped[Optional[str]] = mapped_column(ForeignKey('buyer_requirements.id'), index=True)
+    lpo_date: Mapped[date] = mapped_column(Date)
+    delivery_start: Mapped[date] = mapped_column(Date)
+    delivery_end: Mapped[date] = mapped_column(Date)
+    payment_terms_days: Mapped[int] = mapped_column(Integer)
+    supply_basis: Mapped[str] = mapped_column(String(16))
+    collection_point: Mapped[str] = mapped_column(Text, default='')
+    delivery_notes: Mapped[list] = mapped_column(JSON, default=list)
+    terms: Mapped[list] = mapped_column(JSON, default=list)
+    internal_notes: Mapped[str] = mapped_column(Text, default='')
+    status: Mapped[str] = mapped_column(String(16), default='draft', index=True)
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    issued_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    issued_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    issuer_name: Mapped[str] = mapped_column(Text, default='')
+    issuer_position: Mapped[str] = mapped_column(Text, default='')
+    stamp_mark_id: Mapped[Optional[str]] = mapped_column(ForeignKey('document_marks.id'))
+    signature_mark_id: Mapped[Optional[str]] = mapped_column(ForeignKey('document_marks.id'))
+    supplier_accepted_at: Mapped[Optional[date]] = mapped_column(Date)
+    supplier_accepted_name: Mapped[str] = mapped_column(Text, default='')
+    supplier_accepted_position: Mapped[str] = mapped_column(Text, default='')
+    signed_copy_media_id: Mapped[Optional[str]] = mapped_column(ForeignKey('media_assets.id'))
+    closed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    closed_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    close_reason: Mapped[str] = mapped_column(Text, default='')
+    __table_args__ = (
+        CheckConstraint('payment_terms_days BETWEEN 0 AND 180', name='lpos_payment_terms_days_check'),
+        CheckConstraint("supply_basis IN ('call_off','fixed')", name='lpos_supply_basis_check'),
+        CheckConstraint("status IN ('draft','issued','accepted','closed','cancelled')", name='lpos_status_check'),
+        CheckConstraint('delivery_end >= delivery_start', name='lpo_window'),
+        CheckConstraint("status IN ('draft','cancelled') OR (issued_at IS NOT NULL AND stamp_mark_id IS NOT NULL"
+            " AND signature_mark_id IS NOT NULL)", name='lpo_issued_marked'),
+    )
+
+
+class LpoLine(Entity, Base):
+    __tablename__ = 'lpo_lines'
+    lpo_id: Mapped[str] = mapped_column(ForeignKey('lpos.id'), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    category: Mapped[str] = mapped_column(String(32), default='')
+    item: Mapped[str] = mapped_column(Text)
+    specification: Mapped[str] = mapped_column(Text, default='')
+    unit: Mapped[str] = mapped_column(String(16))
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    # None: as requested per batch (call-off).
+    quantity: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 3))
+    min_weight_kg: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 3))
+    max_weight_kg: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 3))
+    __table_args__ = (
+        CheckConstraint('unit_price > 0', name='lpo_lines_unit_price_check'),
+        CheckConstraint('quantity > 0', name='lpo_lines_quantity_check'),
+        CheckConstraint('min_weight_kg IS NULL OR max_weight_kg IS NULL OR max_weight_kg >= min_weight_kg', name='lpo_line_weights'),
+    )
+
+
+class LpoReceipt(Entity, Base):
+    """One batch received on an LPO; its accepted value is the supplier payable."""
+    __tablename__ = 'lpo_receipts'
+    lpo_id: Mapped[str] = mapped_column(ForeignKey('lpos.id'), index=True)
+    received_on: Mapped[date] = mapped_column(Date)
+    notes: Mapped[str] = mapped_column(Text, default='')
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    debt_id: Mapped[Optional[str]] = mapped_column(ForeignKey('ledger_debts.id'))
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    cancelled_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    cancel_reason: Mapped[str] = mapped_column(Text, default='')
+    __table_args__ = (CheckConstraint('amount >= 0', name='lpo_receipts_amount_check'),)
+
+
+class LpoReceiptLine(Entity, Base):
+    __tablename__ = 'lpo_receipt_lines'
+    receipt_id: Mapped[str] = mapped_column(ForeignKey('lpo_receipts.id'), index=True)
+    lpo_line_id: Mapped[str] = mapped_column(ForeignKey('lpo_lines.id'), index=True)
+    delivered_quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    accepted_quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    rejected_quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    average_weight_kg: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 3))
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    __table_args__ = (
+        CheckConstraint('delivered_quantity >= 0', name='lpo_receipt_lines_delivered_quantity_check'),
+        CheckConstraint('accepted_quantity >= 0', name='lpo_receipt_lines_accepted_quantity_check'),
+        CheckConstraint('rejected_quantity >= 0', name='lpo_receipt_lines_rejected_quantity_check'),
+        CheckConstraint('accepted_quantity + rejected_quantity = delivered_quantity', name='receipt_counts_add_up'),
+    )
+
+
+LOSS_REASONS = ('died', 'sick', 'stolen', 'spoiled', 'other')
+
+
+class StockLoss(Entity, Base):
+    """Received LPO stock lost before it was sold; its cost counts against profit."""
+    __tablename__ = 'stock_losses'
+    lpo_line_id: Mapped[str] = mapped_column(ForeignKey('lpo_lines.id'), index=True)
+    lost_on: Mapped[date] = mapped_column(Date)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    reason: Mapped[str] = mapped_column(String(16))
+    note: Mapped[str] = mapped_column(Text, default='')
+    unit_cost: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    cancelled_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint('quantity > 0', name='stock_losses_quantity_check'),
+        CheckConstraint(f"reason IN ({', '.join(repr(v) for v in LOSS_REASONS)})", name='stock_losses_reason_check'),
+    )
 
 
 # Registers the media_references hook wherever the models are loaded.
