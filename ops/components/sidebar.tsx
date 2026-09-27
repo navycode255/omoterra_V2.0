@@ -12,8 +12,17 @@ const GROUPS = [
     { href: '/batches', label: 'Production Batches', icon: Icons.calendar, key: 'verification_overdue' },
   ] },
   { label: 'Finance', modules: [
+    { href: '/finance', label: 'Finance overview', icon: Icons.trend, key: null },
+    { href: '/sales', label: 'Sales', icon: Icons.clipboard, key: null },
+    { href: '/finance/expenses', label: 'Expenses', icon: Icons.card, key: null },
+    { href: '/finance/profit', label: 'Profit', icon: Icons.chart, key: null },
+    { href: '/finance/debts', label: 'Debts', icon: Icons.alert, key: null },
+    { href: '/finance/cash-book', label: 'Cash book', icon: Icons.file, key: null },
     { href: '/payments', label: 'Payments', icon: Icons.card, key: 'payments_pending' },
     { href: '/settlements', label: 'Settlements', icon: Icons.clock, key: 'settlements_pending' },
+  ] },
+  { label: 'Marketing', modules: [
+    { href: '/promotions', label: 'Promotions', icon: Icons.bell, key: null },
   ] },
   { label: 'Business', modules: [
     { href: '/opportunities', label: 'Business Opportunities', icon: Icons.chart, key: null },
@@ -39,7 +48,9 @@ export function Sidebar({ counts, admin }: { counts: Record<string, number>; adm
       {groups.map((group) => <div className="nav-group" key={group.label}>
         <p className="nav-heading">{group.label}</p>
         {group.modules.map((module) => {
-          const active = module.href === '/manage' ? pathname === '/manage' : pathname.startsWith(module.href);
+          // Pages with sub-pages of their own in the menu light up only on an exact match.
+          const active = module.href === '/manage' || module.href === '/finance'
+            ? pathname === module.href : pathname.startsWith(module.href);
           const count = module.key ? counts[module.key] ?? 0 : 0;
           const ModuleIcon = module.icon;
           return <Link key={module.href} href={module.href} className="nav-item" data-active={active}>

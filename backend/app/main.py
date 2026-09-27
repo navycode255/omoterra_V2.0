@@ -898,14 +898,99 @@ async def local_upload_part(upload_id: str, number: int, expires: int, signature
     return JSONResponse({}, headers={'ETag': etag})
 
 
+# The supplier's view of an order, step by step. Each step is done or not;
+# the first one not done is where the order is waiting.
+SUPPLIER_STEPS = ['ordered', 'collection_scheduled', 'collected', 'in_transit', 'delivered',
+    'buyer_paid', 'payout_sent', 'payout_confirmed']
+# How far order handling has got, as an index into SUPPLIER_STEPS.
+_HANDLED = {'requested': 0, 'supply_confirmed': 0, 'reserved': 0, 'pickup_scheduled': 1, 'collected': 2,
+    'quality_checked': 2, 'in_transit': 3, 'delivered': 4, 'completed': 4}
+# Order.activity labels (services.ACTIVITY) that date a step.
+_ACTIVITY_STEP = {'Collection completed': 'collected', 'Order dispatched': 'in_transit', 'Delivered': 'delivered'}
+# While the order waits on a step, its stage is named after that step.
+_WAITING_STAGE = {'collection_scheduled': 'confirmed', 'collected': 'collection_scheduled', 'in_transit': 'collected',
+    'delivered': 'in_transit', 'buyer_paid': 'awaiting_buyer_payment', 'payout_sent': 'awaiting_payout',
+    'payout_confirmed': 'confirm_payout'}
+
+
+def _order_item(db, order_id, listing_id):
+    return db.scalar(select(m.OrderItem).where(m.OrderItem.order_id == order_id, m.OrderItem.listing_id == listing_id))
+
+
+def supplier_progress(db, hold, order, item, settlements):
+    """(stage, steps) for one supplier's part of an order. Buyer identity,
+    address and prices never appear; only whether the buyer has paid."""
+    if not order:
+        return ('reserved' if hold.status == 'active' else 'cancelled'), []
+    at = {'ordered': order.created_at}
+    for entry in order.activity or []:
+        step = _ACTIVITY_STEP.get(entry.get('label'))
+        if step:
+            at[step] = entry.get('at')
+    payment = db.scalar(select(m.Payment).where(m.Payment.order_id == order.id))
+    if payment and payment.paid_at:
+        at['buyer_paid'] = payment.paid_at
+    paid = [row.paid_at for row in settlements if row.status == 'paid']
+    confirmed = [row.supplier_confirmed_at for row in settlements if row.supplier_confirmation == 'received']
+    if paid:
+        at['payout_sent'] = max(paid)
+    if confirmed:
+        at['payout_confirmed'] = max(confirmed)
+    handled = _HANDLED.get(order.internal_status, -1)
+    done = {step: index <= handled for index, step in enumerate(SUPPLIER_STEPS[:5])}
+    done['buyer_paid'] = order.payment_status == 'paid'
+    done['payout_sent'] = bool(settlements) and len(paid) == len(settlements)
+    done['payout_confirmed'] = bool(settlements) and len(confirmed) == len(settlements)
+    notes_by_step = {'collection_scheduled': order.expected_collection_date}
+    if item and item.actual_quantity is not None:
+        notes_by_step['collected'] = {'accepted': item.actual_quantity, 'rejected': item.rejected_quantity}
+    steps = [{'key': step, 'done': done[step], 'at': at.get(step) if done[step] else None, 'note': notes_by_step.get(step)}
+        for step in SUPPLIER_STEPS]
+    if order.internal_status in ('cancelled', 'payment_failed'):
+        return 'cancelled', steps
+    waiting = next((step for step in SUPPLIER_STEPS if not done[step]), None)
+    if waiting is None:
+        return 'payout_confirmed', steps
+    if waiting == 'payout_confirmed' and any(row.supplier_confirmation == 'not_received' for row in settlements):
+        return 'payout_disputed', steps
+    return _WAITING_STAGE.get(waiting, 'confirmed'), steps
+
+
 def supplier_hold(db, hold):
     listing = db.get(m.Listing, hold.listing_id)
     order = db.get(m.Order, hold.order_id) if hold.order_id else None
-    return {'id': hold.id, 'category': listing.category, 'unit_type': listing.unit_type, 'quantity': hold.quantity,
+    item = _order_item(db, order.id, listing.id) if order else None
+    settlements = db.scalars(select(m.Settlement).where(m.Settlement.order_item_id == item.id,
+        m.Settlement.supplier_id == listing.supplier_id)).all() if item else []
+    stage, steps = supplier_progress(db, hold, order, item, settlements)
+    return {'id': hold.id, 'reference': hold.id[:8].upper(), 'listing_id': listing.id, 'category': listing.category,
+        'unit_type': listing.unit_type, 'quantity': hold.quantity, 'created_at': hold.created_at,
         'status': hold.status if not order else s.STATUS[order.internal_status],
+        'stage': stage, 'steps': steps,
+        'accepted_quantity': item.actual_quantity if item else None,
+        'rejected_quantity': item.rejected_quantity if item else None,
+        'buyer_payment': order.payment_status if order else None,
         'expected_collection_date': order.expected_collection_date if order else None,
         'instructions': 'Omoterra will coordinate collection with you.',
-        'settlements': [s.payout_view(p) for p in db.scalars(select(m.Settlement).join(m.OrderItem, m.OrderItem.id == m.Settlement.order_item_id).where(m.OrderItem.order_id == hold.order_id, m.Settlement.supplier_id == listing.supplier_id))] if order else []}
+        'settlements': [supplier_payout(db, row) for row in settlements]}
+
+
+def supplier_payout(db, row, detail=False):
+    """A payout as its supplier sees it: what it was for, and every answer
+    they gave about receiving it."""
+    view = s.payout_view(row, detail)
+    item = db.get(m.OrderItem, row.order_item_id)
+    listing = db.get(m.Listing, item.listing_id) if item else None
+    hold = db.scalar(select(m.StockReservation).where(m.StockReservation.order_id == item.order_id,
+        m.StockReservation.listing_id == item.listing_id)) if item else None
+    view.update({'category': listing.category if listing else None, 'unit_type': listing.unit_type if listing else None,
+        'order_hold_id': hold.id if hold else None, 'reference': hold.id[:8].upper() if hold else None})
+    if detail:
+        view['confirmations'] = [{'outcome': c_.outcome, 'note': c_.note, 'amount': c_.amount,
+            'payment_reference': c_.payment_reference, 'created_at': c_.created_at}
+            for c_ in db.scalars(select(m.PayoutConfirmation).where(m.PayoutConfirmation.settlement_id == row.id)
+                .order_by(m.PayoutConfirmation.created_at))]
+    return view
 
 
 @app.get(prefix + '/supplier/orders')
@@ -929,12 +1014,31 @@ def supplier_order(id: str, user=Depends(supplier), db=Depends(database)):
 
 @app.get(prefix + '/supplier/payouts')
 def payouts(user=Depends(supplier), db=Depends(database)):
-    return result([s.payout_view(row) for row in db.scalars(select(m.Settlement).where(m.Settlement.supplier_id == user.id))])
+    rows = db.scalars(select(m.Settlement).where(m.Settlement.supplier_id == user.id).order_by(m.Settlement.created_at.desc()))
+    return result([supplier_payout(db, row) for row in rows])
 
 
 @app.get(prefix + '/supplier/payouts/{id}')
 def payout(id: str, user=Depends(supplier), db=Depends(database)):
-    return result(s.payout_view(s.owned(db, m.Settlement, id, user.id, 'supplier_id'), True))
+    return result(supplier_payout(db, s.owned(db, m.Settlement, id, user.id, 'supplier_id'), True))
+
+
+@app.post(prefix + '/supplier/payouts/{id}/confirm')
+def confirm_payout(id: str, data: c.PayoutConfirm, user=Depends(supplier), db=Depends(database)):
+    """The supplier says whether a payout Omoterra recorded as paid reached
+    them. 'Not received' can later become 'received' (money arrived late);
+    'received' is final. Every answer is kept."""
+    row = s.owned(db, m.Settlement, id, user.id, 'supplier_id', True)
+    if row.status != 'paid':
+        s.fail('err.payout_not_sent_yet', 409)
+    if row.supplier_confirmation == 'received':
+        s.fail('err.payout_already_confirmed', 409)
+    outcome = 'received' if data.received else 'not_received'
+    db.add(m.PayoutConfirmation(settlement_id=row.id, supplier_id=user.id, outcome=outcome, note=data.note.strip(),
+        amount=row.total_payable, payment_reference=row.payment_reference))
+    row.supplier_confirmation, row.supplier_confirmed_at = outcome, m.now()
+    db.flush()
+    return result(supplier_payout(db, row, True))
 
 
 def _staff_passphrase(db, passphrase):
@@ -1288,6 +1392,11 @@ def _alerts(db, since):
     for offer in db.scalars(select(m.SupplyOffer).where(m.SupplyOffer.created_at > since, m.SupplyOffer.status == 'pending')):
         items.append(('offer', offer.created_at, f'Supply offer · {s.quantity(offer.offered_quantity)}',
             f'/sourcing/{offer.demand_id}'))
+    for answer in db.scalars(select(m.PayoutConfirmation).where(m.PayoutConfirmation.created_at > since,
+            m.PayoutConfirmation.outcome == 'not_received')):
+        profile = db.get(m.SupplierProfile, answer.supplier_id)
+        who = (profile.public_alias or profile.legal_name) if profile else 'Supplier'
+        items.append(('payout', answer.created_at, f'Payout not received · {who} · TZS {answer.amount:,.0f}', '/settlements'))
     items.sort(key=lambda item: item[1], reverse=True)
     return [{'kind': kind, 'at': at, 'title': title, 'link': link} for kind, at, title, link in items]
 
@@ -1528,9 +1637,14 @@ def pay_settlement(id: str, data: c.Reconcile, idempotency_key: str = Header(), 
     if not row:
         s.fail('err.settlement_not_found', 404)
     if not prior:
-        if row.status == 'paid' or row.total_payable != data.amount:
+        # A paid settlement is closed, unless its supplier reported that the
+        # money never arrived: then it can be recorded again with the new
+        # transfer, and the supplier is asked to confirm again.
+        resend = row.status == 'paid' and row.supplier_confirmation == 'not_received'
+        if (row.status == 'paid' and not resend) or row.total_payable != data.amount:
             s.fail('err.settlement_already_paid_amount_does')
         row.status, row.paid_at, row.payment_reference = 'paid', m.now(), data.payment_reference
+        row.supplier_confirmation = row.supplier_confirmed_at = None
         notes.notify(db, row.supplier_id, 'supplier', 'payout_paid', M('notify.payout_paid',
             amount=f'{row.total_payable:,.0f}', reference=data.payment_reference), f'/payouts/{row.id}')
         s.remember(db, key, fingerprint, id)
@@ -2164,7 +2278,9 @@ def ops_settlements(params: Paging = Depends(), db=Depends(database)):
         item = db.get(m.OrderItem, row.order_item_id)
         return {**s.payout_view(row, True), 'supplier_id': row.supplier_id, 'order_item_id': row.order_item_id,
             'order_id': item.order_id if item else None,
-            'supplier_alias': profile.public_alias if profile else '', 'supplier_legal_name': profile.legal_name if profile else ''}
+            'supplier_alias': profile.public_alias if profile else '', 'supplier_legal_name': profile.legal_name if profile else '',
+            'supplier_note': db.scalar(select(m.PayoutConfirmation.note).where(m.PayoutConfirmation.settlement_id == row.id)
+                .order_by(m.PayoutConfirmation.created_at.desc()).limit(1)) or ''}
     # Every unpaid settlement comes first, oldest first; paid ones are history.
     body = paging.page(db, paging.SETTLEMENTS, params, view)
     totals = dict(db.execute(select(m.Settlement.status, func.coalesce(func.sum(m.Settlement.total_payable), 0))
@@ -2888,3 +3004,9 @@ def reverse_sale(id: str, data: c.SaleReversalInput, idempotency_key: str = Head
     inv.movement(db, listing, 'sale_reversed', before, key, data.reason, user.id)
     s.remember(db, key, fingerprint, id)
     return result(inv.sale_view(db, sale))
+
+
+# Sales, the debts ledger and promotions live in their own modules.
+from . import finance, promotions  # noqa: E402
+app.include_router(finance.router)
+app.include_router(promotions.router)

@@ -63,7 +63,7 @@ def test_oldest_unpaid_settlement_is_on_the_first_page(client, sessions, seeded)
     # Unpaid work leads the page even though it is the oldest row of 300.
     assert body['items'][0]['id'] == seen['oldest_unpaid']
     assert body['items'][0]['status'] == 'pending'
-    assert body['counts'] == {'all': 300, 'pending': 1, 'paid': 299}
+    assert body['counts'] == {'all': 300, 'pending': 1, 'paid': 299, 'awaiting_confirmation': 299, 'not_received': 0, 'received': 0}
     assert Decimal(body['totals']['pending']) == Decimal('9000')
     assert Decimal(body['totals']['paid']) == Decimal('9000') * 299
     # History pages behind it are paid rows only, newest first, and never repeat.

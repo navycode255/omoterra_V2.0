@@ -156,6 +156,10 @@ export interface Settlement {
   paid_at: string | null;
   payment_reference: string | null;
   created_at: string;
+  // The supplier's answer to "did this payout reach you?", and their note.
+  supplier_confirmation: 'received' | 'not_received' | null;
+  supplier_confirmed_at: string | null;
+  supplier_note: string;
 }
 
 export interface Payment {

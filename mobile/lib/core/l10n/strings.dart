@@ -87,8 +87,7 @@ class Strings {
       _t('Last updated $date', 'Imesasishwa $date');
   String get legalEnglishOnly => _t('',
       'Maandishi haya yanapatikana kwa Kiingereza kwa sasa. Wasiliana na Omoterra kama unahitaji maelezo kwa Kiswahili.');
-  String get legalQuestions =>
-      _t('Questions or requests', 'Maswali au maombi');
+  String get legalQuestions => _t('Questions or requests', 'Maswali au maombi');
   String operatedBy(String name, String address) => _t(
       'Omoterra is operated by $name, $address.',
       'Omoterra inaendeshwa na $name, $address.');
@@ -496,6 +495,87 @@ class Strings {
   String settlement(String amount) =>
       _t('Settlement $amount', 'Malipo $amount');
   String collectionTopic(String id) => _t('collection #$id', 'uchukuaji #$id');
+  String refText(String ref) => _t('Ref $ref', 'Kumb. $ref');
+  String ordersInProgress(int n) => n == 1
+      ? _t('1 order in progress', 'Oda 1 inaendelea')
+      : _t('$n orders in progress', 'Oda $n zinaendelea');
+
+  /// Where the supplier's part of an order is (backend SUPPLIER stages).
+  String orderStage(String stage) => switch (stage) {
+        'reserved' => _t('Buyer is checking out', 'Mnunuzi anakamilisha oda'),
+        'confirmed' => _t('Order confirmed · collection to be scheduled',
+            'Oda imethibitishwa · uchukuaji utapangwa'),
+        'collection_scheduled' =>
+          _t('Collection scheduled', 'Uchukuaji umepangwa'),
+        'collected' =>
+          _t('Collected and checked', 'Imechukuliwa na kukaguliwa'),
+        'in_transit' => _t('On the way to the buyer', 'Iko njiani kwa mnunuzi'),
+        'awaiting_buyer_payment' => _t('Delivered · waiting for buyer payment',
+            'Imefikishwa · inasubiri malipo ya mnunuzi'),
+        'awaiting_payout' => _t('Buyer paid · your payout is being prepared',
+            'Mnunuzi amelipa · malipo yako yanaandaliwa'),
+        'confirm_payout' => _t('Payout sent · please confirm',
+            'Malipo yametumwa · tafadhali thibitisha'),
+        'payout_disputed' =>
+          _t('Payout reported not received', 'Umeripoti malipo hayajapokelewa'),
+        'payout_confirmed' => _t(
+            'Completed · payout received', 'Imekamilika · malipo yamepokelewa'),
+        'cancelled' => _t('Cancelled', 'Imeghairiwa'),
+        _ => label(stage),
+      };
+
+  String orderStep(String key) => switch (key) {
+        'ordered' => _t('Order placed', 'Oda imewekwa'),
+        'collection_scheduled' =>
+          _t('Collection scheduled', 'Uchukuaji umepangwa'),
+        'collected' =>
+          _t('Collected and checked', 'Imechukuliwa na kukaguliwa'),
+        'in_transit' => _t('On the way to the buyer', 'Iko njiani kwa mnunuzi'),
+        'delivered' => _t('Delivered to the buyer', 'Imefikishwa kwa mnunuzi'),
+        'buyer_paid' => _t('Buyer paid Omoterra', 'Mnunuzi ameilipa Omoterra'),
+        'payout_sent' =>
+          _t('Omoterra sent your payout', 'Omoterra imetuma malipo yako'),
+        'payout_confirmed' =>
+          _t('You confirmed you received it', 'Umethibitisha kupokea'),
+        _ => label(key),
+      };
+  String collectionOn(String date) =>
+      _t('Collection on $date', 'Uchukuaji tarehe $date');
+  String acceptedRejected(String accepted, String rejected) => rejected.isEmpty
+      ? _t('$accepted accepted', '$accepted zimekubaliwa')
+      : _t('$accepted accepted · $rejected not accepted',
+          '$accepted zimekubaliwa · $rejected hazijakubaliwa');
+  String get checkoutInProgress => _t(
+      'A buyer is completing checkout for this stock. It becomes an order once they confirm.',
+      'Mnunuzi anakamilisha oda ya bidhaa hii. Itakuwa oda akishathibitisha.');
+  String omoterraSentYou(String amount) =>
+      _t('Omoterra sent you $amount', 'Omoterra imekutumia $amount');
+  String sentOn(String date) => _t('Sent $date', 'Imetumwa $date');
+  String get confirmPayoutHint => _t(
+      'Check your account, then confirm. We keep this record for both of us.',
+      'Angalia akaunti yako, kisha thibitisha. Tunahifadhi kumbukumbu hii kwa ajili yetu sote.');
+  String get reportedNotReceived => _t(
+      'You reported this payout as not received',
+      'Umeripoti kuwa malipo haya hayajapokelewa');
+  String get disputedHint => _t(
+      'Omoterra has been alerted and will check the transfer with you. Tell us here once the money arrives.',
+      'Omoterra imearifiwa na itafuatilia malipo pamoja nawe. Tuambie hapa pesa zikishafika.');
+  String get yesReceived => _t('Yes, I received it', 'Ndiyo, nimepokea');
+  String get receivedNow => _t('I have now received it', 'Sasa nimepokea');
+  String get notReceived => _t('Not received', 'Sijapokea');
+  String get reportNotReceived => _t('Report not received', 'Ripoti sijapokea');
+  String get whatHappened =>
+      _t('What happened? (optional)', 'Nini kimetokea? (si lazima)');
+  String get whatHappenedHint => _t(
+      'For example: nothing arrived on my M-Pesa yet',
+      'Mfano: bado hakuna kilichoingia kwenye M-Pesa yangu');
+  String receivedOn(String date) =>
+      _t('You confirmed receipt on $date', 'Ulithibitisha kupokea $date');
+  String get payoutNotSent => _t('Not sent yet', 'Bado haijatumwa');
+  String get payoutHistory => _t('Your answers', 'Majibu yako');
+  String answer(bool received, String date) => received
+      ? _t('Received · $date', 'Nimepokea · $date')
+      : _t('Not received · $date', 'Sijapokea · $date');
 
   // Stock list ------------------------------------------------------------
   String availableReserved(String available, String reserved) => _t(

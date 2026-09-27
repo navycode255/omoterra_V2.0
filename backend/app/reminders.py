@@ -6,7 +6,8 @@ buyers' view. Run from cron, e.g. hourly on cPanel:
 Each listing gets at most one reminder per confirmation window: the
 reminder is stamped on the listing and a new confirmation starts a new window.
 
-The same run deletes photos and videos uploaded over a day ago that nothing
+The same run texts any promotion SMS still queued (a server restart can
+cut the after-send thread short), and deletes photos and videos uploaded over a day ago that nothing
 uses (a form that was abandoned), from disk or R2.
 """
 from datetime import timedelta
@@ -46,6 +47,9 @@ if __name__ == '__main__':
     with Session.begin() as db:
         sent = remind_stale_stock(db)
     print(f'Stock reminders sent: {sent}')
+    from .db import engine
+    from .promotions import send_queued
+    print(f'Promotion SMS attempted: {send_queued(engine)}')
     # Same hourly run: delete uploads that were never saved onto anything.
     from .media import prune_unused_media
     with Session.begin() as db:

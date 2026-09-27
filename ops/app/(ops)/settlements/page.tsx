@@ -16,6 +16,9 @@ const TABS = [
   { key: '', label: 'All' },
   { key: 'pending', label: 'Unpaid' },
   { key: 'paid', label: 'Paid' },
+  { key: 'awaiting_confirmation', label: 'Awaiting supplier' },
+  { key: 'not_received', label: 'Not received' },
+  { key: 'received', label: 'Confirmed' },
 ];
 
 export default async function Settlements({ searchParams }: { searchParams: Promise<ListParams> }) {
@@ -39,8 +42,9 @@ export default async function Settlements({ searchParams }: { searchParams: Prom
   }
 
   const settlements = data.items;
-  // Every unpaid settlement is on page 1, so the payout form always lists them all.
-  const pending = settlements.filter((s) => s.status === 'pending');
+  // Every unpaid settlement, and every payout its supplier reports as not
+  // received, is on page 1, so the payout form always lists them all.
+  const pending = settlements.filter((s) => s.status === 'pending' || s.supplier_confirmation === 'not_received');
 
   return (
     <>
@@ -111,6 +115,14 @@ export default async function Settlements({ searchParams }: { searchParams: Prom
                             <div className="meta">
                               {settlement.payment_reference} · {date(settlement.paid_at)}
                             </div>
+                            <div className="meta">
+                              {settlement.supplier_confirmation === 'received'
+                                ? <Status tone="positive">Supplier confirmed · {date(settlement.supplier_confirmed_at)}</Status>
+                                : settlement.supplier_confirmation === 'not_received'
+                                  ? <Status tone="error">Supplier: not received · {date(settlement.supplier_confirmed_at)}</Status>
+                                  : <Status tone="warning">Awaiting supplier confirmation</Status>}
+                            </div>
+                            {settlement.supplier_note && <div className="meta">“{settlement.supplier_note}”</div>}
                           </>
                         ) : (
                           <Status tone="warning">Pending</Status>
@@ -129,7 +141,8 @@ export default async function Settlements({ searchParams }: { searchParams: Prom
           <Card title="Mark a settlement paid">
             <p className="muted small" style={{ marginBottom: 'var(--s4)' }}>
               Record this only after the supplier has actually been paid. Recording it here does not
-              move money.
+              move money. The supplier is then asked to confirm in their app that the money arrived; a
+              payout they report as not received appears here again so a new transfer can be recorded.
             </p>
             <ActionForm action={paySettlement} label="Record payout">
               <div className="grid-3">
@@ -140,6 +153,7 @@ export default async function Settlements({ searchParams }: { searchParams: Prom
                       <option key={settlement.id} value={settlement.id}>
                         {settlement.supplier_alias || settlement.supplier_id} ·{' '}
                         {tzs(settlement.total_payable)}
+                        {settlement.supplier_confirmation === 'not_received' ? ' · resend (supplier did not receive)' : ''}
                       </option>
                     ))}
                   </select>

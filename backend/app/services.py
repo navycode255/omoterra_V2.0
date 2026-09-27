@@ -369,7 +369,8 @@ def reservation_view(hold):
 
 
 def payout_view(payout, detail=False):
-    fields = ['id', 'quantity', 'total_payable', 'status', 'paid_at', 'payment_reference', 'created_at']
+    fields = ['id', 'quantity', 'total_payable', 'status', 'paid_at', 'payment_reference', 'created_at',
+        'supplier_confirmation', 'supplier_confirmed_at']
     if detail:
         fields += ['farmer_asking_price_per_unit', 'supplier_payout_price_per_unit', 'commission_amount_per_unit']
     return {k: getattr(payout, k) for k in fields}

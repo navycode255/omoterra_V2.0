@@ -587,6 +587,12 @@ class Progress(Input):
     collection_notes: str = Field(default='', max_length=1000)
 
 
+class PayoutConfirm(Input):
+    # True: the money arrived. False: it did not (Omoterra is alerted).
+    received: bool
+    note: str = Field(default='', max_length=500)
+
+
 class Reconcile(Input):
     amount: Money
     payment_reference: str = Field(min_length=3, max_length=150)
@@ -732,3 +738,182 @@ class VideoUploadComplete(Input):
 
 class VideoUploadConfirm(Input):
     upload_id: str = Field(min_length=36, max_length=36)
+
+
+# ---- Sales, the debts ledger and promotions (app/finance.py, app/promotions.py)
+
+def tanzanian_mobile(value):
+    """0712…, 712…, 255712… or +255712… as +255712…; anything else unchanged,
+    so the field's own check can refuse it."""
+    if not isinstance(value, str):
+        return value
+    local = re.sub(r'[\s()-]', '', value)
+    if not local:
+        return ''
+    local = re.sub(r'^\+?255', '', local).removeprefix('0')
+    phone = f'+255{local}'
+    return phone if re.fullmatch(r'\+255[67]\d{8}', phone) else value
+
+
+MobilePhone = Annotated[str, BeforeValidator(tanzanian_mobile), Field(default='', pattern=r'^(\+255[67]\d{8})?$')]
+LedgerMethod = Literal['cash', 'mpesa', 'airtel_money', 'mixx_by_yas', 'halopesa', 'bank_transfer', 'cheque', 'other']
+BuyerType = Literal['personal', 'restaurant', 'butchery', 'hotel', 'retailer', 'caterer', 'other']
+
+
+def business_today():
+    """Today on Omoterra's own clock (EAT), not the server's."""
+    from datetime import datetime
+    from zoneinfo import ZoneInfo
+    return datetime.now(ZoneInfo('Africa/Dar_es_Salaam')).date()
+
+
+def _not_future(value):
+    if value is not None and value > business_today():
+        raise ValueError(M('err.date_cannot_be_in_future'))
+    return value
+
+
+
+class NewSaleBuyer(Input):
+    """A buyer not yet in the system, kept as a buyer record for later."""
+    business_name: str = Field(min_length=2, max_length=150)
+    buyer_type: BuyerType = 'personal'
+    contact_person: str = Field(default='', max_length=100)
+    phone: MobilePhone
+    region: Region = Field(default='', max_length=80)
+    area: str = Field(default='', max_length=100)
+
+
+class LedgerPaymentInput(Input):
+    amount: Money
+    paid_on: date
+    method: LedgerMethod
+    reference: str = Field(default='', max_length=150)
+    note: str = Field(default='', max_length=500)
+
+    @field_validator('paid_on')
+    @classmethod
+    def not_future(cls, value):
+        return _not_future(value)
+
+
+class SaleItemInput(Input):
+    category: Optional[Category] = None
+    description: str = Field(default='', max_length=200)
+    unit: Literal['bird', 'animal', 'kg', 'tray', 'piece']
+    quantity: Quantity
+    unit_price: Money
+    # Who Omoterra owes for this stock: a registered supplier or a name.
+    supplier_id: Optional[str] = Field(default=None, max_length=36)
+    supplier_name: str = Field(default='', max_length=150)
+    unit_cost: Optional[Money] = None
+
+    @model_validator(mode='after')
+    def complete(self):
+        if not self.category and len(self.description) < 2:
+            raise ValueError(M('err.describe_what_was_sold'))
+        has_supplier = bool(self.supplier_id or self.supplier_name)
+        if has_supplier != (self.unit_cost is not None):
+            raise ValueError(M('err.supplier_and_cost_go_together'))
+        if self.supplier_id and self.supplier_name:
+            self.supplier_name = ''
+        return self
+
+
+class DirectSaleInput(Input):
+    # Exactly one: an existing buyer record, a buyer app account, or a new buyer.
+    buyer_profile_id: Optional[str] = Field(default=None, max_length=36)
+    buyer_user_id: Optional[str] = Field(default=None, max_length=36)
+    new_buyer: Optional[NewSaleBuyer] = None
+    sold_on: date
+    items: list[SaleItemInput] = Field(min_length=1, max_length=50)
+    notes: str = Field(default='', max_length=2000)
+    # Money the buyer paid there and then, if any.
+    payment: Optional[LedgerPaymentInput] = None
+
+    @field_validator('sold_on')
+    @classmethod
+    def not_future(cls, value):
+        return _not_future(value)
+
+    @model_validator(mode='after')
+    def one_buyer(self):
+        if sum(x is not None for x in (self.buyer_profile_id, self.buyer_user_id, self.new_buyer)) != 1:
+            raise ValueError(M('err.choose_one_buyer_for_sale'))
+        return self
+
+
+class LedgerDebtInput(Input):
+    """A debt entered by hand: transport, a loan, feed on credit..."""
+    direction: Literal['receivable', 'payable']
+    party_kind: Literal['buyer', 'supplier', 'other'] = 'other'
+    buyer_profile_id: Optional[str] = Field(default=None, max_length=36)
+    supplier_id: Optional[str] = Field(default=None, max_length=36)
+    party_name: str = Field(default='', max_length=150)
+    party_phone: MobilePhone
+    description: str = Field(min_length=2, max_length=500)
+    amount: Money
+    incurred_on: date
+    due_on: Optional[date] = None
+
+    @field_validator('incurred_on')
+    @classmethod
+    def not_future(cls, value):
+        return _not_future(value)
+
+    @model_validator(mode='after')
+    def one_party(self):
+        needed = {'buyer': self.buyer_profile_id, 'supplier': self.supplier_id}.get(self.party_kind)
+        if self.party_kind == 'other':
+            if len(self.party_name) < 2 or self.buyer_profile_id or self.supplier_id:
+                raise ValueError(M('err.name_who_owes_or_is_owed'))
+        elif not needed:
+            raise ValueError(M('err.name_who_owes_or_is_owed'))
+        return self
+
+
+class ReasonInput(Input):
+    reason: str = Field(min_length=3, max_length=500)
+
+
+class PromotionInput(Input):
+    audience: Literal['buyers', 'suppliers', 'everyone']
+    title: str = Field(min_length=2, max_length=80)
+    # Three SMS parts at most.
+    message: str = Field(min_length=5, max_length=459)
+    send_sms: bool = True
+    send_in_app: bool = True
+
+    @model_validator(mode='after')
+    def some_channel(self):
+        if not (self.send_sms or self.send_in_app):
+            raise ValueError(M('err.choose_sms_or_in_app'))
+        return self
+
+
+class OptOutInput(Input):
+    phone: Annotated[str, BeforeValidator(tanzanian_mobile), Field(pattern=r'^\+255[67]\d{8}$')]
+    note: str = Field(default='', max_length=200)
+
+
+ExpenseCategory = Literal['labour', 'transport', 'fuel', 'feed', 'medicine_vet', 'packaging', 'processing',
+    'market_fees', 'rent', 'utilities', 'airtime_data', 'equipment', 'repairs', 'other']
+
+
+class ExpenseInput(Input):
+    """An operating cost: paid now (in full or part) or still owed."""
+    spent_on: date
+    category: ExpenseCategory
+    description: str = Field(min_length=2, max_length=500)
+    amount: Money
+    paid_to: str = Field(default='', max_length=150)
+    paid_to_phone: MobilePhone
+    # The sale this was spent on, when there is one (e.g. prep labour).
+    sale_id: Optional[str] = Field(default=None, max_length=36)
+    due_on: Optional[date] = None
+    payment: Optional[LedgerPaymentInput] = None
+
+    @field_validator('spent_on')
+    @classmethod
+    def not_future(cls, value):
+        return _not_future(value)

@@ -28,3 +28,16 @@ export async function saveSupplierContact(values: Contact): Promise<{ ok: true }
     return { ok: false, error: 'We could not save that just now. Please try again.' };
   }
 }
+
+// The supplier's answer to "did this payout reach you?" (POST /supplier/payouts/{id}/confirm).
+export async function confirmPayout(id: string, received: boolean, note: string): Promise<{ ok: true } | { ok: false; error: string }> {
+  const token = (await cookies()).get(MEMBER_COOKIE)?.value;
+  if (!token) return { ok: false, error: 'Your session has ended. Log in again.' };
+  try {
+    await call(`/supplier/payouts/${encodeURIComponent(id)}/confirm`, { method: 'POST', token, body: { received, note: note.trim() } });
+    return { ok: true };
+  } catch (error) {
+    if (error instanceof PublicApiError) return { ok: false, error: error.message };
+    return { ok: false, error: 'We could not save that just now. Please try again.' };
+  }
+}

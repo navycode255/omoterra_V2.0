@@ -3,8 +3,10 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 import '../../core/api/repository.dart';
 import '../../core/l10n/strings.dart';
+import '../../core/theme/theme.dart';
 import '../../shared/widgets/support_contact.dart';
 import '../../shared/widgets/components.dart';
+import 'order_progress.dart';
 
 class SupplierOrders extends ConsumerWidget {
   final String? id;
@@ -50,8 +52,11 @@ class SupplierOrders extends ConsumerWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(s.reservationNo(
-                      row['id'].toString().substring(0, 8).toUpperCase())),
+                  Text(const [null, 'reserved'].contains(row['stage'])
+                      ? s.reservationNo(
+                          '${row['reference'] ?? row['id'].toString().substring(0, 8).toUpperCase()}')
+                      : s.orderNo(
+                          '${row['reference'] ?? row['id'].toString().substring(0, 8).toUpperCase()}')),
                   const SizedBox(height: 8),
                   Text(
                     '${s.label(row['category'])} · ${amount(row['quantity'])} ${s.unit('${row['unit_type']}', num.tryParse('${row['quantity']}'))}',
@@ -63,19 +68,37 @@ class SupplierOrders extends ConsumerWidget {
                       : s.collectionExpected(
                           s.dateText(row['expected_collection_date']))),
                   const SizedBox(height: 8),
-                  StatusText(row['status']),
+                  row['stage'] == null
+                      ? StatusText(row['status'])
+                      : OrderStageText('${row['stage']}'),
                   if (id != null) ...[
-                    const SizedBox(height: 16),
-                    Text(row['instructions']),
-                    for (final settlement in row['settlements'])
-                      ListTile(
-                        contentPadding: EdgeInsets.zero,
-                        title: Text(
-                            s.settlement(tsh(settlement['total_payable']))),
-                        subtitle: StatusText(settlement['status']),
-                        onTap: () =>
-                            context.push('/payouts/${settlement['id']}'),
-                      ),
+                    const SizedBox(height: 20),
+                    if ((row['steps'] as List? ?? const []).isEmpty)
+                      Text(s.checkoutInProgress,
+                          style: const TextStyle(color: OColors.secondary))
+                    else
+                      OrderTimeline(row),
+                    for (final settlement in row['settlements'] as List) ...[
+                      const SizedBox(height: 8),
+                      if (awaitsConfirmation(settlement))
+                        PayoutConfirmCard(settlement)
+                      else
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          title: Text(
+                              s.settlement(tsh(settlement['total_payable']))),
+                          subtitle: Text(
+                              settlement['supplier_confirmation'] == 'received'
+                                  ? s.receivedOn(s.dateText(
+                                      settlement['supplier_confirmed_at']))
+                                  : s.payoutNotSent,
+                              style: const TextStyle(
+                                  fontSize: 12.5, color: OColors.secondary)),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () =>
+                              context.push('/payouts/${settlement['id']}'),
+                        ),
+                    ],
                   ],
                 ],
               ),

@@ -204,9 +204,15 @@ ORDERS = Spec(m.Order, (m.Order.created_at.desc(), m.Order.id.desc()), order_sea
           'failed': m.Order.internal_status.in_(('cancelled', 'payment_failed'))},
     column=m.Order.internal_status, urgent=OPEN_ORDER, urgent_order=(m.Order.created_at, m.Order.id))
 
-UNPAID = m.Settlement.status == 'pending'
+# Unpaid, or paid but the supplier reports the money never arrived: both
+# need someone to send money.
+NOT_RECEIVED = m.Settlement.supplier_confirmation == 'not_received'
+UNPAID = or_(m.Settlement.status == 'pending', NOT_RECEIVED)
 SETTLEMENTS = Spec(m.Settlement, (m.Settlement.created_at.desc(), m.Settlement.id.desc()), settlement_search,
-    tabs={'pending': UNPAID, 'paid': m.Settlement.status == 'paid'},
+    tabs={'pending': m.Settlement.status == 'pending', 'paid': m.Settlement.status == 'paid',
+          'awaiting_confirmation': (m.Settlement.status == 'paid') & m.Settlement.supplier_confirmation.is_(None),
+          'not_received': NOT_RECEIVED,
+          'received': m.Settlement.supplier_confirmation == 'received'},
     column=m.Settlement.status, urgent=UNPAID, urgent_order=(m.Settlement.created_at, m.Settlement.id))
 
 OUTSTANDING = m.Payment.status.in_(('pending', 'partial'))

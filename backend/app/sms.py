@@ -1,8 +1,9 @@
 """Text messages through Sema (https://api.sema.co.tz, Web API v3.0).
 
-Only the sign-in / verification code is sent by SMS. Omoterra generates and
-checks the code itself (app/auth.py: expiry, resend wait, 5 attempts); Sema's
-SendSMS only delivers it, with the account's message type (OMOTERRA_SEMA_SMS_TYPE).
+Sign-in / verification codes and staff promotions (app/promotions.py) are
+sent by SMS. Omoterra generates and checks codes itself (app/auth.py: expiry,
+resend wait, 5 attempts); Sema's SendSMS only delivers, with the account's
+message type (OMOTERRA_SEMA_SMS_TYPE).
 """
 from __future__ import annotations
 
@@ -25,13 +26,14 @@ def sema_number(phone):
     return phone.removeprefix('+')
 
 
-def send(phone, text, reference=''):
+def send(phone, text, reference='', validity_seconds=None):
     cfg = settings()
     payload = {
         'api_id': cfg.sema_api_id, 'api_password': cfg.sema_api_password,
         'sms_type': cfg.sema_sms_type, 'encoding': 'T', 'sender_id': cfg.sema_sender_id,
         'phonenumber': sema_number(phone), 'textmessage': text,
-        'ValidityPeriodInSeconds': cfg.otp_ttl_seconds,
+        # A code is useless once expired; a promotion passes its own, longer window.
+        'ValidityPeriodInSeconds': validity_seconds or cfg.otp_ttl_seconds,
     }
     if reference:
         payload['uid'] = reference

@@ -7,6 +7,7 @@ import '../../core/l10n/strings.dart';
 import '../../shared/widgets/brand_image.dart';
 import '../../shared/widgets/components.dart';
 import '../../shared/widgets/decor.dart';
+import 'order_progress.dart';
 
 class SupplierHome extends ConsumerWidget {
   const SupplierHome({super.key});
@@ -176,6 +177,7 @@ class SupplierHome extends ConsumerWidget {
               }
               return _SupplierStatusNotice(profile: profile);
             }),
+            const _OrderUpdates(),
             ResourceView('/supplier/batches', builder: (data) {
               final batches = (data as List).cast<Map>();
               final active = batches
@@ -580,5 +582,41 @@ class _RatingTile extends ConsumerWidget {
             icon: Icons.star_border,
             prominent: true,
             onTap: () => context.push('/supplier-reviews')));
+  }
+}
+
+/// Live order news on the home screen: a payout to confirm first, otherwise
+/// how many orders are moving. Quiet while loading or when there is nothing.
+class _OrderUpdates extends ConsumerWidget {
+  const _OrderUpdates();
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final s = ref.s;
+    final payouts =
+        (ref.watch(resourceProvider('/supplier/payouts')).valueOrNull as List?)
+                ?.cast<Map>() ??
+            const [];
+    final toConfirm = payouts.where(awaitsConfirmation).toList();
+    if (toConfirm.isNotEmpty) {
+      return Padding(
+          padding: const EdgeInsets.only(bottom: 12),
+          child: PayoutConfirmCard(toConfirm.first));
+    }
+    final orders =
+        (ref.watch(resourceProvider('/supplier/orders')).valueOrNull as List?)
+                ?.cast<Map>() ??
+            const [];
+    final moving = orders
+        .where((row) => !['reserved', 'cancelled', 'payout_confirmed', null]
+            .contains(row['stage']))
+        .toList();
+    if (moving.isEmpty) return const SizedBox.shrink();
+    return Padding(
+        padding: const EdgeInsets.only(bottom: 12),
+        child: SupplierTile(
+            title: s.ordersInProgress(moving.length),
+            subtitle: s.orderStage('${moving.first['stage']}'),
+            icon: Icons.local_shipping_outlined,
+            onTap: () => context.go('/supplier-orders')));
   }
 }

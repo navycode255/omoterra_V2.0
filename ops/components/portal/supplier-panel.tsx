@@ -3,6 +3,9 @@ import type { ReactNode } from 'react';
 import { payoutLabel } from '@/lib/payout-methods';
 import { EditableCard } from './editable-card';
 import { Fold, FoldTitle } from './fold';
+import { LiveRefresh } from './live-refresh';
+import { OrderList, PayoutList, PayoutPrompt, type PayoutRow, type SupplierOrder } from './supplier-orders';
+import { CATEGORY, CONTACT, FORMS, categoryImage, date, label, media, number, units } from './supplier-format';
 import { Icon, type IconName } from './icons';
 
 export type SupplierProfile = {
@@ -18,25 +21,7 @@ export type Batch = {
   status: string; approved_at: string | null; asking_price_per_unit: string | null;
 };
 export type Listing = { id: string; listing_status: string };
-export type Hold = { id: string; status?: string; created_at?: string };
-export type Payout = { id: string; total_payable: string; status: string; created_at: string };
-
-const CATEGORY: Record<string, [label: string, one: string, many: string, image: string]> = {
-  broilers: ['Broilers', 'bird', 'birds', 'category_broilers.jpg'], local_chicken: ['Local chicken', 'bird', 'birds', 'category_broilers.jpg'],
-  layers: ['Layers', 'bird', 'birds', 'category_eggs.jpg'], eggs: ['Eggs', 'tray', 'trays', 'category_eggs.jpg'],
-  goats: ['Goats', 'animal', 'animals', 'category_goats.jpg'], cattle: ['Cattle', 'animal', 'animals', 'category_cow.jpg'],
-  chicken_meat: ['Chicken meat', 'kg', 'kg', 'category_broilers.jpg'], beef: ['Beef', 'kg', 'kg', 'category_cow.jpg'],
-  goat_meat: ['Goat meat', 'kg', 'kg', 'category_goats.jpg'],
-};
-const FORMS: Record<string, string> = { live: 'Live', dressed: 'Dressed', chilled: 'Chilled', frozen: 'Frozen' };
-const CONTACT: Record<string, string> = { phone: 'Phone call', whatsapp: 'WhatsApp', sms: 'Text message' };
-const number = new Intl.NumberFormat('en-US', { maximumFractionDigits: 2 });
-const date = new Intl.DateTimeFormat('en-GB', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'Africa/Dar_es_Salaam' });
-
-const label = (category: string) => CATEGORY[category]?.[0] ?? category;
-const units = (category: string, quantity: number) => (quantity === 1 ? CATEGORY[category]?.[1] : CATEGORY[category]?.[2]) ?? '';
-const media = (url: string) => `/account/media/${url.split('/').pop()}`;
-export const categoryImage = (category: string) => `/images/marketing/${CATEGORY[category]?.[3] ?? 'cattle-herd-v1.webp'}`;
+export type { SupplierOrder as Hold, PayoutRow as Payout } from './supplier-orders';
 
 function readiness(value: string | null) {
   if (!value) return '—';
@@ -113,7 +98,7 @@ function Stat({ icon, title, value, locked, note }: { icon: IconName; title: str
 }
 
 export function SupplierPanel({ phone, profile, batches, listings, orders, payouts, supportPhone }: {
-  phone: string; profile: SupplierProfile; batches: Batch[]; listings: Listing[]; orders: Hold[]; payouts: Payout[]; supportPhone: string;
+  phone: string; profile: SupplierProfile; batches: Batch[]; listings: Listing[]; orders: SupplierOrder[]; payouts: PayoutRow[]; supportPhone: string;
 }) {
   const approved = profile.status === 'approved';
   const live = listings.filter((row) => row.listing_status === 'live').length;
@@ -121,6 +106,10 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
   const submitted = batches.reduce((sum, batch) => sum + Number(batch.initial_quantity || 0), 0);
   const stockValue = !batches.length ? '0' : unitsUsed.size === 1 ? number.format(submitted) : `${batches.length}`;
   const stockNote = !batches.length ? 'No batch yet' : unitsUsed.size === 1 ? units(batches[0].category, submitted) : 'batches';
+  // A buyer still at checkout is not an order yet.
+  const placed = orders.filter((row) => row.stage !== 'reserved');
+  const active = placed.filter((row) => !['payout_confirmed', 'cancelled'].includes(row.stage)).length;
+  const toConfirm = payouts.filter((row) => row.status === 'paid' && row.supplier_confirmation !== 'received');
   const paid = payouts.filter((row) => row.status === 'paid').reduce((sum, row) => sum + Number(row.total_payable), 0);
   const products = profile.categories.map((key) => {
     const capacity = profile.production_profile?.[key]?.capacity;
@@ -142,13 +131,21 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
         <div className="portal-hero-art" style={{ backgroundImage: `url(${categoryImage(profile.primary_category)})` }} role="img" aria-label={`${label(profile.primary_category)} on a farm`} />
       </section>
 
+      <LiveRefresh />
       <Status profile={profile} live={live} />
+
+      {toConfirm.length > 0 && (
+        <section className="portal-attention" aria-labelledby="attention-title">
+          <h2 id="attention-title">{toConfirm.length === 1 ? 'Confirm your payout' : `Confirm ${toConfirm.length} payouts`}</h2>
+          {toConfirm.map((row) => <PayoutPrompt key={row.id} payout={row} />)}
+        </section>
+      )}
 
       <h2 className="portal-section-title">Quick stats</h2>
       <div className="portal-stats">
         <Stat icon="box" title="Stock submitted" value={stockValue} note={stockNote} locked={false} />
         <Stat icon="cart" title="Live listings" value={String(live)} locked={!approved} />
-        <Stat icon="orders" title="Orders" value={String(orders.length)} locked={!approved} />
+        <Stat icon="orders" title="Orders" value={String(placed.length)} note={active ? `${active} in progress` : undefined} locked={!approved} />
         <Stat icon="coins" title="Payouts" value={`TZS ${number.format(paid)}`} locked={!approved} />
       </div>
 
@@ -207,19 +204,19 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
         </EditableCard>
       </div>
 
-      <div className="portal-grid is-two">
-        <Card id="orders" icon="orders" title="Orders" summary={approved ? `${orders.length} order${orders.length === 1 ? '' : 's'}` : 'Open after approval'}>
-          <p className="portal-empty">{approved
-            ? orders.length ? `You have ${orders.length} order${orders.length === 1 ? '' : 's'}. Manage them in the Omoterra app.` : 'No orders yet. Orders for your live stock appear here.'
-            : 'Orders open once the Omoterra team approves your account.'}</p>
-        </Card>
-        <EditableCard id="payouts" icon="coins" title="Payouts" summary={methods || 'Payout method not chosen'} kind="payout" contact={contact}>
-          <Rows rows={[['Receive payouts by', methods || 'Not chosen yet']]} />
-          <p className="portal-empty">{approved
-            ? payouts.length ? `TZS ${number.format(paid)} paid across ${payouts.filter((row) => row.status === 'paid').length} payout(s).` : 'No payouts yet. Payouts follow completed orders.'
-            : 'Payouts start after approval and your first completed order. We ask for your account details when a payout is due.'}</p>
-        </EditableCard>
-      </div>
+      <section id="orders" className="portal-card portal-stock">
+        <h2><Icon name="orders" />Orders</h2>
+        {orders.length ? <OrderList orders={orders} /> : <p className="portal-empty">{approved
+          ? 'No orders yet. When a buyer orders your stock, you can follow collection, delivery and payment here.'
+          : 'Orders open once the Omoterra team approves your account.'}</p>}
+      </section>
+
+      <EditableCard id="payouts" icon="coins" title="Payouts" summary={payouts.length ? `TZS ${number.format(paid)} sent · ${methods || 'method not chosen'}` : methods || 'Payout method not chosen'} kind="payout" contact={contact}>
+        <Rows rows={[['Receive payouts by', methods || 'Not chosen yet']]} />
+        {payouts.length ? <PayoutList payouts={payouts} /> : <p className="portal-empty">{approved
+          ? 'No payouts yet. A payout is prepared for each delivered order.'
+          : 'Payouts start after approval and your first completed order. We ask for your account details when a payout is due.'}</p>}
+      </EditableCard>
 
       <section id="help" className="portal-card portal-help-card">
         <h2><Icon name="help" />Help & support</h2>

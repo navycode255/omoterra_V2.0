@@ -2,9 +2,9 @@ from __future__ import annotations
 
 import uuid
 from typing import Optional
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from decimal import Decimal
-from sqlalchemy import String, Numeric, DateTime, ForeignKey, UniqueConstraint, CheckConstraint, JSON, Boolean, Integer, Text, Index, text
+from sqlalchemy import String, Numeric, Date, DateTime, ForeignKey, UniqueConstraint, CheckConstraint, JSON, Boolean, Integer, Text, Index, text
 from sqlalchemy.orm import Mapped, mapped_column
 from .db import Base
 
@@ -348,7 +348,25 @@ class Settlement(Entity, Base):
     status: Mapped[str] = mapped_column(default='pending')
     paid_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     payment_reference: Mapped[Optional[str]]
+    # The supplier's latest answer to "did this payout reach you?":
+    # None (not asked yet or re-sent), 'received' or 'not_received'. Every
+    # answer is kept in PayoutConfirmation.
+    supplier_confirmation: Mapped[Optional[str]] = mapped_column(String(16))
+    supplier_confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     __table_args__ = (UniqueConstraint('order_item_id', 'supplier_id'),)
+
+
+class PayoutConfirmation(Entity, Base):
+    """One supplier answer about one paid settlement, with the amount and
+    reference it answered about. Append-only (migration 023)."""
+    __tablename__ = 'payout_confirmations'
+    settlement_id: Mapped[str] = mapped_column(ForeignKey('settlements.id'), index=True)
+    supplier_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    outcome: Mapped[str] = mapped_column(String(16))
+    note: Mapped[str] = mapped_column(Text, default='')
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    payment_reference: Mapped[Optional[str]]
+    __table_args__ = (CheckConstraint("outcome IN ('received','not_received')", name='valid_payout_confirmation'),)
 
 
 class Payment(Entity, Base):
@@ -627,6 +645,176 @@ class OrderRating(Entity, Base):
     hidden: Mapped[bool] = mapped_column(default=False)
     hidden_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
     __table_args__ = (CheckConstraint('stars BETWEEN 1 AND 5', name='valid_rating_stars'),)
+
+
+class Sale(Entity, Base):
+    """A sale staff recorded directly (phone, market, walk-in). A money record
+    only: it never moves listing or batch stock. Its buyer always has a CRM
+    record, created on the spot for a new buyer, so they are kept for later."""
+    __tablename__ = 'sales'
+    sale_number: Mapped[str] = mapped_column(String(24), unique=True)
+    sold_on: Mapped[date] = mapped_column(Date, index=True)
+    buyer_profile_id: Mapped[str] = mapped_column(ForeignKey('buyer_profiles.id'), index=True)
+    buyer_user_id: Mapped[Optional[str]] = mapped_column(ForeignKey('users.id'))
+    buyer_name: Mapped[str] = mapped_column(Text)
+    buyer_phone: Mapped[str] = mapped_column(String(20), default='')
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    cost_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    notes: Mapped[str] = mapped_column(Text, default='')
+    status: Mapped[str] = mapped_column(String(16), default='active')
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    cancelled_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    cancel_reason: Mapped[str] = mapped_column(Text, default='')
+    __table_args__ = (
+        CheckConstraint('total_amount > 0', name='sales_total_amount_check'),
+        CheckConstraint('cost_amount >= 0', name='sales_cost_amount_check'),
+        CheckConstraint("status IN ('active','cancelled')", name='sales_status_check'),
+    )
+
+
+class SaleItem(Entity, Base):
+    __tablename__ = 'sale_items'
+    sale_id: Mapped[str] = mapped_column(ForeignKey('sales.id'), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    category: Mapped[str] = mapped_column(String(32), default='')
+    description: Mapped[str] = mapped_column(Text)
+    unit: Mapped[str] = mapped_column(String(16))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    # Who Omoterra owes for this stock, if anyone: a registered supplier or a
+    # named one not in the system. Blank means Omoterra's own stock.
+    supplier_id: Mapped[Optional[str]] = mapped_column(ForeignKey('users.id'), index=True)
+    supplier_name: Mapped[str] = mapped_column(Text, default='')
+    unit_cost: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))
+    cost_total: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))
+    __table_args__ = (
+        CheckConstraint('quantity > 0', name='sale_items_quantity_check'),
+        CheckConstraint('unit_price > 0', name='sale_items_unit_price_check'),
+        CheckConstraint('unit_cost > 0', name='sale_items_unit_cost_check'),
+        CheckConstraint("(unit_cost IS NULL AND supplier_id IS NULL AND supplier_name = '')"
+            " OR (unit_cost IS NOT NULL AND (supplier_id IS NOT NULL OR supplier_name <> ''))",
+            name='sale_item_cost_has_supplier'),
+    )
+
+
+EXPENSE_CATEGORIES = ('labour', 'transport', 'fuel', 'feed', 'medicine_vet', 'packaging', 'processing',
+    'market_fees', 'rent', 'utilities', 'airtime_data', 'equipment', 'repairs', 'other')
+
+
+class LedgerDebt(Entity, Base):
+    """Money someone owes: a buyer to Omoterra (receivable) or Omoterra to a
+    supplier or anyone else (payable). Sales open these automatically; other
+    debts are entered by hand. `paid_amount` always equals the sum of the
+    unreversed payments and can never pass `amount`."""
+    __tablename__ = 'ledger_debts'
+    direction: Mapped[str] = mapped_column(String(16))
+    party_kind: Mapped[str] = mapped_column(String(16))
+    buyer_profile_id: Mapped[Optional[str]] = mapped_column(ForeignKey('buyer_profiles.id'), index=True)
+    supplier_id: Mapped[Optional[str]] = mapped_column(ForeignKey('users.id'), index=True)
+    party_name: Mapped[str] = mapped_column(Text)
+    party_phone: Mapped[str] = mapped_column(String(20), default='')
+    description: Mapped[str] = mapped_column(Text, default='')
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    paid_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    incurred_on: Mapped[date] = mapped_column(Date)
+    due_on: Mapped[Optional[date]] = mapped_column(Date)
+    source: Mapped[str] = mapped_column(String(16))
+    # Set on operating expenses only (source 'expense').
+    expense_category: Mapped[Optional[str]] = mapped_column(String(24))
+    sale_id: Mapped[Optional[str]] = mapped_column(ForeignKey('sales.id'), index=True)
+    status: Mapped[str] = mapped_column(String(16), default='open')
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    cancelled_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    cancel_reason: Mapped[str] = mapped_column(Text, default='')
+    __table_args__ = (
+        CheckConstraint("direction IN ('receivable','payable')", name='ledger_debts_direction_check'),
+        CheckConstraint("party_kind IN ('buyer','supplier','other')", name='ledger_debts_party_kind_check'),
+        CheckConstraint('amount > 0', name='ledger_debts_amount_check'),
+        CheckConstraint("source IN ('sale','sale_cost','manual','expense')", name='ledger_debts_source_check'),
+        CheckConstraint(f"expense_category IN ({', '.join(repr(v) for v in EXPENSE_CATEGORIES)})", name='ledger_debts_expense_category_check'),
+        CheckConstraint("(source = 'expense') = (expense_category IS NOT NULL)", name='ledger_expense_category'),
+        Index('ix_ledger_debts_expenses', 'incurred_on', postgresql_where=text("source = 'expense'")),
+        CheckConstraint("status IN ('open','settled','cancelled')", name='ledger_debts_status_check'),
+        CheckConstraint('paid_amount >= 0 AND paid_amount <= amount', name='ledger_paid_within_amount'),
+        CheckConstraint("source = 'expense' OR (source = 'manual') = (sale_id IS NULL)", name='ledger_sale_source'),
+        Index('ix_ledger_debts_open', 'direction', 'status'),
+    )
+
+    @property
+    def balance(self):
+        return self.amount - self.paid_amount
+
+
+LEDGER_METHODS = ('cash', 'mpesa', 'airtel_money', 'mixx_by_yas', 'halopesa', 'bank_transfer', 'cheque', 'other')
+
+
+class LedgerPayment(Entity, Base):
+    """One installment against a debt: money in for a receivable, money out
+    for a payable. Never deleted; a wrong entry is reversed with a reason."""
+    __tablename__ = 'ledger_payments'
+    debt_id: Mapped[str] = mapped_column(ForeignKey('ledger_debts.id'), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    paid_on: Mapped[date] = mapped_column(Date, index=True)
+    method: Mapped[str] = mapped_column(String(24))
+    reference: Mapped[str] = mapped_column(Text, default='')
+    note: Mapped[str] = mapped_column(Text, default='')
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    reversed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    reversed_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    reverse_reason: Mapped[str] = mapped_column(Text, default='')
+    __table_args__ = (
+        CheckConstraint('amount > 0', name='ledger_payments_amount_check'),
+        CheckConstraint(f"method IN ({', '.join(repr(v) for v in LEDGER_METHODS)})", name='ledger_payments_method_check'),
+        Index('uq_ledger_payment_reference', 'debt_id', 'method', 'reference', unique=True,
+            postgresql_where=text("reference <> '' AND reversed_at IS NULL")),
+    )
+
+
+class Promotion(Entity, Base):
+    """A promotional message sent to buyers, suppliers or both, by SMS and/or
+    as an in-app notification. SMS go out from a queue (app/promotions.py)."""
+    __tablename__ = 'promotions'
+    audience: Mapped[str] = mapped_column(String(16))
+    title: Mapped[str] = mapped_column(Text)
+    message: Mapped[str] = mapped_column(Text)
+    send_sms: Mapped[bool] = mapped_column(Boolean)
+    send_in_app: Mapped[bool] = mapped_column(Boolean)
+    recipient_count: Mapped[int] = mapped_column(Integer, default=0)
+    in_app_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint("audience IN ('buyers','suppliers','everyone')", name='promotions_audience_check'),
+        CheckConstraint('send_sms OR send_in_app', name='promotion_has_channel'),
+    )
+
+
+class PromotionRecipient(Entity, Base):
+    __tablename__ = 'promotion_recipients'
+    promotion_id: Mapped[str] = mapped_column(ForeignKey('promotions.id'))
+    phone: Mapped[str] = mapped_column(String(20))
+    name: Mapped[str] = mapped_column(Text, default='')
+    user_id: Mapped[Optional[str]] = mapped_column(ForeignKey('users.id'))
+    buyer_profile_id: Mapped[Optional[str]] = mapped_column(ForeignKey('buyer_profiles.id'))
+    sms_status: Mapped[str] = mapped_column(String(16))
+    sms_error: Mapped[str] = mapped_column(Text, default='')
+    sms_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        CheckConstraint("sms_status IN ('queued','sent','failed','skipped')", name='promotion_recipients_sms_status_check'),
+        UniqueConstraint('promotion_id', 'phone', name='uq_promotion_phone'),
+        Index('ix_promotion_recipients_queued', 'sms_status', postgresql_where=text("sms_status = 'queued'")),
+    )
+
+
+class PromotionOptOut(Base):
+    """A number that asked not to receive promotions."""
+    __tablename__ = 'promotion_opt_outs'
+    phone: Mapped[str] = mapped_column(String(20), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    note: Mapped[str] = mapped_column(Text, default='')
 
 
 # Registers the media_references hook wherever the models are loaded.
