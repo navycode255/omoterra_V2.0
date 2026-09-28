@@ -28,12 +28,14 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Optional
 
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, File, Header, Query, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import Date, Text, and_, cast, exists, func, or_, select
 
-from . import auth, contracts as c, models as m, paging, services as s
+from . import auth, contracts as c, models as m, notifications as notes, paging, services as s
 from .db import database
-from .i18n import fail
+from .i18n import M, fail
+from .media import save_photo
 from .paging import Paging, Spec
 
 router = APIRouter(prefix='/api/v1/ops')
@@ -163,7 +165,7 @@ def _lock_debt(db, id):
     return debt
 
 
-def record_payment(db, debt, data, operator):
+def record_payment(db, debt, data, operator, supplier_payment_id=None):
     if debt.status == 'cancelled':
         fail('err.debt_cancelled_no_payments')
     if data.amount > debt.balance:
@@ -172,7 +174,8 @@ def record_payment(db, debt, data, operator):
             m.LedgerPayment.method == data.method, m.LedgerPayment.reference == data.reference,
             m.LedgerPayment.reversed_at.is_(None))):
         fail('err.payment_reference_already_recorded')
-    row = m.LedgerPayment(debt_id=debt.id, recorded_by=operator.id, **data.model_dump())
+    row = m.LedgerPayment(debt_id=debt.id, supplier_payment_id=supplier_payment_id,
+        recorded_by=operator.id, **data.model_dump())
     db.add(row)
     debt.paid_amount += data.amount
     debt.status = 'settled' if debt.paid_amount == debt.amount else 'open'
@@ -297,6 +300,60 @@ def add_payment(id: str, data: c.LedgerPaymentInput, idempotency_key: str = Head
         record_payment(db, debt, data, operator)
         s.remember(db, key, fingerprint, id)
     return _result(_debt_detail(db, debt), 201)
+
+
+@router.post('/ledger/supplier-payment-receipts', status_code=201)
+async def upload_supplier_payment_receipt(file: UploadFile = File(), operator=Depends(auth.ops), db=Depends(database)):
+    """Store a cleaned receipt image before its payment record is submitted."""
+    raw = await file.read(10 * 1024 * 1024 + 1)
+    if len(raw) > 10 * 1024 * 1024:
+        fail('err.choose_photo_under_10mb', 413)
+    return _result(await run_in_threadpool(save_photo, db, None, raw), 201)
+
+
+@router.post('/ledger/suppliers/{supplier_id}/payments', status_code=201)
+def pay_supplier(supplier_id: str, data: c.SupplierPaymentInput, idempotency_key: str = Header(),
+                 operator=Depends(auth.ops), db=Depends(database)):
+    """Allocate one supplier transfer over selected invoices, oldest first."""
+    _supplier_party(db, supplier_id)
+    payload = {'supplier_id': supplier_id, **data.model_dump()}
+    key, fingerprint, prior = s.replay(db, operator.id, 'supplier-payment', idempotency_key, payload)
+    if prior:
+        row = db.get(m.SupplierPayment, prior)
+        return _result({'id': row.id, 'amount': row.amount}, 201)
+    if data.receipt_media_id:
+        asset = db.get(m.MediaAsset, data.receipt_media_id)
+        if not asset or asset.owner_id is not None or not asset.content_type.startswith('image/'):
+            fail('err.photo_unavailable_upload_own', 422)
+    query = select(m.LedgerDebt).where(m.LedgerDebt.supplier_id == supplier_id,
+        m.LedgerDebt.direction == 'payable', m.LedgerDebt.status == 'open').order_by(
+        m.LedgerDebt.due_on.asc().nulls_last(), m.LedgerDebt.incurred_on, m.LedgerDebt.created_at).with_for_update()
+    if data.debt_ids:
+        query = query.where(m.LedgerDebt.id.in_(data.debt_ids))
+    debts = db.scalars(query).all()
+    if data.debt_ids and {row.id for row in debts} != set(data.debt_ids):
+        fail('err.supplier_invoice_unavailable', 422)
+    available = sum((row.balance for row in debts), ZERO)
+    if not debts or data.amount > available:
+        fail('err.payment_more_than_balance', 422, balance=f'{available:,.2f}')
+    group = m.SupplierPayment(supplier_id=supplier_id, amount=data.amount, paid_on=data.paid_on,
+        method=data.method, reference=data.reference.strip(), sms_text=data.sms_text.strip(),
+        receipt_media_id=data.receipt_media_id, note=data.note.strip(), recorded_by=operator.id)
+    db.add(group)
+    db.flush()
+    remaining = data.amount
+    for debt in debts:
+        amount = min(remaining, debt.balance)
+        if amount <= ZERO:
+            break
+        allocation = c.LedgerPaymentInput(amount=amount, paid_on=data.paid_on, method=data.method,
+            reference='', note=data.note)
+        record_payment(db, debt, allocation, operator, group.id)
+        remaining -= amount
+    notes.notify(db, supplier_id, 'supplier', 'supplier_payment', M('notify.supplier_payment',
+        amount=f'{data.amount:,.0f}'), '/account#payments')
+    s.remember(db, key, fingerprint, group.id)
+    return _result({'id': group.id, 'amount': group.amount, 'allocated': data.amount}, 201)
 
 
 @router.post('/ledger/payments/{id}/reverse')

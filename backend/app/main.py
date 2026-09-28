@@ -1018,6 +1018,53 @@ def payouts(user=Depends(supplier), db=Depends(database)):
     return result([supplier_payout(db, row) for row in rows])
 
 
+@app.get(prefix + '/supplier/invoices')
+def supplier_invoices(user=Depends(supplier), db=Depends(database)):
+    """Direct-sale and LPO debts as the supplier sees them, with real payment allocations."""
+    debts = db.scalars(select(m.LedgerDebt).where(m.LedgerDebt.supplier_id == user.id,
+        m.LedgerDebt.direction == 'payable', m.LedgerDebt.status != 'cancelled')
+        .order_by(m.LedgerDebt.incurred_on.desc(), m.LedgerDebt.created_at.desc())).all()
+    debt_ids = [row.id for row in debts]
+    allocations = db.scalars(select(m.LedgerPayment).where(m.LedgerPayment.debt_id.in_(debt_ids),
+        m.LedgerPayment.reversed_at.is_(None)).order_by(m.LedgerPayment.paid_on.desc(),
+        m.LedgerPayment.created_at.desc())).all() if debt_ids else []
+    by_debt = {}
+    for allocation in allocations:
+        payment = db.get(m.SupplierPayment, allocation.supplier_payment_id) if allocation.supplier_payment_id else None
+        by_debt.setdefault(allocation.debt_id, []).append({
+            'id': allocation.id, 'amount': allocation.amount, 'paid_on': allocation.paid_on,
+            'method': payment.method if payment else allocation.method,
+            'reference': payment.reference if payment else allocation.reference,
+            'sms_text': payment.sms_text if payment else '',
+            'has_receipt': bool(payment and payment.receipt_media_id),
+            'supplier_payment_id': payment.id if payment else None,
+            'note': payment.note if payment else allocation.note,
+        })
+    invoices = [{
+        'id': row.id, 'description': row.description, 'amount': row.amount, 'paid_amount': row.paid_amount,
+        'balance': row.balance, 'incurred_on': row.incurred_on, 'due_on': row.due_on,
+        'source': row.source, 'status': row.status, 'sale_id': row.sale_id, 'lpo_id': row.lpo_id,
+        'payments': by_debt.get(row.id, []),
+    } for row in debts]
+    return result({
+        'pending_total': sum((row.balance for row in debts if row.status == 'open'), Decimal('0')),
+        'paid_total': sum((row.paid_amount for row in debts), Decimal('0')),
+        'invoices': invoices,
+    })
+
+
+@app.get(prefix + '/supplier/payments/{id}/receipt')
+def supplier_payment_receipt(id: str, user=Depends(supplier), db=Depends(database)):
+    payment = db.scalar(select(m.SupplierPayment).where(m.SupplierPayment.id == id,
+        m.SupplierPayment.supplier_id == user.id))
+    if not payment or not payment.receipt_media_id:
+        s.fail('err.photo_not_found', 404)
+    asset = db.get(m.MediaAsset, payment.receipt_media_id)
+    if not asset:
+        s.fail('err.photo_not_found', 404)
+    return result(media.signed_link(asset))
+
+
 @app.get(prefix + '/supplier/payouts/{id}')
 def payout(id: str, user=Depends(supplier), db=Depends(database)):
     return result(supplier_payout(db, s.owned(db, m.Settlement, id, user.id, 'supplier_id'), True))
@@ -3009,7 +3056,8 @@ def reverse_sale(id: str, data: c.SaleReversalInput, idempotency_key: str = Head
 
 
 # Sales, the debts ledger and promotions live in their own modules.
-from . import finance, promotions, purchasing  # noqa: E402
+from . import finance, market_schedule, promotions, purchasing  # noqa: E402
 app.include_router(finance.router)
+app.include_router(market_schedule.router)
 app.include_router(promotions.router)
 app.include_router(purchasing.router)

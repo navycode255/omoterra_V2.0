@@ -11,6 +11,7 @@ const paths = {
   bell: <><path {...stroke} d="M6 16.5V11a6 6 0 0 1 12 0v5.5l1.5 1.8h-15z" /><path {...stroke} d="M10 20.5a2.2 2.2 0 0 0 4 0" /></>,
   chevron: <><path {...stroke} d="m7 10 5 5 5-5" /></>,
   clock: <><circle {...stroke} cx="12" cy="12" r="8.5" /><path {...stroke} d="M12 7.5V12l3 2" /></>,
+  calendar: <><rect {...stroke} x="3.5" y="5.5" width="17" height="15" rx="2" /><path {...stroke} d="M8 3.5v4M16 3.5v4M3.5 10h17" /></>,
   check: <><path {...stroke} d="m6 12.5 4 4 8-9" /></>,
   alert: <><circle {...stroke} cx="12" cy="12" r="8.5" /><path {...stroke} d="M12 7.5v5.5M12 16.5h.01" /></>,
   lock: <><rect {...stroke} x="5.5" y="10.5" width="13" height="9.5" rx="2" /><path {...stroke} d="M8.5 10.5V8a3.5 3.5 0 0 1 7 0v2.5" /></>,

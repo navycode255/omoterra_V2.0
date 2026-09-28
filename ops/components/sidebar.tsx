@@ -10,6 +10,7 @@ const GROUPS = [
     { href: '/supply', label: 'Supply', icon: Icons.box, key: 'listings_pending_review' },
     { href: '/orders', label: 'Orders', icon: Icons.file, key: 'orders_in_progress' },
     { href: '/batches', label: 'Production Batches', icon: Icons.calendar, key: 'verification_overdue' },
+    { href: '/market-schedule', label: 'Market Schedule', icon: Icons.sprout, key: null },
   ] },
   { label: 'Purchasing', modules: [
     { href: '/lpos', label: 'LPOs', icon: Icons.clipboard, key: null },

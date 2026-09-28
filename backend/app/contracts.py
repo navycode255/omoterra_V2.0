@@ -502,6 +502,63 @@ class BatchExternalSaleInput(Input):
     notes: str = Field(default='', max_length=500)
 
 
+class MarketSlotInput(Input):
+    category: Category
+    delivery_date: date
+    reservation_deadline: date
+    quantity_required: Quantity
+    unit_type: Unit
+    region: str = Field(default='', max_length=80)
+    collection_point: str = Field(default='', max_length=160)
+    minimum_weight_kg: Optional[Annotated[Decimal, Field(gt=0, max_digits=8, decimal_places=3)]] = None
+    maximum_weight_kg: Optional[Annotated[Decimal, Field(gt=0, max_digits=8, decimal_places=3)]] = None
+    supply_type: Literal['live', 'dressed', 'chilled', 'frozen'] = 'live'
+    price_per_unit: Optional[Money] = None
+    collection_method: Literal['omoterra_collects', 'supplier_delivers']
+    status: Literal['draft', 'open'] = 'open'
+    internal_note: str = Field(default='', max_length=2000)
+
+    @model_validator(mode='after')
+    def valid_market_slot(self):
+        if self.reservation_deadline > self.delivery_date:
+            raise ValueError(M('err.market_deadline_before_delivery'))
+        if self.minimum_weight_kg and self.maximum_weight_kg and self.minimum_weight_kg > self.maximum_weight_kg:
+            raise ValueError(M('err.minimum_weight_cannot_exceed_maximum'))
+        if UNITS[self.category] != self.unit_type:
+            raise ValueError(M('err.choose_correct_unit_each_category'))
+        return self
+
+
+class MarketReservationInput(Input):
+    quantity: Quantity
+    production_choice: Literal['existing', 'planned']
+    supplier_batch_id: Optional[str] = Field(default=None, max_length=36)
+
+    @model_validator(mode='after')
+    def production_source(self):
+        if (self.production_choice == 'existing') != bool(self.supplier_batch_id):
+            raise ValueError(M('err.choose_existing_or_planned_batch'))
+        return self
+
+
+class MarketReservationReview(Input):
+    action: Literal['approve', 'reject']
+    approved_quantity: Optional[Quantity] = None
+    reason: str = Field(default='', max_length=500)
+
+    @model_validator(mode='after')
+    def review_complete(self):
+        if self.action == 'approve' and self.approved_quantity is None:
+            raise ValueError(M('err.enter_approved_quantity'))
+        if self.action == 'reject' and len(self.reason.strip()) < 2:
+            raise ValueError(M('err.add_rejection_reason'))
+        return self
+
+
+class MarketSlotStatusInput(Input):
+    status: Literal['open', 'closed', 'cancelled', 'completed']
+
+
 class SupplyOfferInput(Input):
     batch_id: str
     offered_quantity: Quantity
@@ -795,6 +852,18 @@ class LedgerPaymentInput(Input):
     @classmethod
     def not_future(cls, value):
         return _not_future(value)
+
+
+class SupplierPaymentInput(LedgerPaymentInput):
+    debt_ids: list[str] = Field(default_factory=list, max_length=500)
+    sms_text: str = Field(default='', max_length=2000)
+    receipt_media_id: Optional[str] = Field(default=None, max_length=36)
+
+    @model_validator(mode='after')
+    def has_evidence(self):
+        if not (self.reference.strip() or self.sms_text.strip() or self.receipt_media_id):
+            raise ValueError(M('err.add_supplier_payment_evidence'))
+        return self
 
 
 class SaleItemInput(Input):

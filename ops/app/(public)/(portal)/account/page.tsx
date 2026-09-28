@@ -4,6 +4,8 @@ import { redirect } from 'next/navigation';
 import { PortalShell, type NavItem, type Notice } from '@/components/portal/portal-shell';
 import { Icon } from '@/components/portal/icons';
 import { SupplierPanel, type Batch, type Hold, type Listing, type Payout, type SupplierProfile } from '@/components/portal/supplier-panel';
+import type { SupplierInvoices } from '@/components/portal/supplier-orders';
+import type { MarketReservation, MarketSlot } from '@/lib/market';
 import { MEMBER_COOKIE } from '@/lib/member-cookie';
 import { call, PublicApiError } from '@/lib/public-api';
 
@@ -18,7 +20,9 @@ const buyerTypes: Record<string, string> = {
 const supplierNav: NavItem[] = [
   { href: '#overview', label: 'Dashboard', icon: 'home' }, { href: '#profile', label: 'My profile', icon: 'user' },
   { href: '#stock', label: 'Stock', icon: 'box' }, { href: '#orders', label: 'Orders', icon: 'orders' },
-  { href: '#payouts', label: 'Payouts', icon: 'coins' }, { href: '#help', label: 'Help & support', icon: 'help' },
+  { href: '/account/market-schedule', label: 'Market Schedule', icon: 'calendar' },
+  { href: '#payments', label: 'Invoices & payments', icon: 'coins' }, { href: '#payouts', label: 'Payouts', icon: 'coins' },
+  { href: '#help', label: 'Help & support', icon: 'help' },
 ];
 const buyerNav: NavItem[] = [
   { href: '#overview', label: 'Dashboard', icon: 'home' }, { href: '#help', label: 'Help & support', icon: 'help' },
@@ -38,7 +42,7 @@ export default async function Account({ searchParams }: { searchParams: Promise<
     throw error;
   }
   const supplierRole = member.roles.includes('supplier');
-  const [config, inbox, profile, batches, listings, orders, payouts] = await Promise.all([
+  const [config, inbox, profile, batches, listings, orders, payouts, invoices, markets, marketReservations] = await Promise.all([
     soft(call<{ support_phone: string }>('/config'), { support_phone: '' }),
     soft(call<{ unread: number; items: Notice[] }>('/notifications', { token }), { unread: 0, items: [] }),
     supplierRole ? soft(call<SupplierProfile | null>('/supplier/profile', { token }), null) : null,
@@ -46,8 +50,13 @@ export default async function Account({ searchParams }: { searchParams: Promise<
     supplierRole ? soft(call<Listing[]>('/supplier/stock', { token }), []) : [],
     supplierRole ? soft(call<Hold[]>('/supplier/orders', { token }), []) : [],
     supplierRole ? soft(call<Payout[]>('/supplier/payouts', { token }), []) : [],
+    supplierRole ? soft(call<SupplierInvoices>('/supplier/invoices', { token }), { pending_total: '0', paid_total: '0', invoices: [] })
+      : { pending_total: '0', paid_total: '0', invoices: [] },
+    supplierRole ? soft(call<MarketSlot[]>('/market-schedule', { token }), []) : [],
+    supplierRole ? soft(call<MarketReservation[]>('/supplier/market-reservations', { token }), []) : [],
   ]);
   const { pin } = await searchParams;
+  const businessDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Dar_es_Salaam' });
   const photo = profile?.evidence_photos[0];
   const buyer = member.roles.includes('buyer');
 
@@ -60,7 +69,7 @@ export default async function Account({ searchParams }: { searchParams: Promise<
       {pin === 'changed' && <p className="portal-notice" role="status">Your PIN has been changed.</p>}
       {profile ? (
         <SupplierPanel phone={member.phone} profile={profile} batches={batches} listings={listings} orders={orders}
-          payouts={payouts} supportPhone={config.support_phone} />
+          payouts={payouts} invoices={invoices} markets={markets} marketReservations={marketReservations} businessDate={businessDate} supportPhone={config.support_phone} />
       ) : (
         <>
           <section className="portal-hero" id="overview">

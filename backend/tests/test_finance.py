@@ -1,7 +1,9 @@
 """Sales staff record, the debts ledger, installments and the finance overview."""
 from decimal import Decimal
+from io import BytesIO
 
 import pytest
+from PIL import Image
 
 from app import contracts as c, models as m, notifications as notes
 
@@ -109,6 +111,58 @@ def test_supplier_cost_lines_open_payables_per_supplier(client, seeded):
     assert Decimal(payables['Mzee Juma']['amount']) == Decimal('18000.00')
     assert payables['Mzee Juma']['party_kind'] == 'other'
     assert Decimal(body['supplier_balance']) == Decimal('183000.00')
+
+
+def test_one_supplier_payment_covers_many_invoices_and_is_visible_to_supplier(client, seeded):
+    first = sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '10', 'unit_price': '12000',
+        'supplier_id': seeded['supplier'], 'unit_cost': '9000'}])
+    second = sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '10', 'unit_price': '12000',
+        'supplier_id': seeded['supplier'], 'unit_cost': '8000'}])
+    debts = [next(row for row in sale_['debts'] if row['direction'] == 'payable') for sale_ in (first, second)]
+
+    raw = BytesIO()
+    Image.new('RGB', (32, 20), (30, 120, 70)).save(raw, 'JPEG')
+    receipt = client.post(API + '/ledger/supplier-payment-receipts', headers=OPS,
+        files={'file': ('receipt.jpg', raw.getvalue(), 'image/jpeg')})
+    assert receipt.status_code == 201, receipt.text
+
+    payment = post(client, f"/ledger/suppliers/{seeded['supplier']}/payments", {
+        'amount': '100000', 'paid_on': TODAY, 'method': 'mpesa', 'reference': 'MPESA-GROUP-01',
+        'sms_text': 'Confirmed. TZS 100,000 sent to supplier.', 'debt_ids': [row['id'] for row in debts],
+        'receipt_media_id': receipt.json()['id'],
+    })
+    assert payment.status_code == 201, payment.text
+
+    refreshed = [client.get(API + f"/ledger/debts/{row['id']}", headers=OPS).json() for row in debts]
+    assert refreshed[0]['status'] == 'settled' and Decimal(refreshed[0]['paid_amount']) == Decimal('90000')
+    assert refreshed[1]['status'] == 'open' and Decimal(refreshed[1]['paid_amount']) == Decimal('10000')
+
+    dashboard = client.get('/api/v1/supplier/invoices', headers={'Authorization': 'Bearer supplier'}).json()
+    assert Decimal(dashboard['pending_total']) == Decimal('70000')
+    assert Decimal(dashboard['paid_total']) == Decimal('100000')
+    assert len(dashboard['invoices']) == 2
+    allocations = [payment for invoice in dashboard['invoices'] for payment in invoice['payments']]
+    assert sum((Decimal(row['amount']) for row in allocations), Decimal('0')) == Decimal('100000')
+    assert {row['reference'] for row in allocations} == {'MPESA-GROUP-01'}
+    assert all('Confirmed.' in row['sms_text'] for row in allocations)
+    assert all(row['has_receipt'] for row in allocations)
+    proof = client.get(f"/api/v1/supplier/payments/{allocations[0]['supplier_payment_id']}/receipt",
+        headers={'Authorization': 'Bearer supplier'})
+    assert proof.status_code == 200 and proof.json()['content_type'] == 'image/jpeg'
+
+
+def test_supplier_payment_needs_proof_and_cannot_cross_suppliers(client, seeded):
+    body = sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '1', 'unit_price': '12000',
+        'supplier_id': seeded['supplier'], 'unit_cost': '9000'}])
+    debt = next(row for row in body['debts'] if row['direction'] == 'payable')
+    no_proof = post(client, f"/ledger/suppliers/{seeded['supplier']}/payments", {
+        'amount': '1000', 'paid_on': TODAY, 'method': 'cash', 'debt_ids': [debt['id']],
+    })
+    assert no_proof.status_code == 422
+    wrong_supplier = post(client, f"/ledger/suppliers/{seeded['other']}/payments", {
+        'amount': '1000', 'paid_on': TODAY, 'method': 'cash', 'reference': 'CASH-01', 'debt_ids': [debt['id']],
+    })
+    assert wrong_supplier.status_code == 422
 
 
 def test_bad_lines_are_refused(client, seeded):

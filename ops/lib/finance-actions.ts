@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { ApiError, del, post } from './api';
+import { ApiError, del, post, postFile } from './api';
 import type { ActionResult } from './actions';
 import type { Debt, SaleDetail } from './finance';
 import { tanzanianMobile } from './phone';
@@ -73,9 +73,52 @@ export async function recordSupplierPayment(_: ActionResult | null, formData: Fo
   redirect('/finance/supplier-payments?paid=1');
 }
 
+/** One real supplier transfer, allocated over all or selected open invoices. */
+export async function recordSupplierBatchPayment(_: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  await requireSession();
+  const supplier = text(formData, 'supplier_id');
+  const receipt = formData.get('receipt');
+  const reference = text(formData, 'reference');
+  const sms = text(formData, 'sms_text');
+  if (!formData.getAll('debt_ids').length) return { ok: false, error: 'Select at least one invoice to pay.' };
+  if (!reference && !sms && (!(receipt instanceof File) || receipt.size === 0)) {
+    return { ok: false, error: 'Add a receipt number, payment SMS, or receipt image.' };
+  }
+  if (receipt instanceof File && receipt.size > 10 * 1024 * 1024) {
+    return { ok: false, error: 'Choose a receipt image smaller than 10 MB.' };
+  }
+  try {
+    let receiptMediaId: string | null = null;
+    if (receipt instanceof File && receipt.size) {
+      const saved = await postFile<{ id: string }>('/ops/ledger/supplier-payment-receipts', receipt, randomUUID());
+      receiptMediaId = saved.id;
+    }
+    await post(`/ops/ledger/suppliers/${encodeURIComponent(supplier)}/payments`, {
+      ...paymentBody(formData),
+      debt_ids: formData.getAll('debt_ids').map(String),
+      sms_text: sms,
+      receipt_media_id: receiptMediaId,
+    }, key(formData));
+  } catch (error) {
+    if (error instanceof ApiError) return { ok: false, error: error.message };
+    throw error;
+  }
+  for (const path of [...FINANCE, '/finance/supplier-payments']) revalidatePath(path, 'layout');
+  redirect('/finance/supplier-payments?paid=1');
+}
+
 /** Record a supplier payment whose original stock cost was never entered. */
 export async function recordUnlistedSupplierPayment(_: ActionResult | null, formData: FormData): Promise<ActionResult> {
   await requireSession();
+  const receipt = formData.get('receipt');
+  const reference = text(formData, 'reference');
+  const sms = text(formData, 'sms_text');
+  if (!reference && !sms && (!(receipt instanceof File) || receipt.size === 0)) {
+    return { ok: false, error: 'Add a receipt number, payment SMS, or receipt image.' };
+  }
+  if (receipt instanceof File && receipt.size > 10 * 1024 * 1024) {
+    return { ok: false, error: 'Choose a receipt image smaller than 10 MB.' };
+  }
   let debt: Debt;
   try {
     debt = await post<Debt>('/ops/ledger/debts', {
@@ -89,8 +132,14 @@ export async function recordUnlistedSupplierPayment(_: ActionResult | null, form
       incurred_on: text(formData, 'paid_on'),
       due_on: null,
     }, key(formData));
-    await post('/ops/ledger/debts/' + debt.id + '/payments', paymentBody(formData),
-      text(formData, 'payment_key') || randomUUID());
+    let receiptMediaId: string | null = null;
+    if (receipt instanceof File && receipt.size) {
+      const saved = await postFile<{ id: string }>('/ops/ledger/supplier-payment-receipts', receipt, randomUUID());
+      receiptMediaId = saved.id;
+    }
+    await post(`/ops/ledger/suppliers/${encodeURIComponent(text(formData, 'supplier_id'))}/payments`, {
+      ...paymentBody(formData), debt_ids: [debt.id], sms_text: sms, receipt_media_id: receiptMediaId,
+    }, text(formData, 'payment_key') || randomUUID());
   } catch (error) {
     if (error instanceof ApiError) return { ok: false, error: error.message };
     throw error;

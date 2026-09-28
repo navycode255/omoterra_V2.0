@@ -4,9 +4,10 @@ import { payoutLabel } from '@/lib/payout-methods';
 import { EditableCard } from './editable-card';
 import { Fold, FoldTitle } from './fold';
 import { LiveRefresh } from './live-refresh';
-import { OrderList, PayoutList, PayoutPrompt, type PayoutRow, type SupplierOrder } from './supplier-orders';
+import { InvoiceList, OrderList, PayoutList, PayoutPrompt, type PayoutRow, type SupplierInvoices, type SupplierOrder } from './supplier-orders';
 import { CATEGORY, CONTACT, FORMS, categoryImage, date, label, media, number, units } from './supplier-format';
 import { Icon, type IconName } from './icons';
+import type { MarketReservation, MarketSlot } from '@/lib/market';
 
 export type SupplierProfile = {
   status: string; public_alias: string; legal_name: string; alternate_phone: string; preferred_contact_method: string;
@@ -97,8 +98,9 @@ function Stat({ icon, title, value, locked, note }: { icon: IconName; title: str
   );
 }
 
-export function SupplierPanel({ phone, profile, batches, listings, orders, payouts, supportPhone }: {
-  phone: string; profile: SupplierProfile; batches: Batch[]; listings: Listing[]; orders: SupplierOrder[]; payouts: PayoutRow[]; supportPhone: string;
+export function SupplierPanel({ phone, profile, batches, listings, orders, payouts, invoices, markets, marketReservations, businessDate, supportPhone }: {
+  phone: string; profile: SupplierProfile; batches: Batch[]; listings: Listing[]; orders: SupplierOrder[]; payouts: PayoutRow[];
+  invoices: SupplierInvoices; markets: MarketSlot[]; marketReservations: MarketReservation[]; businessDate: string; supportPhone: string;
 }) {
   const approved = profile.status === 'approved';
   const live = listings.filter((row) => row.listing_status === 'live').length;
@@ -121,6 +123,11 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
     payout_methods: profile.payout_methods ?? [] };
   const forms = profile.supply_forms.map((key) => FORMS[key] ?? key).join(', ');
   const methods = contact.payout_methods.map(payoutLabel).join(', ');
+  const nextReserved = marketReservations.filter((row) => row.status === 'approved' && new Date(row.slot.delivery_date) >= new Date())
+    .sort((a, b) => a.slot.delivery_date.localeCompare(b.slot.delivery_date))[0];
+  const nextMarket = markets.filter((row) => row.reservations_open && !row.my_reservation)
+    .sort((a, b) => a.delivery_date.localeCompare(b.delivery_date))[0];
+  const daysToDelivery = nextReserved ? Math.max(0, Math.ceil((new Date(nextReserved.slot.delivery_date).getTime() - new Date(`${businessDate}T00:00:00+03:00`).getTime()) / 86400000)) : 0;
   return (
     <>
       <section className="portal-hero" id="overview">
@@ -133,6 +140,9 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
 
       <LiveRefresh />
       <Status profile={profile} live={live} />
+
+      {nextReserved ? <section className="portal-next-market"><div><p>Your next delivery</p><h2>{number.format(Number(nextReserved.quantity_approved))} {label(nextReserved.slot.category)}</h2><strong>{date.format(new Date(nextReserved.slot.delivery_date))}</strong><span className="market-state is-approved">Market reserved</span>{daysToDelivery > 0 && <small>{daysToDelivery} days remaining</small>}</div><Link className="button button-primary" href="/account/market-schedule">View schedule</Link></section>
+        : nextMarket ? <section className="portal-next-market"><div><p>Plan your next batch</p><h2>{label(nextMarket.category)}</h2><strong>Next market: {date.format(new Date(nextMarket.delivery_date))}</strong><small>{number.format(Number(nextMarket.remaining_quantity))} {units(nextMarket.category, Number(nextMarket.remaining_quantity))} available</small></div><Link className="button button-primary" href="/account/market-schedule">View Market Schedule</Link></section> : null}
 
       {toConfirm.length > 0 && (
         <section className="portal-attention" aria-labelledby="attention-title">
@@ -147,6 +157,8 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
         <Stat icon="cart" title="Live listings" value={String(live)} locked={!approved} />
         <Stat icon="orders" title="Orders" value={String(placed.length)} note={active ? `${active} in progress` : undefined} locked={!approved} />
         <Stat icon="coins" title="Payouts" value={`TZS ${number.format(paid)}`} locked={!approved} />
+        <Stat icon="clock" title="Pending payment" value={`TZS ${number.format(Number(invoices.pending_total))}`} locked={false} />
+        <Stat icon="check" title="Invoices paid" value={`TZS ${number.format(Number(invoices.paid_total))}`} locked={false} />
       </div>
 
       <section id="stock" className="portal-card portal-stock">
@@ -210,6 +222,12 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
           ? 'No orders yet. When a buyer orders your stock, you can follow collection, delivery and payment here.'
           : 'Orders open once the Omoterra team approves your account.'}</p>}
       </section>
+
+      <Card id="payments" icon="coins" title="Supplier invoices"
+        summary={`${invoices.invoices.filter((row) => row.status === 'open').length} pending · TZS ${number.format(Number(invoices.paid_total))} paid`}>
+        <p className="portal-note">These are payments for batches and stock recorded directly by Omoterra. Each payment updates here automatically.</p>
+        <InvoiceList data={invoices} />
+      </Card>
 
       <EditableCard id="payouts" icon="coins" title="Payouts" summary={payouts.length ? `TZS ${number.format(paid)} sent · ${methods || 'method not chosen'}` : methods || 'Payout method not chosen'} kind="payout" contact={contact}>
         <Rows rows={[['Receive payouts by', methods || 'Not chosen yet']]} />

@@ -269,6 +269,62 @@ class SupplierBatch(Entity, Base):
         return self.current_quantity - self.reserved_quantity - self.sold_quantity - self.externally_sold_quantity
 
 
+class MarketSlot(Entity, Base):
+    """A future market requirement published by Omoterra operations."""
+    __tablename__ = 'market_slots'
+    category: Mapped[str] = mapped_column(index=True)
+    delivery_date: Mapped[date] = mapped_column(Date, index=True)
+    reservation_deadline: Mapped[date] = mapped_column(Date, index=True)
+    quantity_required: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    unit_type: Mapped[str]
+    region: Mapped[str] = mapped_column(default='', index=True)
+    collection_point: Mapped[str] = mapped_column(default='')
+    minimum_weight_kg: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 3))
+    maximum_weight_kg: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 3))
+    supply_type: Mapped[str] = mapped_column(default='live')
+    price_per_unit: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))
+    collection_method: Mapped[str]
+    status: Mapped[str] = mapped_column(default='open', index=True)
+    internal_note: Mapped[str] = mapped_column(Text, default='')
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    updated_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+    __table_args__ = (
+        CheckConstraint('quantity_required > 0', name='market_slot_quantity_positive'),
+        CheckConstraint("unit_type IN ('bird','animal','kg','tray')", name='market_slot_unit_valid'),
+        CheckConstraint("supply_type IN ('live','dressed','chilled','frozen')", name='market_slot_supply_type_valid'),
+        CheckConstraint("collection_method IN ('omoterra_collects','supplier_delivers')", name='market_slot_collection_valid'),
+        CheckConstraint("status IN ('draft','open','full','closed','cancelled','completed')", name='market_slot_status_valid'),
+        CheckConstraint('reservation_deadline <= delivery_date', name='market_slot_deadline_before_delivery'),
+        CheckConstraint('minimum_weight_kg IS NULL OR maximum_weight_kg IS NULL OR minimum_weight_kg <= maximum_weight_kg', name='market_slot_weight_range'),
+    )
+
+
+class MarketReservation(Entity, Base):
+    """A supplier's immutable request and the quantity operations approved."""
+    __tablename__ = 'market_reservations'
+    market_slot_id: Mapped[str] = mapped_column(ForeignKey('market_slots.id'), index=True)
+    supplier_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    supplier_batch_id: Mapped[Optional[str]] = mapped_column(ForeignKey('supplier_batches.id'), index=True)
+    quantity_requested: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    quantity_approved: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 3))
+    status: Mapped[str] = mapped_column(default='requested', index=True)
+    production_choice: Mapped[str]
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now)
+    reviewed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    reviewed_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    rejection_reason: Mapped[str] = mapped_column(Text, default='')
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
+    __table_args__ = (
+        UniqueConstraint('market_slot_id', 'supplier_id', name='uq_market_reservation_supplier_slot'),
+        CheckConstraint('quantity_requested > 0', name='market_reservation_requested_positive'),
+        CheckConstraint('quantity_approved IS NULL OR quantity_approved > 0', name='market_reservation_approved_positive'),
+        CheckConstraint("status IN ('requested','approved','rejected','cancelled','completed')", name='market_reservation_status_valid'),
+        CheckConstraint("production_choice IN ('existing','planned')", name='market_reservation_production_valid'),
+    )
+
+
 class SupplierBatchMovement(Entity, Base):
     __tablename__ = 'supplier_batch_movements'
     batch_id: Mapped[str] = mapped_column(ForeignKey('supplier_batches.id'), index=True)
@@ -756,11 +812,31 @@ class LedgerDebt(Entity, Base):
 LEDGER_METHODS = ('cash', 'mpesa', 'airtel_money', 'mixx_by_yas', 'halopesa', 'bank_transfer', 'cheque', 'other')
 
 
+class SupplierPayment(Entity, Base):
+    """One transfer to a supplier, allocated across one or more ledger debts."""
+    __tablename__ = 'supplier_payments'
+    supplier_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    paid_on: Mapped[date] = mapped_column(Date, index=True)
+    method: Mapped[str] = mapped_column(String(24))
+    reference: Mapped[str] = mapped_column(Text, default='')
+    sms_text: Mapped[str] = mapped_column(Text, default='')
+    receipt_media_id: Mapped[Optional[str]] = mapped_column(ForeignKey('media_assets.id'))
+    note: Mapped[str] = mapped_column(Text, default='')
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint('amount > 0', name='supplier_payments_amount_check'),
+        CheckConstraint(f"method IN ({', '.join(repr(v) for v in LEDGER_METHODS)})", name='supplier_payments_method_check'),
+        CheckConstraint("reference <> '' OR sms_text <> '' OR receipt_media_id IS NOT NULL", name='supplier_payment_has_evidence'),
+    )
+
+
 class LedgerPayment(Entity, Base):
     """One installment against a debt: money in for a receivable, money out
     for a payable. Never deleted; a wrong entry is reversed with a reason."""
     __tablename__ = 'ledger_payments'
     debt_id: Mapped[str] = mapped_column(ForeignKey('ledger_debts.id'), index=True)
+    supplier_payment_id: Mapped[Optional[str]] = mapped_column(ForeignKey('supplier_payments.id'), index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     paid_on: Mapped[date] = mapped_column(Date, index=True)
     method: Mapped[str] = mapped_column(String(24))

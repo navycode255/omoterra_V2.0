@@ -16,6 +16,15 @@ export type SupplierOrder = {
   stage: string; steps: Step[]; accepted_quantity: string | null; rejected_quantity: string | null;
   buyer_payment: string | null; expected_collection_date: string | null; settlements: PayoutRow[];
 };
+export type InvoicePayment = {
+  id: string; amount: string; paid_on: string; method: string; reference: string; sms_text: string;
+  has_receipt: boolean; supplier_payment_id: string | null; note: string;
+};
+export type SupplierInvoice = {
+  id: string; description: string; amount: string; paid_amount: string; balance: string; incurred_on: string;
+  due_on: string | null; source: string; status: 'open' | 'settled'; payments: InvoicePayment[];
+};
+export type SupplierInvoices = { pending_total: string; paid_total: string; invoices: SupplierInvoice[] };
 
 const STAGE: Record<string, [text: string, tone: 'progress' | 'review' | 'approved' | 'stopped']> = {
   reserved: ['Buyer is checking out', 'progress'],
@@ -131,6 +140,31 @@ export function PayoutList({ payouts }: { payouts: PayoutRow[] }) {
           </li>
         );
       })}
+    </ul>
+  );
+}
+
+export function InvoiceList({ data }: { data: SupplierInvoices }) {
+  if (!data.invoices.length) return <p className="portal-empty">No supplier invoices have been recorded yet.</p>;
+  return (
+    <ul className="portal-invoices">
+      {data.invoices.map((invoice) => (
+        <li key={invoice.id}>
+          <div className="portal-invoice-head">
+            <span><b>{invoice.description}</b><small>{when(invoice.incurred_on)} · Invoice {invoice.id.slice(0, 8).toUpperCase()}</small></span>
+            <span><b>{tzs(invoice.amount)}</b><span className={`portal-badge ${invoice.status === 'settled' ? 'is-approved' : 'is-review'}`}>{invoice.status === 'settled' ? 'Paid' : `${tzs(invoice.balance)} pending`}</span></span>
+          </div>
+          {!!invoice.payments.length && <div className="portal-invoice-payments">
+            {invoice.payments.map((payment) => <div key={payment.id}>
+              <span><b>{tzs(payment.amount)} paid</b><small>{when(payment.paid_on)} · {payment.method.replaceAll('_', ' ')}{payment.reference ? ` · Ref ${payment.reference}` : ''}</small></span>
+              <span className="portal-proof-links">
+                {payment.sms_text && <details><summary>Payment SMS</summary><p>{payment.sms_text}</p></details>}
+                {payment.has_receipt && payment.supplier_payment_id && <a href={`/account/payment-receipt/${payment.supplier_payment_id}`} target="_blank" rel="noreferrer">View receipt</a>}
+              </span>
+            </div>)}
+          </div>}
+        </li>
+      ))}
     </ul>
   );
 }

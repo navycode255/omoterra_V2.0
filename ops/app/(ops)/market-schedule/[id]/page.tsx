@@ -1,0 +1,31 @@
+import { randomUUID } from 'node:crypto';
+import Link from 'next/link';
+import { notFound } from 'next/navigation';
+import { ActionForm } from '@/components/form';
+import { Card, Empty, Notice, PageHeader, Status } from '@/components/ui';
+import { ApiError, get } from '@/lib/api';
+import { category, date, quantity, titleCase, tzs } from '@/lib/format';
+import { reviewMarketReservation, setMarketSlotStatus } from '@/lib/market-actions';
+import type { MarketReservation, MarketSlot } from '@/lib/market';
+
+const reservationText: Record<string, string> = { requested: 'Under review', approved: 'Market reserved', rejected: 'Not approved', cancelled: 'Cancelled', completed: 'Delivered' };
+export default async function MarketDetail({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ updated?: string }> }) {
+  const { id } = await params;
+  let slot: MarketSlot; let reservations: MarketReservation[];
+  try { [slot, reservations] = await Promise.all([get(`/ops/market-slots/${id}`), get(`/ops/market-slots/${id}/reservations`)]); }
+  catch (error) { if (error instanceof ApiError && error.status === 404) notFound(); throw error; }
+  const { updated } = await searchParams;
+  return <><div className="topbar between"><PageHeader title={category(slot.category)} subtitle={date(slot.delivery_date)} /><div className="row"><Link className="button secondary" href={`/market-schedule/${id}/edit`}>Edit</Link><Link className="button secondary" href="/market-schedule">All markets</Link></div></div>
+    <div className="workspace">{updated && <Notice>Market updated.</Notice>}
+      <div className="market-summary card"><div><span className="meta">Delivery</span><strong>{date(slot.delivery_date)}</strong></div><div><span className="meta">Required</span><strong>{quantity(slot.quantity_required)} {slot.unit_type}</strong></div><div><span className="meta">Committed</span><strong>{quantity(slot.committed_quantity)}</strong></div><div><span className="meta">Remaining</span><strong>{quantity(slot.remaining_quantity)}</strong></div><div><span className="meta">Suppliers</span><strong>{slot.supplier_count}</strong></div><div><span className="meta">Status</span><Status tone={slot.status === 'open' ? 'positive' : slot.status === 'cancelled' ? 'error' : 'warning'}>{titleCase(slot.status)}</Status></div></div>
+      <div className="grid-2 market-detail-grid">
+        <Card title="Market details"><dl className="detail-list"><div><dt>Reservation deadline</dt><dd>{date(slot.reservation_deadline)}</dd></div>{slot.minimum_weight_kg && <div><dt>Weight</dt><dd>{slot.minimum_weight_kg}–{slot.maximum_weight_kg ?? slot.minimum_weight_kg} kg</dd></div>}<div><dt>Supply type</dt><dd>{titleCase(slot.supply_type)}</dd></div>{slot.price_per_unit && <div><dt>Price</dt><dd>{tzs(slot.price_per_unit)} / {slot.unit_type}</dd></div>}<div><dt>Collection</dt><dd>{slot.collection_method === 'omoterra_collects' ? 'Omoterra collects' : 'Supplier delivers'}</dd></div>{(slot.region || slot.collection_point) && <div><dt>Location</dt><dd>{[slot.collection_point, slot.region].filter(Boolean).join(', ')}</dd></div>}{slot.internal_note && <div><dt>Internal note</dt><dd>{slot.internal_note}</dd></div>}</dl></Card>
+        <Card title="Market status"><div className="market-status-actions">{slot.status !== 'open' && !['cancelled','completed','full'].includes(slot.status) && <ActionForm action={setMarketSlotStatus} label="Open reservations" hidden={{ id, status: 'open', idempotency_key: randomUUID() }} />}{!['closed','cancelled','completed'].includes(slot.status) && <ActionForm action={setMarketSlotStatus} label="Close reservations" variant="secondary" hidden={{ id, status: 'closed', idempotency_key: randomUUID() }} />}{slot.status !== 'completed' && <ActionForm action={setMarketSlotStatus} label="Mark completed" variant="secondary" hidden={{ id, status: 'completed', idempotency_key: randomUUID() }} />}{!['cancelled','completed'].includes(slot.status) && <ActionForm action={setMarketSlotStatus} label="Cancel market" variant="danger" confirm="Cancel this market and all active reservations?" hidden={{ id, status: 'cancelled', idempotency_key: randomUUID() }} />}</div></Card>
+      </div>
+      <Card title="Supplier reservations">{reservations.length ? <div className="market-reservations">{reservations.map((row) => {
+        const reviewable = ['requested','approved'].includes(row.status);
+        const max = Math.min(Number(row.quantity_requested), Number(slot.remaining_quantity) + Number(row.quantity_approved ?? 0));
+        return <article key={row.id}><div className="between"><div><strong>{row.supplier_name}</strong><p className="meta">{row.supplier_phone} · {row.production_choice === 'planned' ? 'Planned batch' : 'Existing batch'}</p></div><Status tone={row.status === 'approved' ? 'positive' : row.status === 'rejected' ? 'error' : 'warning'}>{reservationText[row.status] ?? row.status}</Status></div><div className="market-request-numbers"><span>Requested <b>{quantity(row.quantity_requested)}</b></span><span>Approved <b>{row.quantity_approved ? quantity(row.quantity_approved) : '—'}</b></span><span>Current remaining <b>{quantity(slot.remaining_quantity)}</b></span></div>{row.rejection_reason && <p className="notice" data-tone="error">{row.rejection_reason}</p>}{reviewable && <div className="market-review-actions"><ActionForm action={reviewMarketReservation} label={row.status === 'approved' ? 'Update approved quantity' : 'Approve'} layout="row" hidden={{ id: row.id, action: 'approve', idempotency_key: randomUUID() }}><div className="field"><label htmlFor={`approve-${row.id}`}>Quantity to approve</label><input id={`approve-${row.id}`} className="input" name="approved_quantity" inputMode="decimal" defaultValue={row.quantity_approved ?? String(max)} max={max} required /></div></ActionForm><ActionForm action={reviewMarketReservation} label="Reject" variant="danger" layout="row" hidden={{ id: row.id, action: 'reject', idempotency_key: randomUUID() }}><div className="field"><label htmlFor={`reason-${row.id}`}>Reason</label><input id={`reason-${row.id}`} className="input" name="reason" required /></div></ActionForm></div>}</article>;
+      })}</div> : <Empty>No reservation requests yet.</Empty>}</Card>
+    </div></>;
+}

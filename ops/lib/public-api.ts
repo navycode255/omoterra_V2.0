@@ -9,8 +9,12 @@ const base = process.env.OMOTERRA_API_URL ?? 'https://omoterra.jopex.co.tz/api/v
 // short-lived signed link (R2, or a path under the API on local storage).
 export async function memberMedia(id: string, token: string): Promise<{ body: ArrayBuffer; type: string } | null> {
   if (!/^[0-9a-f-]{36}$/.test(id)) return null;
+  return memberSignedFile(`/media/${id}`, token);
+}
+
+export async function memberSignedFile(path: string, token: string): Promise<{ body: ArrayBuffer; type: string } | null> {
   try {
-    const signed = await call<{ url: string }>(`/media/${id}`, { token });
+    const signed = await call<{ url: string }>(path, { token });
     const url = /^https:\/\//.test(signed.url) ? signed.url : base + signed.url;
     const file = await fetch(url, { cache: 'no-store' });
     if (!file.ok) return null;
