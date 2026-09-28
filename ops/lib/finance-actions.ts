@@ -5,7 +5,7 @@ import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
 import { ApiError, del, post } from './api';
 import type { ActionResult } from './actions';
-import type { SaleDetail } from './finance';
+import type { Debt, SaleDetail } from './finance';
 import { tanzanianMobile } from './phone';
 import { requireSession } from './session';
 
@@ -64,6 +64,39 @@ export async function recordLedgerPayment(_: ActionResult | null, formData: Form
   const sale = text(formData, 'sale_id');
   return run(() => post(`/ops/ledger/debts/${id}/payments`, paymentBody(formData), key(formData)),
     [...FINANCE, `/finance/debts/${id}`, ...(sale ? [`/sales/${sale}`] : [])]);
+}
+
+/** The dedicated supplier-payment screen returns to a clean, refreshed list. */
+export async function recordSupplierPayment(_: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const result = await recordLedgerPayment(null, formData);
+  if (!result.ok) return result;
+  redirect('/finance/supplier-payments?paid=1');
+}
+
+/** Record a supplier payment whose original stock cost was never entered. */
+export async function recordUnlistedSupplierPayment(_: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  await requireSession();
+  let debt: Debt;
+  try {
+    debt = await post<Debt>('/ops/ledger/debts', {
+      direction: 'payable',
+      party_kind: 'supplier',
+      supplier_id: text(formData, 'supplier_id'),
+      party_name: '',
+      party_phone: '',
+      description: text(formData, 'description'),
+      amount: text(formData, 'amount').replace(/,/g, ''),
+      incurred_on: text(formData, 'paid_on'),
+      due_on: null,
+    }, key(formData));
+    await post('/ops/ledger/debts/' + debt.id + '/payments', paymentBody(formData),
+      text(formData, 'payment_key') || randomUUID());
+  } catch (error) {
+    if (error instanceof ApiError) return { ok: false, error: error.message };
+    throw error;
+  }
+  for (const path of FINANCE) revalidatePath(path, 'layout');
+  redirect('/finance/supplier-payments?paid=1');
 }
 
 export async function reverseLedgerPayment(_: ActionResult | null, formData: FormData) {

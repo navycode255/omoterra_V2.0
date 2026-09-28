@@ -39,7 +39,8 @@ export default async function DebtWorkspace({ params }: { params: Promise<{ id: 
                 ['Date', day(debt.incurred_on)],
                 ['Due', day(debt.due_on)],
                 ['From', debt.source === 'expense' ? `Expense · ${expenseLabel(debt.expense_category)}${debt.sale_number ? ` · sale ${debt.sale_number}` : ''}`
-                  : debt.sale_id ? <Link key="s" href={`/sales/${debt.sale_id}`}>Sale {debt.sale_number}</Link> : 'Entered by hand'],
+                  : debt.sale_id ? <Link key="s" href={`/sales/${debt.sale_id}`}>Sale {debt.sale_number}</Link>
+                    : debt.lpo_id ? <Link key="l" href={`/lpos/${debt.lpo_id}`}>Received LPO batch</Link> : 'Entered by hand'],
                 ['Recorded by', `${debt.created_by ?? '—'} · ${dateTime(debt.created_at)}`],
               ]} />
             </Card>

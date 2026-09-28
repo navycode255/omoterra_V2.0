@@ -39,9 +39,10 @@ export interface Debt {
   incurred_on: string;
   due_on: string | null;
   overdue: boolean;
-  source: 'sale' | 'sale_cost' | 'manual' | 'expense';
+  source: 'sale' | 'sale_cost' | 'manual' | 'expense' | 'lpo';
   expense_category: string | null;
   sale_id: string | null;
+  lpo_id: string | null;
   status: 'open' | 'settled' | 'cancelled';
   created_at: string;
   cancelled_at: string | null;

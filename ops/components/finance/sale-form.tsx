@@ -3,9 +3,11 @@
 import { useActionState, useMemo, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { createSale } from '@/lib/finance-actions';
+import { Icons } from '@/components/icons';
 import { DEFAULT_UNIT, METHODS, PRODUCTS, UNITS, type Parties } from '@/lib/finance';
 import type { LpoStockRow } from '@/lib/lpo';
 import { tanzanianMobile } from '@/lib/phone';
+import styles from './finance.module.css';
 
 type Line = {
   key: number;
@@ -35,7 +37,13 @@ const clean = (value: string) => value.replace(/,/g, '').trim();
 
 function Submit({ disabled }: { disabled: boolean }) {
   const { pending } = useFormStatus();
-  return <button type="submit" className="button" disabled={pending || disabled}>{pending ? 'Saving…' : 'Save sale'}</button>;
+  return <button type="submit" className={styles.saveButton} disabled={pending || disabled}>
+    <span aria-hidden="true">▣</span>{pending ? 'Saving…' : 'Save sale'}
+  </button>;
+}
+
+function StepTitle({ number, children }: { number: number; children: React.ReactNode }) {
+  return <h2 className={styles.stepTitle}><span>{number}</span>{children}</h2>;
 }
 
 export function SaleForm({ parties, today, stock = [] }: { parties: Parties; today: string; stock?: LpoStockRow[] }) {
@@ -90,24 +98,24 @@ export function SaleForm({ parties, today, stock = [] }: { parties: Parties; tod
   }, [buyer, mode, newBuyer, soldOn, notes, lines, paid, paidNow]);
 
   return (
-    <form action={action} className="stack">
+    <form action={action} className={styles.saleForm}>
       <input type="hidden" name="payload" value={payload} />
       <input type="hidden" name="idempotency_key" value={idempotencyKey} />
 
-      <section className="card stack">
-        <div className="between">
-          <h3>1. Buyer</h3>
-          <div className="row" role="radiogroup" aria-label="Buyer">
-            <label className="row"><input type="radio" checked={mode === 'existing'} onChange={() => setMode('existing')} />Existing buyer</label>
-            <label className="row"><input type="radio" checked={mode === 'new'} onChange={() => setMode('new')} />New buyer</label>
+      <section className={styles.stepCard}>
+        <div className={styles.stepHeader}>
+          <StepTitle number={1}>Buyer</StepTitle>
+          <div className={styles.buyerModes} role="radiogroup" aria-label="Buyer">
+            <label data-active={mode === 'existing'}><input type="radio" checked={mode === 'existing'} onChange={() => setMode('existing')} />Existing buyer</label>
+            <label data-active={mode === 'new'}><input type="radio" checked={mode === 'new'} onChange={() => setMode('new')} />New buyer</label>
           </div>
         </div>
         {mode === 'existing' ? (
-          <div className="grid-2">
+          <div className={styles.buyerGrid}>
             <div className="field">
               <label htmlFor="buyer-search">Find buyer</label>
-              <input id="buyer-search" className="input" placeholder="Name, phone or region" value={search}
-                onChange={(e) => setSearch(e.target.value)} />
+              <div className={styles.inputWithIcon}><Icons.search size={19} /><input id="buyer-search" className="input" placeholder="Name, phone or region" value={search}
+                onChange={(e) => setSearch(e.target.value)} /></div>
             </div>
             <div className="field">
               <label htmlFor="buyer">Buyer ({matches.length} shown)</label>
@@ -119,11 +127,10 @@ export function SaleForm({ parties, today, stock = [] }: { parties: Parties; tod
                   </option>
                 ))}
               </select>
-              <span className="meta">Not in the list? Choose “New buyer”; they are saved for next time.</span>
             </div>
           </div>
         ) : (
-          <div className="grid-3">
+          <div className={styles.threeGrid}>
             <div className="field">
               <label htmlFor="nb-name">Buyer or business name</label>
               <input id="nb-name" className="input" required minLength={2} value={newBuyer.business_name}
@@ -162,21 +169,18 @@ export function SaleForm({ parties, today, stock = [] }: { parties: Parties; tod
         )}
       </section>
 
-      <section className="card stack">
-        <div className="between">
-          <h3>2. What was sold</h3>
-          <div className="field" style={{ minWidth: 180 }}>
-            <label htmlFor="sold_on">Date sold</label>
-            <input id="sold_on" type="date" className="input" value={soldOn} max={today} required
-              onChange={(e) => setSoldOn(e.target.value)} />
-          </div>
-        </div>
+      <section className={styles.stepCard}>
+        <div className={styles.stepHeader}><StepTitle number={2}>What was sold</StepTitle></div>
         {lines.map((line, index) => {
-          const subtotal = num(line.quantity) * num(line.unit_price);
           return (
-            <fieldset key={line.key} className="stack" style={{ border: '1px solid var(--border)', borderRadius: 12, padding: 'var(--s4)' }}>
-              <legend className="strong small">Line {index + 1}</legend>
-              <div className="grid-3">
+            <fieldset key={line.key} className={styles.saleLine}>
+              <legend className={styles.srOnly}>Line {index + 1}</legend>
+              <div className={styles.lineHeader}>
+                <strong>Line {index + 1}</strong>
+                <button type="button" className={styles.deleteLine} aria-label={`Remove line ${index + 1}`} disabled={lines.length === 1}
+                  onClick={() => setLines((all) => all.filter((l) => l.key !== line.key))}><Icons.trash size={19} /></button>
+              </div>
+              <div className={styles.lineGrid}>
                 <div className="field">
                   <label htmlFor={`cat-${line.key}`}>Product</label>
                   <select id={`cat-${line.key}`} className="input" value={line.category}
@@ -198,19 +202,20 @@ export function SaleForm({ parties, today, stock = [] }: { parties: Parties; tod
                 </div>
                 <div className="field">
                   <label htmlFor={`qty-${line.key}`}>Quantity</label>
-                  <input id={`qty-${line.key}`} className="input" inputMode="decimal" required value={line.quantity}
+                  <input id={`qty-${line.key}`} className="input" inputMode="decimal" placeholder="e.g. 10" required value={line.quantity}
                     onChange={(e) => update(line.key, { quantity: e.target.value })} />
                 </div>
                 <div className="field">
                   <label htmlFor={`price-${line.key}`}>Selling price per unit (TZS)</label>
-                  <input id={`price-${line.key}`} className="input" inputMode="decimal" required value={line.unit_price}
+                  <input id={`price-${line.key}`} className="input" inputMode="decimal" placeholder="e.g. 15000" required value={line.unit_price}
                     onChange={(e) => update(line.key, { unit_price: e.target.value })} />
                 </div>
                 <div className="field">
-                  <label>Line total</label>
-                  <div className="money" style={{ paddingTop: 10 }}>{Number.isFinite(subtotal) ? tzs(subtotal) : '—'}</div>
+                  <label htmlFor={`sold-on-${line.key}`}>Date sold</label>
+                  <input id={`sold-on-${line.key}`} type="date" className="input" value={soldOn} max={today} required
+                    onChange={(e) => setSoldOn(e.target.value)} />
                 </div>
-                <div className="field">
+                <div className={`field ${styles.sourceField}`}>
                   <label htmlFor={`src-${line.key}`}>Stock came from</label>
                   <select id={`src-${line.key}`} className="input" value={line.source}
                     onChange={(e) => update(line.key, { source: e.target.value as Line['source'] })}>
@@ -271,28 +276,19 @@ export function SaleForm({ parties, today, stock = [] }: { parties: Parties; tod
                   </div>
                 )}
               </div>
-              {lines.length > 1 && (
-                <div>
-                  <button type="button" className="button" data-variant="secondary"
-                    onClick={() => setLines((all) => all.filter((l) => l.key !== line.key))}>Remove line</button>
-                </div>
-              )}
             </fieldset>
           );
         })}
-        <div>
-          <button type="button" className="button" data-variant="secondary"
-            onClick={() => setLines((all) => [...all, blank(Math.max(...all.map((l) => l.key)) + 1)])}>+ Add another line</button>
-        </div>
+        <button type="button" className={styles.addLine}
+          onClick={() => setLines((all) => [...all, blank(Math.max(...all.map((l) => l.key)) + 1)])}><Icons.plus size={18} />Add another line</button>
       </section>
 
-      <section className="card stack">
-        <h3>3. Money received now (optional)</h3>
-        <p className="muted small">Leave the amount empty if the buyer has not paid yet. Later installments are recorded on the sale.</p>
-        <div className="grid-3">
+      <section className={styles.stepCard}>
+        <div className={styles.stepHeader}><StepTitle number={3}>Money received now (optional)</StepTitle></div>
+        <div className={styles.paymentGrid}>
           <div className="field">
             <label htmlFor="paid-amount">Amount received (TZS)</label>
-            <input id="paid-amount" className="input" inputMode="decimal" value={paid.amount}
+            <input id="paid-amount" className="input" inputMode="decimal" placeholder="e.g. 50000" value={paid.amount}
               onChange={(e) => setPaid({ ...paid, amount: e.target.value })} />
           </div>
           <div className="field">
@@ -311,25 +307,22 @@ export function SaleForm({ parties, today, stock = [] }: { parties: Parties; tod
             <input id="paid-on" type="date" className="input" max={today} value={paid.paid_on}
               onChange={(e) => setPaid({ ...paid, paid_on: e.target.value })} />
           </div>
-        </div>
-        <div className="field">
-          <label htmlFor="notes">Notes (internal)</label>
-          <textarea id="notes" className="input" value={notes} onChange={(e) => setNotes(e.target.value)} />
+          <div className={`field ${styles.notesField}`}>
+            <label htmlFor="notes">Notes (optional)</label>
+            <textarea id="notes" className="input" placeholder="Add any notes about this payment..." value={notes} onChange={(e) => setNotes(e.target.value)} />
+          </div>
         </div>
       </section>
 
-      <section className="card">
-        <div className="stat-band" style={{ gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }}>
-          <div className="stat"><div className="stat-label">Sale total</div><div className="stat-value">{tzs(total)}</div></div>
-          <div className="stat"><div className="stat-label">Received now</div><div className="stat-value">{tzs(paidNow)}</div></div>
-          <div className="stat"><div className="stat-label">Buyer will owe</div><div className="stat-value">{tzs(Math.max(total - paidNow, 0))}</div></div>
-          <div className="stat"><div className="stat-label">I owe suppliers</div><div className="stat-value">{tzs(cost)}</div></div>
-        </div>
-        {paidNow > total && <div className="notice" data-tone="error" style={{ marginTop: 'var(--s4)' }}>The amount received is more than the sale total.</div>}
-        {state && !state.ok && <div className="notice" data-tone="error" style={{ marginTop: 'var(--s4)' }}>{state.error}</div>}
-        <div style={{ marginTop: 'var(--s4)' }}>
-          <Submit disabled={phoneProblem || paidNow > total || total <= 0} />
-        </div>
+      {(paidNow > total || (state && !state.ok)) && <div className="notice" data-tone="error">
+        {paidNow > total ? 'The amount received is more than the sale total.' : state && !state.ok ? state.error : ''}
+      </div>}
+      <section className={styles.saleSummary}>
+        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.cubes size={24} /></span><div><span>Sale total</span><strong>{tzs(total)}</strong></div></div>
+        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.card size={24} /></span><div><span>Received now</span><strong>{tzs(paidNow)}</strong></div></div>
+        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.users size={24} /></span><div><span>Buyer will owe</span><strong>{tzs(Math.max(total - paidNow, 0))}</strong></div></div>
+        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.box size={24} /></span><div><span>I owe suppliers</span><strong>{tzs(cost)}</strong></div></div>
+        <Submit disabled={phoneProblem || paidNow > total || total <= 0} />
       </section>
     </form>
   );

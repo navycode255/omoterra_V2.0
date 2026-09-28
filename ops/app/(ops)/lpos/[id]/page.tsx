@@ -94,7 +94,10 @@ export default async function LpoWorkspace({ params }: { params: Promise<{ id: s
                             {r.notes && <div className="meta">{r.notes}</div>}</td>
                           <td className="numeric money">{tzs(r.amount)}</td>
                           <td>{r.debt ? <Link href={`/finance/debts/${r.debt.id}`}><Status tone={debtTone(r.debt)}>{debtStatus(r.debt)}</Status></Link> : '—'}
-                            {r.debt && <div className="meta">due {day(r.debt.due_on)} · owed {tzs(r.debt.balance)}</div>}</td>
+                            {r.debt && <div className="meta">due {day(r.debt.due_on)} · owed {tzs(r.debt.balance)}</div>}
+                            {r.debt?.status === 'open' && <div className="small" style={{ marginTop: 'var(--s2)' }}>
+                              <Link href={`/finance/supplier-payments?debt=${r.debt.id}`}>Record supplier payment →</Link>
+                            </div>}</td>
                           {admin && <td>{!r.cancelled_at && <details><summary className="small">Cancel</summary>
                             <ActionForm action={cancelReceipt} label="Cancel receipt" variant="danger" hidden={{ lpo_id: id, receipt_id: r.id }}
                               confirm="Cancel this batch? Its supplier debt is cancelled too.">

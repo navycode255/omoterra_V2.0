@@ -20,7 +20,7 @@ const TABS = [
   { key: 'cancelled', label: 'Cancelled' },
 ];
 
-const SOURCE: Record<string, string> = { sale: 'Sale', sale_cost: 'Stock for a sale', manual: 'Entered by hand', expense: 'Expense' };
+const SOURCE: Record<string, string> = { sale: 'Sale', sale_cost: 'Stock for a sale', manual: 'Entered by hand', expense: 'Expense', lpo: 'Received LPO batch' };
 
 export default async function Debts({ searchParams }: { searchParams: Promise<ListParams> }) {
   const params = await searchParams;
@@ -48,7 +48,7 @@ export default async function Debts({ searchParams }: { searchParams: Promise<Li
             <div className="table-wrap">
               {data.items.length === 0 ? <Empty>No debts in this view.</Empty> : (
                 <table>
-                  <thead><tr><th>Who</th><th>What</th><th className="numeric">Amount</th><th className="numeric">Balance</th><th>Status</th></tr></thead>
+                  <thead><tr><th>Who</th><th>What</th><th className="numeric">Amount</th><th className="numeric">Balance</th><th>Status</th><th /></tr></thead>
                   <tbody>
                     {data.items.map((debt) => (
                       <tr key={debt.id}>
@@ -58,6 +58,9 @@ export default async function Debts({ searchParams }: { searchParams: Promise<Li
                         <td className="numeric">{tzs(debt.amount)}</td>
                         <td className="numeric money">{tzs(debt.balance)}</td>
                         <td><Status tone={debtTone(debt)}>{debtStatus(debt)}</Status></td>
+                        <td>{debt.direction === 'payable' && debt.status === 'open'
+                          ? <Link href={`/finance/supplier-payments?debt=${debt.id}`} className="button" data-variant="secondary">Record payment</Link>
+                          : <Link href={`/finance/debts/${debt.id}`} className="small">View</Link>}</td>
                       </tr>
                     ))}
                   </tbody>
