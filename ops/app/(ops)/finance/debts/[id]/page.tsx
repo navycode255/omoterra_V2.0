@@ -54,8 +54,8 @@ export default async function DebtWorkspace({ params }: { params: Promise<{ id: 
                 <PaymentForm debt={debt} today={today()} saleId={debt.sale_id ?? undefined} />
               </Card>
             )}
-            {admin && (debt.source === 'manual' || debt.source === 'expense') && debt.status !== 'cancelled' && (
-              <Card title="Cancel">
+            {admin && ['manual', 'expense', 'sale_cost'].includes(debt.source) && debt.status !== 'cancelled' && (
+              <Card title={debt.source === 'sale_cost' ? 'Reconcile recording error' : 'Cancel'}>
                 {Number(debt.paid_amount) > 0
                   ? <p className="small muted">Reverse the payments recorded on it first.</p>
                   : <CancelDebtForm debt={debt} />}

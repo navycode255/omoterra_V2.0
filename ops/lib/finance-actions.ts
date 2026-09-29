@@ -178,8 +178,9 @@ export async function cancelSale(_: ActionResult | null, formData: FormData) {
 
 export async function cancelDebt(_: ActionResult | null, formData: FormData) {
   const id = text(formData, 'debt_id');
+  const sale = text(formData, 'sale_id');
   return run(() => post(`/ops/ledger/debts/${id}/cancel`, { reason: text(formData, 'reason') }, key(formData)),
-    [...FINANCE, `/finance/debts/${id}`]);
+    [...FINANCE, '/finance/supplier-payments', '/account', `/finance/debts/${id}`, ...(sale ? [`/sales/${sale}`] : [])]);
 }
 
 export async function createDebt(_: ActionResult | null, formData: FormData) {

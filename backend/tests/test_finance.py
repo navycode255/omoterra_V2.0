@@ -193,6 +193,38 @@ def test_editing_sale_reassigns_paid_supplier_debt(client, seeded, sessions):
     assert Decimal(debt['paid_amount']) == Decimal('19500')
     assert debt['status'] == 'settled'
 
+def test_sale_supplier_debt_can_be_reconciled_as_recording_error(client, seeded):
+    original = sale(client, items=[
+        {'category': 'broilers', 'unit': 'bird', 'quantity': '3', 'unit_price': '7000',
+         'supplier_id': seeded['supplier'], 'unit_cost': '6500'}])
+    debt = next(row for row in original['debts'] if row['direction'] == 'payable')
+
+    staff = post(client, f"/ledger/debts/{debt['id']}/cancel", {'reason': 'Wrong supplier cost'}, STAFF)
+    assert staff.status_code == 403
+    reconciled = post(client, f"/ledger/debts/{debt['id']}/cancel", {'reason': 'Wrong supplier cost'})
+    assert reconciled.status_code == 200, reconciled.text
+    assert reconciled.json()['status'] == 'cancelled'
+    assert reconciled.json()['cancel_reason'] == 'Wrong supplier cost'
+
+    refreshed = client.get(API + f"/sales/{original['id']}", headers=OPS).json()
+    assert Decimal(refreshed['cost_amount']) == 0
+    assert Decimal(refreshed['margin']) == Decimal('21000')
+    assert refreshed['items'][0]['supplier_id'] is None
+    assert refreshed['items'][0]['unit_cost'] is None
+    assert Decimal(refreshed['supplier_balance']) == 0
+
+
+def test_paid_supplier_debt_must_be_reversed_before_reconciliation(client, seeded):
+    original = sale(client, items=[
+        {'category': 'broilers', 'unit': 'bird', 'quantity': '2', 'unit_price': '10000',
+         'supplier_id': seeded['supplier'], 'unit_cost': '6000'}])
+    debt = next(row for row in original['debts'] if row['direction'] == 'payable')
+    payment = pay(client, debt['id'], '12000').json()['payments'][0]
+    blocked = post(client, f"/ledger/debts/{debt['id']}/cancel", {'reason': 'Wrong supplier cost'})
+    assert blocked.status_code == 409
+    assert post(client, f"/ledger/payments/{payment['id']}/reverse", {'reason': 'Payment attached in error'}).status_code == 200
+    assert post(client, f"/ledger/debts/{debt['id']}/cancel", {'reason': 'Wrong supplier cost'}).status_code == 200
+
 def test_one_supplier_payment_covers_many_invoices_and_is_visible_to_supplier(client, seeded):
     first = sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '10', 'unit_price': '12000',
         'supplier_id': seeded['supplier'], 'unit_cost': '9000'}])

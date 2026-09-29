@@ -106,13 +106,15 @@ export function PaymentForm({ debt, today, saleId }: { debt: Debt; today: string
 }
 
 export function CancelDebtForm({ debt }: { debt: Debt }) {
+  const reconcile = debt.source === 'sale_cost';
   return (
-    <ActionForm action={cancelDebt} label="Cancel this debt" variant="danger"
-      confirm="Cancel this debt? It stays in the history as cancelled."
-      hidden={{ debt_id: debt.id, idempotency_key: randomUUID() }}>
+    <ActionForm action={cancelDebt} label={reconcile ? 'Reconcile debt' : 'Cancel this debt'} variant="danger"
+      confirm={reconcile ? 'Reconcile this recording error? The supplier balance and buying cost are removed, while the audit record remains.' : 'Cancel this debt? It stays in the history as cancelled.'}
+      hidden={{ debt_id: debt.id, sale_id: debt.sale_id ?? '', idempotency_key: randomUUID() }}>
       <div className="field">
         <label htmlFor="cancel-reason">Reason</label>
-        <input id="cancel-reason" name="reason" className="input" required minLength={3} />
+        <input id="cancel-reason" name="reason" className="input" required minLength={3}
+          placeholder={reconcile ? 'e.g. Supplier cost entered by mistake' : undefined} />
       </div>
     </ActionForm>
   );

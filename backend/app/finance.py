@@ -517,12 +517,28 @@ def cancel_debt(id: str, data: c.ReasonInput, idempotency_key: str = Header(), o
     if not prior:
         if debt.source == 'lpo':
             fail('err.cancel_the_receipt_instead')
-        if debt.source not in ('manual', 'expense'):
+        if debt.source not in ('manual', 'expense', 'sale_cost'):
             fail('err.cancel_the_sale_instead')
         if debt.status == 'cancelled':
             fail('err.debt_already_cancelled')
         if debt.paid_amount > 0:
             fail('err.reverse_payments_before_cancelling')
+        if debt.source == 'sale_cost':
+            # Reconcile a supplier cost entered against the wrong sale without
+            # cancelling the buyer's valid sale. Clearing the matching item
+            # costs keeps profit and supplier balances in agreement.
+            sale = db.scalar(select(m.Sale).where(m.Sale.id == debt.sale_id).with_for_update())
+            if not sale or debt.direction != 'payable':
+                fail('err.cancel_the_sale_instead')
+            items = db.scalars(select(m.SaleItem).where(m.SaleItem.sale_id == sale.id).with_for_update()).all()
+            for item in items:
+                registered_match = debt.supplier_id and item.supplier_id == debt.supplier_id
+                named_match = (not debt.supplier_id and not item.supplier_id and item.supplier_name
+                    and item.supplier_name.casefold() == debt.party_name.casefold())
+                if item.lpo_line_id is None and (registered_match or named_match):
+                    item.supplier_id, item.supplier_name = None, ''
+                    item.unit_cost, item.cost_total = None, None
+            sale.cost_amount = sum((item.cost_total or ZERO for item in items), ZERO)
         debt.status, debt.cancelled_at, debt.cancelled_by, debt.cancel_reason = 'cancelled', m.now(), operator.id, data.reason
         s.remember(db, key, fingerprint, id)
     return _result(_debt_detail(db, debt))
