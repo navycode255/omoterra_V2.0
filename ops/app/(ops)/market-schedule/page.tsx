@@ -8,7 +8,7 @@ export const metadata = { title: 'Market Schedule · Omoterra Operations' };
 const tone = (status: string) => status === 'open' ? 'positive' : status === 'cancelled' ? 'error' : status === 'full' ? 'warning' : 'neutral';
 export default async function MarketSchedule() {
   let slots: MarketSlot[];
-  try { slots = await get('/ops/market-slots'); }
+  try { slots = await get<MarketSlot[]>('/ops/market-slots'); }
   catch (error) { return <><div className="topbar"><PageHeader title="Market Schedule" /></div><div className="workspace"><Notice tone="error">{error instanceof ApiError ? error.message : 'Markets could not be loaded.'}</Notice></div></>; }
   return <><div className="topbar between"><PageHeader title="Market Schedule" /><Link className="button" href="/market-schedule/new">Create market</Link></div>
     <div className="workspace"><div className="market-ops-grid">{slots.length ? slots.map((slot) => <Link className="card market-ops-card" href={`/market-schedule/${slot.id}`} key={slot.id}>

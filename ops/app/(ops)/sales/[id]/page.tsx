@@ -13,10 +13,10 @@ import { requireSession } from '@/lib/session';
 export const metadata = { title: 'Sale · Omoterra Operations' };
 
 export default async function SaleWorkspace({ params, searchParams }: {
-  params: Promise<{ id: string }>; searchParams: Promise<{ created?: string }>;
+  params: Promise<{ id: string }>; searchParams: Promise<{ created?: string; updated?: string }>;
 }) {
   const { id } = await params;
-  const { created } = await searchParams;
+  const { created, updated } = await searchParams;
   const operator = await requireSession();
   const admin = operator.role === 'admin';
   let sale: SaleDetail;
@@ -36,11 +36,15 @@ export default async function SaleWorkspace({ params, searchParams }: {
       <div className="topbar">
         <PageHeader title={`Sale ${sale.sale_number}`}
           subtitle={`Sold ${day(sale.sold_on)} · entered ${dateTime(sale.created_at)} by ${sale.created_by ?? '—'}`} />
+        <div className="cluster">
+          {sale.status === 'active' && <Link className="button secondary" href={`/sales/${sale.id}/edit`}>Edit sale</Link>}
         {sale.status === 'cancelled' ? <Status>Cancelled</Status>
           : Number(sale.balance) > 0 ? <Status tone="warning">Buyer owes {tzs(sale.balance)}</Status> : <Status tone="positive">Paid in full</Status>}
+        </div>
       </div>
       <div className="workspace">
         {created && <div className="notice" role="status">Sale saved. Record further installments below as money arrives.</div>}
+        {updated && <div className="notice" role="status">Sale changes saved. Existing payment records were preserved.</div>}
         {sale.status === 'cancelled' && <Notice>Cancelled {dateTime(sale.cancelled_at)}: {sale.cancel_reason}</Notice>}
 
         <div className="grid-2" style={{ alignItems: 'start' }}>
@@ -72,7 +76,7 @@ export default async function SaleWorkspace({ params, searchParams }: {
               <div style={{ marginTop: 'var(--s4)' }}>
                 <Definition items={[
                   ['Sale total', <strong key="t">{tzs(sale.total_amount)}</strong>],
-                  ['Cost owed to suppliers', tzs(sale.cost_amount)],
+                  ['Stock buying cost', tzs(sale.cost_amount)],
                   ['Margin before expenses', tzs(sale.margin)],
                 ]} />
                 {sale.status === 'active' && (

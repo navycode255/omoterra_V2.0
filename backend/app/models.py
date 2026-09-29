@@ -315,6 +315,7 @@ class MarketReservation(Entity, Base):
     reviewed_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
     rejection_reason: Mapped[str] = mapped_column(Text, default='')
     cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    delivery_reminded_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now, onupdate=now)
     __table_args__ = (
         UniqueConstraint('market_slot_id', 'supplier_id', name='uq_market_reservation_supplier_slot'),

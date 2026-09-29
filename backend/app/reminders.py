@@ -38,6 +38,24 @@ def remind_stale_stock(db, now=None):
     return len(rows)
 
 
+def remind_market_deliveries(db, now=None):
+    """Remind each approved supplier once when delivery is within three days."""
+    now = now or m.now()
+    today = now.date()
+    rows = db.scalars(select(m.MarketReservation).join(m.MarketSlot,
+        m.MarketSlot.id == m.MarketReservation.market_slot_id).where(
+        m.MarketReservation.status == 'approved', m.MarketReservation.delivery_reminded_at.is_(None),
+        m.MarketSlot.status.not_in(('cancelled', 'completed')),
+        m.MarketSlot.delivery_date >= today, m.MarketSlot.delivery_date <= today + timedelta(days=3))
+        .with_for_update()).all()
+    for reservation in rows:
+        slot = db.get(m.MarketSlot, reservation.market_slot_id)
+        notes.notify(db, reservation.supplier_id, 'supplier', 'market_delivery_soon',
+            M('notify.market_delivery_soon', date=slot.delivery_date), '/account/market-schedule')
+        reservation.delivery_reminded_at = now
+    return len(rows)
+
+
 if __name__ == '__main__':
     from .config import settings
     from .db import Session
@@ -47,6 +65,9 @@ if __name__ == '__main__':
     with Session.begin() as db:
         sent = remind_stale_stock(db)
     print(f'Stock reminders sent: {sent}')
+    with Session.begin() as db:
+        market_sent = remind_market_deliveries(db)
+    print(f'Market delivery reminders sent: {market_sent}')
     from .db import engine
     from .promotions import send_queued
     print(f'Promotion SMS attempted: {send_queued(engine)}')

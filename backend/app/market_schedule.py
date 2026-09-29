@@ -44,10 +44,10 @@ def _display_status(slot, left):
     return slot.status
 
 
-def _suggested_start(profile, delivery):
+def _suggested_start(profile, delivery, category):
     text = ''
     if profile:
-        detail = (profile.production_profile or {}).get(profile.primary_category or '', {})
+        detail = (profile.production_profile or {}).get(category, {})
         text = str(detail.get('frequency') or profile.production_frequency or '')
     match = re.search(r'(\d+)\s*(day|week|month)', text, re.I)
     if not match:
@@ -74,7 +74,7 @@ def slot_view(db, slot, supplier_id=None, detail=False):
             m.MarketReservation.supplier_id == supplier_id))
         view['my_reservation'] = reservation_view(db, own) if own else None
         profile = db.get(m.SupplierProfile, supplier_id)
-        view['suggested_start_date'] = _suggested_start(profile, slot.delivery_date)
+        view['suggested_start_date'] = _suggested_start(profile, slot.delivery_date, slot.category)
         batches = db.scalars(select(m.SupplierBatch).where(m.SupplierBatch.supplier_id == supplier_id,
             m.SupplierBatch.category == slot.category).order_by(m.SupplierBatch.expected_ready_date)).all()
         view['eligible_batches'] = [batch_view(row) for row in batches if row.available_to_commit > 0 and
@@ -140,15 +140,15 @@ def request_reservation(id: str, data: c.MarketReservationInput, idempotency_key
         fail('err.market_supplier_must_be_approved', 403)
     slot = _slot(db, id, True)
     left = remaining(db, slot)
+    if slot.status in ('draft', 'cancelled', 'completed'):
+        fail('err.market_not_found', 404)
+    if slot.status == 'closed' or slot.reservation_deadline < c.business_today():
+        fail('err.market_reservations_closed', 409)
     if slot.status != 'open' or left <= 0:
         fail('err.market_fully_booked', 409)
-    if slot.reservation_deadline < c.business_today():
-        fail('err.market_reservations_closed', 409)
     if db.scalar(select(m.MarketReservation.id).where(m.MarketReservation.market_slot_id == id,
             m.MarketReservation.supplier_id == user.id)):
         fail('err.market_duplicate_reservation', 409)
-    if data.quantity > left:
-        fail('err.market_only_remaining', 409, quantity=f'{left:,.3f}'.rstrip('0').rstrip('.'), unit=slot.unit_type)
     if data.production_choice == 'existing':
         batch = db.scalar(select(m.SupplierBatch).where(m.SupplierBatch.id == data.supplier_batch_id,
             m.SupplierBatch.supplier_id == user.id).with_for_update())
@@ -232,6 +232,8 @@ def create_slot(data: c.MarketSlotInput, idempotency_key: str = Header(), operat
     key, fingerprint, prior = s.replay(db, operator.id, 'market-slot', idempotency_key, data.model_dump())
     if prior:
         return _result(slot_view(db, db.get(m.MarketSlot, prior), detail=True), 201)
+    if data.status not in ('draft', 'open'):
+        fail('err.market_new_status_invalid', 422)
     row = m.MarketSlot(**data.model_dump(), created_by=operator.id, updated_by=operator.id)
     db.add(row); db.flush()
     s.remember(db, key, fingerprint, row.id)
@@ -258,6 +260,8 @@ def edit_slot(id: str, data: c.MarketSlotInput, operator=Depends(auth.ops_admin)
     row.updated_by = operator.id
     if committed >= row.quantity_required:
         row.status = 'full'
+    elif old_status == 'full' and row.status == 'full' and row.reservation_deadline >= c.business_today():
+        row.status = 'open'
     db.flush()
     after = (row.delivery_date, row.quantity_required, row.price_per_unit, row.collection_method)
     if old_status == 'draft' and row.status == 'open':

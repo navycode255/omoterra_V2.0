@@ -2,9 +2,9 @@
 
 import { useActionState, useMemo, useState } from 'react';
 import { useFormStatus } from 'react-dom';
-import { createSale } from '@/lib/finance-actions';
+import { createSale, updateSale } from '@/lib/finance-actions';
 import { Icons } from '@/components/icons';
-import { DEFAULT_UNIT, METHODS, PRODUCTS, UNITS, type Parties } from '@/lib/finance';
+import { DEFAULT_UNIT, METHODS, PRODUCTS, UNITS, type Parties, type SaleDetail } from '@/lib/finance';
 import type { LpoStockRow } from '@/lib/lpo';
 import { tanzanianMobile } from '@/lib/phone';
 import styles from './finance.module.css';
@@ -21,13 +21,18 @@ type Line = {
   supplier_id: string;
   supplier_name: string;
   unit_cost: string;
+  cost_status: 'owed' | 'paid';
+  cost_method: string;
+  cost_reference: string;
+  cost_paid_on: string;
 };
 
 const BUYER_TYPES = ['personal', 'restaurant', 'butchery', 'hotel', 'retailer', 'caterer', 'other'];
 
 function blank(key: number): Line {
   return { key, category: 'local_chicken', description: '', unit: 'bird', quantity: '', unit_price: '',
-    source: 'own', supplier_id: '', supplier_name: '', unit_cost: '', lpo_line_id: '' };
+    source: 'own', supplier_id: '', supplier_name: '', unit_cost: '', lpo_line_id: '',
+    cost_status: 'owed', cost_method: 'cash', cost_reference: '', cost_paid_on: '' };
 }
 
 // Money typed as "15,000" or "15000"; NaN when not a number.
@@ -35,10 +40,10 @@ const num = (value: string) => (value.trim() === '' ? NaN : Number(value.replace
 const tzs = (value: number) => `TZS ${Math.round(value).toLocaleString('en-US')}`;
 const clean = (value: string) => value.replace(/,/g, '').trim();
 
-function Submit({ disabled }: { disabled: boolean }) {
+function Submit({ disabled, editing = false }: { disabled: boolean; editing?: boolean }) {
   const { pending } = useFormStatus();
   return <button type="submit" className={styles.saveButton} disabled={pending || disabled}>
-    <span aria-hidden="true">▣</span>{pending ? 'Saving…' : 'Save sale'}
+    <span aria-hidden="true">▣</span>{pending ? 'Saving…' : editing ? 'Save changes' : 'Save sale'}
   </button>;
 }
 
@@ -46,18 +51,25 @@ function StepTitle({ number, children }: { number: number; children: React.React
   return <h2 className={styles.stepTitle}><span>{number}</span>{children}</h2>;
 }
 
-export function SaleForm({ parties, today, stock = [] }: { parties: Parties; today: string; stock?: LpoStockRow[] }) {
-  const [state, action] = useActionState(createSale, null);
+export function SaleForm({ parties, today, stock = [], sale }: { parties: Parties; today: string; stock?: LpoStockRow[]; sale?: SaleDetail }) {
+  const editing = Boolean(sale);
+  const [state, action] = useActionState(editing ? updateSale : createSale, null);
   // One key per filled-in form: a double click or retry records one sale.
   const [idempotencyKey] = useState(() => crypto.randomUUID());
   const [mode, setMode] = useState<'existing' | 'new'>('existing');
   const [search, setSearch] = useState('');
-  const [buyer, setBuyer] = useState('');
+  const [buyer, setBuyer] = useState(sale ? `profile:${sale.buyer_profile_id}` : '');
   const [newBuyer, setNewBuyer] = useState({ business_name: '', buyer_type: 'personal', contact_person: '', phone: '', region: '', area: '' });
-  const [soldOn, setSoldOn] = useState(today);
-  const [lines, setLines] = useState<Line[]>([blank(1)]);
+  const [soldOn, setSoldOn] = useState(sale?.sold_on ?? today);
+  const [lines, setLines] = useState<Line[]>(sale ? sale.items.map((item, index) => ({
+    key: index + 1, category: item.category, description: item.description, unit: item.unit,
+    quantity: item.quantity, unit_price: item.unit_price,
+    source: item.lpo_line_id ? 'lpo' : item.supplier_id ? 'supplier' : item.supplier_name ? 'named' : 'own',
+    lpo_line_id: item.lpo_line_id ?? '', supplier_id: item.supplier_id ?? '', supplier_name: item.supplier_name,
+    unit_cost: item.unit_cost ?? '', cost_status: 'owed', cost_method: 'cash', cost_reference: '', cost_paid_on: sale.sold_on,
+  })) : [blank(1)]);
   const [paid, setPaid] = useState({ amount: '', method: 'cash', reference: '', paid_on: today });
-  const [notes, setNotes] = useState('');
+  const [notes, setNotes] = useState(sale?.notes ?? '');
 
   const matches = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -66,7 +78,8 @@ export function SaleForm({ parties, today, stock = [] }: { parties: Parties; tod
   }, [search, parties.buyers]);
 
   const total = lines.reduce((sum, l) => sum + (num(l.quantity) * num(l.unit_price) || 0), 0);
-  const cost = lines.reduce((sum, l) => sum + (l.source === 'supplier' || l.source === 'named' ? num(l.quantity) * num(l.unit_cost) || 0 : 0), 0);
+  const cost = lines.reduce((sum, l) => sum + (l.source !== 'own' ? num(l.quantity) * num(l.unit_cost) || 0 : 0), 0);
+  const supplierDue = lines.reduce((sum, l) => sum + ((l.source === 'supplier' || l.source === 'named') && (editing || l.cost_status === 'owed') ? num(l.quantity) * num(l.unit_cost) || 0 : 0), 0);
   const paidNow = num(paid.amount) || 0;
   const phoneProblem = mode === 'new' && newBuyer.phone.trim() !== '' && !tanzanianMobile(newBuyer.phone);
 
@@ -89,18 +102,21 @@ export function SaleForm({ parties, today, stock = [] }: { parties: Parties; tod
         unit: l.unit,
         quantity: clean(l.quantity),
         unit_price: clean(l.unit_price),
-        ...(l.source === 'supplier' ? { supplier_id: l.supplier_id || null, unit_cost: clean(l.unit_cost) } : {}),
-        ...(l.source === 'named' ? { supplier_name: l.supplier_name, unit_cost: clean(l.unit_cost) } : {}),
+        ...(l.source === 'supplier' ? { supplier_id: l.supplier_id || null, unit_cost: clean(l.unit_cost),
+          ...(!editing && l.cost_status === 'paid' ? { cost_payment: { paid_on: l.cost_paid_on || soldOn, method: l.cost_method, reference: l.cost_reference } } : {}) } : {}),
+        ...(l.source === 'named' ? { supplier_name: l.supplier_name, unit_cost: clean(l.unit_cost),
+          ...(!editing && l.cost_status === 'paid' ? { cost_payment: { paid_on: l.cost_paid_on || soldOn, method: l.cost_method, reference: l.cost_reference } } : {}) } : {}),
         ...(l.source === 'lpo' ? { lpo_line_id: l.lpo_line_id || null } : {}),
       })),
-      ...(paidNow > 0 ? { payment: { amount: clean(paid.amount), method: paid.method, reference: paid.reference, paid_on: paid.paid_on } } : {}),
+      ...(!editing && paidNow > 0 ? { payment: { amount: clean(paid.amount), method: paid.method, reference: paid.reference, paid_on: paid.paid_on } } : {}),
     });
-  }, [buyer, mode, newBuyer, soldOn, notes, lines, paid, paidNow]);
+  }, [buyer, mode, newBuyer, soldOn, notes, lines, paid, paidNow, editing]);
 
   return (
     <form action={action} className={styles.saleForm}>
       <input type="hidden" name="payload" value={payload} />
       <input type="hidden" name="idempotency_key" value={idempotencyKey} />
+      {sale && <input type="hidden" name="sale_id" value={sale.id} />}
 
       <section className={styles.stepCard}>
         <div className={styles.stepHeader}>
@@ -219,9 +235,9 @@ export function SaleForm({ parties, today, stock = [] }: { parties: Parties; tod
                   <label htmlFor={`src-${line.key}`}>Stock came from</label>
                   <select id={`src-${line.key}`} className="input" value={line.source}
                     onChange={(e) => update(line.key, { source: e.target.value as Line['source'] })}>
-                    <option value="own">My own stock (nothing owed)</option>
-                    <option value="supplier">A registered supplier (I owe them)</option>
-                    <option value="named">Another supplier (I owe them)</option>
+                    <option value="own">Stock I already owned (no buying cost for this sale)</option>
+                    <option value="supplier">Bought for this sale · registered supplier</option>
+                    <option value="named">Bought for this sale · other supplier</option>
                     {stock.length > 0 && <option value="lpo">Stock received on an LPO (already owed there)</option>}
                   </select>
                 </div>
@@ -233,7 +249,7 @@ export function SaleForm({ parties, today, stock = [] }: { parties: Parties; tod
                       <select id={`lpo-${line.key}`} className="input" required value={line.lpo_line_id}
                         onChange={(e) => {
                           const row = stock.find((r) => r.lpo_line_id === e.target.value);
-                          update(line.key, { lpo_line_id: e.target.value, ...(row ? { unit: row.unit, category: row.category || line.category } : {}) });
+                          update(line.key, { lpo_line_id: e.target.value, ...(row ? { unit: row.unit, category: row.category || line.category, unit_cost: row.unit_price } : {}) });
                         }}>
                         <option value="">Choose…</option>
                         {stock.map((row) => (
@@ -271,9 +287,41 @@ export function SaleForm({ parties, today, stock = [] }: { parties: Parties; tod
                     <input id={`cost-${line.key}`} className="input" inputMode="decimal" required value={line.unit_cost}
                       onChange={(e) => update(line.key, { unit_cost: e.target.value })} />
                     <span className="meta">
-                      I owe: {Number.isFinite(num(line.quantity) * num(line.unit_cost)) ? tzs(num(line.quantity) * num(line.unit_cost)) : '—'}
+                      Purchase total: {Number.isFinite(num(line.quantity) * num(line.unit_cost)) ? tzs(num(line.quantity) * num(line.unit_cost)) : '—'}
                     </span>
                   </div>
+                )}
+                {(line.source === 'supplier' || line.source === 'named') && !editing && (
+                  <div className="field">
+                    <label htmlFor={`cost-status-${line.key}`}>Supplier payment</label>
+                    <select id={`cost-status-${line.key}`} className="input" value={line.cost_status}
+                      onChange={(e) => update(line.key, { cost_status: e.target.value as Line['cost_status'] })}>
+                      <option value="owed">Pay later · add to supplier balance</option>
+                      <option value="paid">Already paid · record money out</option>
+                    </select>
+                  </div>
+                )}
+                {(line.source === 'supplier' || line.source === 'named') && !editing && line.cost_status === 'paid' && <>
+                  <div className="field">
+                    <label htmlFor={`cost-method-${line.key}`}>How supplier was paid</label>
+                    <select id={`cost-method-${line.key}`} className="input" value={line.cost_method}
+                      onChange={(e) => update(line.key, { cost_method: e.target.value })}>
+                      {METHODS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
+                    </select>
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`cost-ref-${line.key}`}>Receipt / transaction reference (optional)</label>
+                    <input id={`cost-ref-${line.key}`} className="input" value={line.cost_reference}
+                      onChange={(e) => update(line.key, { cost_reference: e.target.value })} />
+                  </div>
+                  <div className="field">
+                    <label htmlFor={`cost-date-${line.key}`}>Date supplier was paid</label>
+                    <input id={`cost-date-${line.key}`} type="date" className="input" max={today} required value={line.cost_paid_on || soldOn}
+                      onChange={(e) => update(line.key, { cost_paid_on: e.target.value })} />
+                  </div>
+                </>}
+                {(line.source === 'supplier' || line.source === 'named') && editing && (
+                  <div className="field"><label>Supplier payment</label><span className="meta">Edit the cost here. Record or reverse payments from the sale page.</span></div>
                 )}
               </div>
             </fieldset>
@@ -283,7 +331,7 @@ export function SaleForm({ parties, today, stock = [] }: { parties: Parties; tod
           onClick={() => setLines((all) => [...all, blank(Math.max(...all.map((l) => l.key)) + 1)])}><Icons.plus size={18} />Add another line</button>
       </section>
 
-      <section className={styles.stepCard}>
+      {!editing && <section className={styles.stepCard}>
         <div className={styles.stepHeader}><StepTitle number={3}>Money received now (optional)</StepTitle></div>
         <div className={styles.paymentGrid}>
           <div className="field">
@@ -312,17 +360,18 @@ export function SaleForm({ parties, today, stock = [] }: { parties: Parties; tod
             <textarea id="notes" className="input" placeholder="Add any notes about this payment..." value={notes} onChange={(e) => setNotes(e.target.value)} />
           </div>
         </div>
-      </section>
+      </section>}
+      {editing && <section className={styles.stepCard}><div className={styles.stepHeader}><StepTitle number={3}>Notes</StepTitle></div><div className={styles.paymentGrid}><div className={`field ${styles.notesField}`}><label htmlFor="notes">Notes (optional)</label><textarea id="notes" className="input" value={notes} onChange={(e) => setNotes(e.target.value)} /></div></div></section>}
 
       {(paidNow > total || (state && !state.ok)) && <div className="notice" data-tone="error">
         {paidNow > total ? 'The amount received is more than the sale total.' : state && !state.ok ? state.error : ''}
       </div>}
       <section className={styles.saleSummary}>
         <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.cubes size={24} /></span><div><span>Sale total</span><strong>{tzs(total)}</strong></div></div>
-        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.card size={24} /></span><div><span>Received now</span><strong>{tzs(paidNow)}</strong></div></div>
-        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.users size={24} /></span><div><span>Buyer will owe</span><strong>{tzs(Math.max(total - paidNow, 0))}</strong></div></div>
-        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.box size={24} /></span><div><span>I owe suppliers</span><strong>{tzs(cost)}</strong></div></div>
-        <Submit disabled={phoneProblem || paidNow > total || total <= 0} />
+        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.card size={24} /></span><div><span>{editing ? 'Stock buying cost' : 'Received now'}</span><strong>{tzs(editing ? cost : paidNow)}</strong></div></div>
+        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.users size={24} /></span><div><span>{editing ? 'Gross profit' : 'Buyer will owe'}</span><strong>{tzs(editing ? total - cost : Math.max(total - paidNow, 0))}</strong></div></div>
+        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.box size={24} /></span><div><span>{editing ? 'Supplier cost' : 'Still owe suppliers'}</span><strong>{tzs(editing ? cost : supplierDue)}</strong></div></div>
+        <Submit editing={editing} disabled={phoneProblem || paidNow > total || total <= 0} />
       </section>
     </form>
   );

@@ -3,7 +3,7 @@
 import { randomUUID } from 'node:crypto';
 import { revalidatePath } from 'next/cache';
 import { redirect } from 'next/navigation';
-import { ApiError, del, post, postFile } from './api';
+import { ApiError, del, post, postFile, put } from './api';
 import type { ActionResult } from './actions';
 import type { Debt, SaleDetail } from './finance';
 import { tanzanianMobile } from './phone';
@@ -47,6 +47,22 @@ export async function createSale(_: ActionResult | null, formData: FormData): Pr
   }
   for (const path of [...FINANCE, '/buyers']) revalidatePath(path, 'layout');
   redirect(`/sales/${sale.id}?created=1`);
+}
+
+/** Correct sale details while the backend preserves all recorded payments. */
+export async function updateSale(_: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  await requireSession();
+  const id = text(formData, 'sale_id');
+  let sale: SaleDetail;
+  try {
+    sale = await put<SaleDetail>(`/ops/sales/${id}`, JSON.parse(text(formData, 'payload')));
+  } catch (error) {
+    if (error instanceof ApiError) return { ok: false, error: error.message };
+    if (error instanceof SyntaxError) return { ok: false, error: 'The sale could not be read. Reload the page and try again.' };
+    throw error;
+  }
+  for (const path of [...FINANCE, '/buyers', `/sales/${id}`]) revalidatePath(path, 'layout');
+  redirect(`/sales/${sale.id}?updated=1`);
 }
 
 function paymentBody(formData: FormData) {

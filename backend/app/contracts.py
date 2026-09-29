@@ -515,7 +515,7 @@ class MarketSlotInput(Input):
     supply_type: Literal['live', 'dressed', 'chilled', 'frozen'] = 'live'
     price_per_unit: Optional[Money] = None
     collection_method: Literal['omoterra_collects', 'supplier_delivers']
-    status: Literal['draft', 'open'] = 'open'
+    status: Literal['draft', 'open', 'full', 'closed', 'cancelled', 'completed'] = 'open'
     internal_note: str = Field(default='', max_length=2000)
 
     @model_validator(mode='after')
@@ -854,6 +854,22 @@ class LedgerPaymentInput(Input):
         return _not_future(value)
 
 
+class StockCostPaymentInput(Input):
+    """A purchase payment recorded with a sale line.
+
+    Its amount is derived from quantity × unit cost on the server.
+    """
+    paid_on: date
+    method: LedgerMethod
+    reference: str = Field(default='', max_length=150)
+    note: str = Field(default='', max_length=500)
+
+    @field_validator('paid_on')
+    @classmethod
+    def not_future(cls, value):
+        return _not_future(value)
+
+
 class SupplierPaymentInput(LedgerPaymentInput):
     debt_ids: list[str] = Field(default_factory=list, max_length=500)
     sms_text: str = Field(default='', max_length=2000)
@@ -876,6 +892,7 @@ class SaleItemInput(Input):
     supplier_id: Optional[str] = Field(default=None, max_length=36)
     supplier_name: str = Field(default='', max_length=150)
     unit_cost: Optional[Money] = None
+    cost_payment: Optional[StockCostPaymentInput] = None
     # Stock received on an LPO: its cost and supplier come from the LPO.
     lpo_line_id: Optional[str] = Field(default=None, max_length=36)
 
@@ -884,11 +901,13 @@ class SaleItemInput(Input):
         if not self.category and len(self.description) < 2:
             raise ValueError(M('err.describe_what_was_sold'))
         if self.lpo_line_id:
-            if self.supplier_id or self.supplier_name or self.unit_cost is not None:
+            if self.supplier_id or self.supplier_name or self.unit_cost is not None or self.cost_payment:
                 raise ValueError(M('err.lpo_stock_cost_comes_from_lpo'))
             return self
         has_supplier = bool(self.supplier_id or self.supplier_name)
         if has_supplier != (self.unit_cost is not None):
+            raise ValueError(M('err.supplier_and_cost_go_together'))
+        if self.cost_payment and not has_supplier:
             raise ValueError(M('err.supplier_and_cost_go_together'))
         if self.supplier_id and self.supplier_name:
             self.supplier_name = ''

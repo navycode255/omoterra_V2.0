@@ -222,6 +222,8 @@ def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operat
                 costs[party]['name'], costs[party]['phone'] = line.supplier_name, ''
             costs[party]['amount'] += cost_total
             costs[party]['lines'].append(line.description or line.category.replace('_', ' '))
+            if line.cost_payment:
+                costs[party].setdefault('payments', []).append((cost_total, line.cost_payment))
     total = sum((i.subtotal for i in items), ZERO)
     cost = sum((i.cost_total or ZERO for i in items), ZERO)
     name = profile.business_name or profile.contact_person or profile.phone
@@ -235,16 +237,137 @@ def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operat
         party_name=name, party_phone=profile.phone or '', description=f'Sale {number}', amount=total,
         incurred_on=data.sold_on, source='sale', sale_id=sale.id, created_by=operator.id)
     db.add(receivable)
+    payables = []
     for (kind, party), owed in costs.items():
-        db.add(m.LedgerDebt(direction='payable', party_kind='supplier' if kind == 'supplier' else 'other',
+        debt = m.LedgerDebt(direction='payable', party_kind='supplier' if kind == 'supplier' else 'other',
             supplier_id=party if kind == 'supplier' else None, party_name=owed['name'], party_phone=owed['phone'],
             description=f"Stock for sale {number}: {', '.join(owed['lines'])}"[:500], amount=owed['amount'],
-            incurred_on=data.sold_on, source='sale_cost', sale_id=sale.id, created_by=operator.id))
+            incurred_on=data.sold_on, source='sale_cost', sale_id=sale.id, created_by=operator.id)
+        db.add(debt)
+        payables.append((debt, owed.get('payments', [])))
     db.flush()
+    for debt, payments in payables:
+        grouped = defaultdict(lambda: ZERO)
+        details = {}
+        for amount, payment in payments:
+            payment_key = (payment.paid_on, payment.method, payment.reference, payment.note)
+            grouped[payment_key] += amount
+            details[payment_key] = payment
+        for payment_key, amount in grouped.items():
+            record_payment(db, debt, c.LedgerPaymentInput(amount=amount, **details[payment_key].model_dump()), operator)
     if data.payment:
         record_payment(db, receivable, data.payment, operator)
     s.remember(db, key, fingerprint, sale.id)
     return _result(sale_view(db, sale, True), 201)
+
+
+@router.put('/sales/{id}')
+def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db=Depends(database)):
+    """Correct an active direct sale while preserving every money record.
+
+    Totals may not be reduced below payments already made. Supplier payments
+    stay attached to their supplier debt; payment changes are made from the
+    sale/debt screen so an edit can never silently create or erase cash.
+    """
+    sale = db.scalar(select(m.Sale).where(m.Sale.id == id).with_for_update())
+    if not sale:
+        fail('err.sale_not_found', 404)
+    if sale.status != 'active':
+        fail('err.cancelled_sale_cannot_be_edited')
+    if data.payment or any(line.cost_payment for line in data.items):
+        fail('err.sale_edit_payments_separately', 422)
+
+    profile = _sale_buyer(db, data)
+    old_items = db.scalars(select(m.SaleItem).where(m.SaleItem.sale_id == id).order_by(m.SaleItem.position)).all()
+    old_lpo = defaultdict(lambda: ZERO)
+    for item in old_items:
+        if item.lpo_line_id:
+            old_lpo[item.lpo_line_id] += item.quantity
+
+    items, costs = [], defaultdict(lambda: {'amount': ZERO, 'lines': []})
+    taken = defaultdict(lambda: ZERO)
+    for position, line in enumerate(data.items, 1):
+        subtotal = s.money(line.quantity * line.unit_price)
+        if line.unit not in ('kg',) and line.quantity % 1:
+            fail('err.birds_animals_require_whole_quantities', 422)
+        if line.lpo_line_id:
+            from .purchasing import take_stock
+            prior = taken[line.lpo_line_id] - old_lpo[line.lpo_line_id]
+            stock, lpo = take_stock(db, line.lpo_line_id, line.quantity, prior)
+            taken[line.lpo_line_id] += line.quantity
+            items.append(m.SaleItem(sale_id=id, position=position, category=line.category or stock.category or '',
+                description=line.description or stock.item, unit=line.unit, quantity=line.quantity,
+                unit_price=line.unit_price, subtotal=subtotal, supplier_id=lpo.supplier_id,
+                unit_cost=stock.unit_price, cost_total=s.money(line.quantity * stock.unit_price), lpo_line_id=stock.id))
+            continue
+        cost_total = s.money(line.quantity * line.unit_cost) if line.unit_cost is not None else None
+        items.append(m.SaleItem(sale_id=id, position=position, category=line.category or '',
+            description=line.description or '', unit=line.unit, quantity=line.quantity, unit_price=line.unit_price,
+            subtotal=subtotal, supplier_id=line.supplier_id, supplier_name=line.supplier_name,
+            unit_cost=line.unit_cost, cost_total=cost_total))
+        if cost_total is not None:
+            if line.supplier_id:
+                party = ('supplier', line.supplier_id)
+                costs[party]['name'], costs[party]['phone'] = _supplier_party(db, line.supplier_id)
+            else:
+                party = ('other', line.supplier_name.casefold())
+                costs[party]['name'], costs[party]['phone'] = line.supplier_name, ''
+            costs[party]['amount'] += cost_total
+            costs[party]['lines'].append(line.description or line.category.replace('_', ' '))
+
+    total = sum((item.subtotal for item in items), ZERO)
+    cost = sum((item.cost_total or ZERO for item in items), ZERO)
+    debts = db.scalars(select(m.LedgerDebt).where(m.LedgerDebt.sale_id == id).with_for_update()).all()
+    receivable = next((row for row in debts if row.direction == 'receivable'), None)
+    if not receivable or total < receivable.paid_amount:
+        fail('err.sale_total_below_recorded_payments', 422)
+
+    existing = {}
+    for debt in debts:
+        if debt.direction != 'payable' or debt.status == 'cancelled':
+            continue
+        key = ('supplier', debt.supplier_id) if debt.supplier_id else ('other', debt.party_name.casefold())
+        existing[key] = debt
+    for key, debt in existing.items():
+        desired = costs.get(key, {}).get('amount', ZERO)
+        if desired < debt.paid_amount:
+            fail('err.sale_cost_below_recorded_payments', 422, supplier=debt.party_name)
+
+    name = profile.business_name or profile.contact_person or profile.phone
+    sale.sold_on, sale.buyer_profile_id, sale.buyer_user_id = data.sold_on, profile.id, profile.user_id
+    sale.buyer_name, sale.buyer_phone, sale.total_amount = name, profile.phone or '', total
+    sale.cost_amount, sale.notes = cost, data.notes
+    receivable.buyer_profile_id, receivable.party_name, receivable.party_phone = profile.id, name, profile.phone or ''
+    receivable.amount, receivable.incurred_on = total, data.sold_on
+    receivable.status = 'settled' if receivable.paid_amount == total else 'open'
+
+    for item in old_items:
+        db.delete(item)
+    db.flush()
+    db.add_all(items)
+
+    for key, debt in existing.items():
+        if key not in costs:
+            payment_history = db.scalar(select(m.LedgerPayment.id).where(m.LedgerPayment.debt_id == debt.id).limit(1))
+            if payment_history:
+                debt.status, debt.cancelled_at = 'cancelled', m.now()
+                debt.cancelled_by, debt.cancel_reason = operator.id, 'Sale edited; supplier cost removed'
+            else:
+                db.delete(debt)
+    for (kind, party), owed in costs.items():
+        debt = existing.get((kind, party))
+        if debt:
+            debt.party_name, debt.party_phone = owed['name'], owed['phone']
+            debt.amount, debt.incurred_on = owed['amount'], data.sold_on
+            debt.description = f"Stock for sale {sale.sale_number}: {', '.join(owed['lines'])}"[:500]
+            debt.status = 'settled' if debt.paid_amount == debt.amount else 'open'
+        else:
+            db.add(m.LedgerDebt(direction='payable', party_kind='supplier' if kind == 'supplier' else 'other',
+                supplier_id=party if kind == 'supplier' else None, party_name=owed['name'], party_phone=owed['phone'],
+                description=f"Stock for sale {sale.sale_number}: {', '.join(owed['lines'])}"[:500], amount=owed['amount'],
+                incurred_on=data.sold_on, source='sale_cost', sale_id=id, created_by=operator.id))
+    db.flush()
+    return _result(sale_view(db, sale, True))
 
 
 @router.post('/sales/{id}/cancel')

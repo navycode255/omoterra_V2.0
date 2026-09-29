@@ -113,6 +113,57 @@ def test_supplier_cost_lines_open_payables_per_supplier(client, seeded):
     assert Decimal(body['supplier_balance']) == Decimal('183000.00')
 
 
+
+def test_stock_bought_for_sale_can_be_recorded_paid_or_owed(client, seeded):
+    body = sale(client, items=[
+        {'category': 'broilers', 'unit': 'bird', 'quantity': '5', 'unit_price': '15000',
+         'supplier_id': seeded['supplier'], 'unit_cost': '10000',
+         'cost_payment': {'paid_on': TODAY, 'method': 'mpesa', 'reference': 'BUY-ORDER-01'}},
+        {'description': 'Extra birds', 'unit': 'bird', 'quantity': '2', 'unit_price': '15000',
+         'supplier_id': seeded['supplier'], 'unit_cost': '10000',
+         'cost_payment': {'paid_on': TODAY, 'method': 'mpesa', 'reference': 'BUY-ORDER-01'}},
+        {'description': 'Egg trays', 'unit': 'tray', 'quantity': '2', 'unit_price': '12000',
+         'supplier_name': 'Mzee Juma', 'unit_cost': '9000'},
+    ])
+    assert Decimal(body['total_amount']) == Decimal('129000.00')
+    assert Decimal(body['cost_amount']) == Decimal('88000.00')
+    assert Decimal(body['margin']) == Decimal('41000.00')
+    debts = {row['party_name']: row for row in body['debts'] if row['direction'] == 'payable'}
+    paid = debts['Secret legal name']
+    assert paid['status'] == 'settled' and Decimal(paid['paid_amount']) == Decimal('70000.00')
+    assert len(paid['payments']) == 1 and paid['payments'][0]['reference'] == 'BUY-ORDER-01'
+    assert Decimal(debts['Mzee Juma']['balance']) == Decimal('18000.00')
+    assert Decimal(body['supplier_balance']) == Decimal('18000.00')
+
+
+def test_sale_can_be_edited_without_losing_payments(client, seeded):
+    original = sale(client, payment={'amount': '20000', 'paid_on': TODAY, 'method': 'cash'}, items=[
+        {'category': 'broilers', 'unit': 'bird', 'quantity': '5', 'unit_price': '15000',
+         'supplier_id': seeded['supplier'], 'unit_cost': '10000'}])
+    supplier_debt = next(row for row in original['debts'] if row['direction'] == 'payable')
+    assert pay(client, supplier_debt['id'], '10000').status_code == 201
+
+    changed = client.put(API + f"/sales/{original['id']}", headers=OPS, json={
+        'buyer_profile_id': original['buyer_profile_id'], 'sold_on': TODAY, 'notes': 'Corrected quantities',
+        'items': [{'category': 'broilers', 'unit': 'bird', 'quantity': '6', 'unit_price': '16000',
+                   'supplier_id': seeded['supplier'], 'unit_cost': '11000'}],
+    })
+    assert changed.status_code == 200, changed.text
+    body = changed.json()
+    assert Decimal(body['total_amount']) == Decimal('96000.00')
+    assert Decimal(body['cost_amount']) == Decimal('66000.00')
+    assert Decimal(body['margin']) == Decimal('30000.00')
+    assert Decimal(receivable(body)['paid_amount']) == Decimal('20000.00')
+    payable = next(row for row in body['debts'] if row['direction'] == 'payable' and row['status'] != 'cancelled')
+    assert payable['id'] == supplier_debt['id'] and Decimal(payable['paid_amount']) == Decimal('10000.00')
+
+    too_small = client.put(API + f"/sales/{original['id']}", headers=OPS, json={
+        'buyer_profile_id': original['buyer_profile_id'], 'sold_on': TODAY,
+        'items': [{'category': 'broilers', 'unit': 'bird', 'quantity': '1', 'unit_price': '10000',
+                   'supplier_id': seeded['supplier'], 'unit_cost': '5000'}],
+    })
+    assert too_small.status_code == 422
+
 def test_one_supplier_payment_covers_many_invoices_and_is_visible_to_supplier(client, seeded):
     first = sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '10', 'unit_price': '12000',
         'supplier_id': seeded['supplier'], 'unit_cost': '9000'}])

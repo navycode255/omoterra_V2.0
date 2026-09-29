@@ -12,7 +12,7 @@ const reservationText: Record<string, string> = { requested: 'Under review', app
 export default async function MarketDetail({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ updated?: string }> }) {
   const { id } = await params;
   let slot: MarketSlot; let reservations: MarketReservation[];
-  try { [slot, reservations] = await Promise.all([get(`/ops/market-slots/${id}`), get(`/ops/market-slots/${id}/reservations`)]); }
+  try { [slot, reservations] = await Promise.all([get<MarketSlot>(`/ops/market-slots/${id}`), get<MarketReservation[]>(`/ops/market-slots/${id}/reservations`)]); }
   catch (error) { if (error instanceof ApiError && error.status === 404) notFound(); throw error; }
   const { updated } = await searchParams;
   return <><div className="topbar between"><PageHeader title={category(slot.category)} subtitle={date(slot.delivery_date)} /><div className="row"><Link className="button secondary" href={`/market-schedule/${id}/edit`}>Edit</Link><Link className="button secondary" href="/market-schedule">All markets</Link></div></div>
