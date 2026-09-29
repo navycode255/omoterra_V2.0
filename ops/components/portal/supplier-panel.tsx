@@ -134,8 +134,8 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
       {view === 'dashboard' && <>
       <section className="portal-hero" id="overview">
         <div>
-          <p>Welcome to Omoterra</p>
-          <h1>{profile.public_alias || profile.legal_name}<span className="portal-leaf"><Icon name="leaf" /></span></h1>
+          <p>Welcome back</p>
+          <h1>{profile.public_alias || profile.legal_name}</h1>
         </div>
         <div className="portal-hero-art" style={{ backgroundImage: `url(${categoryImage(profile.primary_category)})` }} role="img" aria-label={`${label(profile.primary_category)} on a farm`} />
       </section>

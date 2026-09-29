@@ -2117,7 +2117,6 @@ textarea.join-input { min-height: 88px; resize: vertical; }
   .portal-hero > div:first-child { max-width: 69%; padding: 22px 18px; }
   .portal-hero p { font-size: 17px; }
   .portal-hero h1 { margin-top: 5px; font-size: 32px; }
-  .portal-hero h1::after { content: 'Quality supply. Stronger markets.'; display: block; margin-top: 10px; color: #67769a; font-size: 13px; font-weight: 500; letter-spacing: 0; }
   .portal-hero-art { inset: 0 0 0 42%; -webkit-mask-image: linear-gradient(90deg, transparent, #000 34%); mask-image: linear-gradient(90deg, transparent, #000 34%); }
   .portal-leaf { display: none; }
 
@@ -2305,4 +2304,79 @@ textarea.join-input { min-height: 88px; resize: vertical; }
   .market-page-head h1 { font-size: 30px; }
   .market-opportunity { grid-template-columns: 48px 82px minmax(0, 1fr); gap: 8px; }
   .market-opportunity-photo { width: 82px; height: 92px; }
+}
+
+/* Supplier dashboard and market hero refinement ------------------------- */
+.portal-hero {
+  min-height: 218px;
+  align-items: flex-end;
+  isolation: isolate;
+  border: 0;
+  background: #0b5136;
+  box-shadow: 0 16px 36px rgba(11, 63, 43, .16);
+}
+.portal-hero::after {
+  content: '';
+  position: absolute;
+  z-index: 0;
+  inset: 0;
+  background: linear-gradient(90deg, rgba(5, 47, 32, .92) 0%, rgba(5, 47, 32, .68) 48%, rgba(5, 47, 32, .08) 100%);
+  pointer-events: none;
+}
+.portal-hero > div:first-child { z-index: 2; max-width: 78%; padding: 32px 34px; }
+.portal-hero p { color: rgba(255,255,255,.8); font-size: 14px; font-weight: 650; }
+.portal-hero h1 { margin-top: 5px; color: #fff; text-shadow: 0 2px 14px rgba(0,0,0,.22); }
+.portal-hero h1::after { content: none; }
+.portal-hero-art {
+  z-index: -1;
+  inset: 0;
+  background-position: center 44%;
+  -webkit-mask-image: none;
+  mask-image: none;
+}
+
+.market-page-head {
+  position: relative;
+  min-height: 178px;
+  align-items: flex-end;
+  overflow: hidden;
+  padding: 30px;
+  border: 0;
+  background-position: center 42%;
+  background-size: cover;
+  box-shadow: 0 16px 36px rgba(11, 63, 43, .14);
+}
+.market-page-head p {
+  margin-bottom: 6px;
+  color: rgba(255,255,255,.82);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+}
+.market-page-head h1 { color: #fff; text-shadow: 0 2px 14px rgba(0,0,0,.2); }
+.market-empty { min-height: 96px; display: grid; place-items: center; color: var(--portal-muted); text-align: center; }
+.market-empty h3 { color: var(--portal-ink); font-size: 16px; font-weight: 650; }
+
+@media (max-width: 640px) {
+  .portal-hero { min-height: 170px; border-radius: 20px; }
+  .portal-hero::after { background: linear-gradient(90deg, rgba(5, 47, 32, .9), rgba(5, 47, 32, .5) 62%, rgba(5, 47, 32, .06)); }
+  .portal-hero > div:first-child { max-width: 82%; padding: 22px 20px; }
+  .portal-hero p { font-size: 13px; }
+  .portal-hero h1 { margin-top: 3px; font-size: 31px; }
+  .portal-hero-art { inset: 0; background-position: center; -webkit-mask-image: none; mask-image: none; }
+
+  .market-page-head { min-height: 142px; align-items: flex-end; padding: 21px; border-radius: 20px; background-position: center; }
+  .market-page-head p { display: block; margin-bottom: 4px; font-size: 11px; }
+  .market-page-head h1 { max-width: none; font-size: 30px; }
+  .market-page-grid { gap: 18px; }
+  .market-page-grid .portal-card.market-empty { min-height: 92px; padding: 18px; }
+}
+
+@media (max-width: 390px) {
+  .portal-hero { min-height: 158px; }
+  .portal-hero > div:first-child { padding: 20px 18px; }
+  .portal-hero h1 { font-size: 29px; }
+  .market-page-head { min-height: 132px; padding: 19px; }
+  .market-page-head h1 { font-size: 29px; }
 }
