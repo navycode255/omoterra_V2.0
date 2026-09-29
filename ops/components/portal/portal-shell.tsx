@@ -3,6 +3,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { signOut } from '@/lib/registration';
 import { Icon, type IconName } from './icons';
+import { PortalAvatar } from './portal-image';
 
 export type Notice = { id: string; title: string; body: string; read: boolean; created_at: string };
 export type NavItem = { href: string; label: string; icon: IconName };
@@ -20,7 +21,6 @@ function ago(value: string) {
 export function PortalShell({ name, subtitle, avatar, nav, notices, unread, activeHref, children }: {
   name: string; subtitle: string; avatar: string | null; nav: NavItem[]; notices: Notice[]; unread: number; activeHref?: string; children: ReactNode;
 }) {
-  const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]!.toUpperCase()).join('') || 'O';
   return (
     <div className="portal">
       <header className="portal-header">
@@ -43,10 +43,7 @@ export function PortalShell({ name, subtitle, avatar, nav, notices, unread, acti
           </details>
           <details className="portal-menu portal-profile">
             <summary>
-              <span className="portal-avatar">
-                {/* eslint-disable-next-line @next/next/no-img-element -- private photo behind the member cookie, which next/image would not send */}
-                {avatar ? <img src={avatar} alt="" /> : initials}
-              </span>
+              <span className="portal-avatar"><PortalAvatar src={avatar} alt={`${name} profile photo`} /></span>
               <span className="portal-who"><b>{name}</b><small>{subtitle}</small></span>
               <Icon name="chevron" />
             </summary>

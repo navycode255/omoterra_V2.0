@@ -7,6 +7,7 @@ import { LiveRefresh } from './live-refresh';
 import { InvoiceList, OrderList, PayoutList, PayoutPrompt, type PayoutRow, type SupplierInvoices, type SupplierOrder } from './supplier-orders';
 import { CATEGORY, CONTACT, FORMS, categoryImage, date, label, media, number, units } from './supplier-format';
 import { Icon, type IconName } from './icons';
+import { PortalImage } from './portal-image';
 import type { MarketReservation, MarketSlot } from '@/lib/market';
 
 export type SupplierProfile = {
@@ -199,8 +200,7 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
         ) : <p className="portal-empty">No stock batch submitted yet. Add your production in the Omoterra app.</p>}
         {!!profile.evidence_photos.length && (
           <div className="portal-photos">
-            {/* eslint-disable-next-line @next/next/no-img-element -- private photo behind the member cookie, which next/image would not send */}
-            {profile.evidence_photos.map((url) => <img key={url} src={media(url)} alt="Farm photo" loading="lazy" />)}
+            {profile.evidence_photos.map((url) => <PortalImage key={url} src={media(url)} fallback={categoryImage(profile.primary_category)} alt={`${profile.public_alias || profile.legal_name} farm`} />)}
           </div>
         )}
       </section>
@@ -229,10 +229,9 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
       {view === 'orders' && <>
       <div className="portal-page-title"><div><p>Collection and delivery</p><h1>Orders</h1></div><span className="portal-title-icon"><Icon name="orders" /></span></div>
       <section id="orders" className="portal-card portal-stock">
-        <h2><Icon name="orders" />Orders</h2>
-        {placed.length ? <OrderList orders={placed} /> : <p className="portal-empty">{approved
-          ? 'No orders yet. When a buyer orders your stock, you can follow collection, delivery and payment here.'
-          : 'Orders open once the Omoterra team approves your account.'}</p>}
+        {placed.length ? <OrderList orders={placed} /> : <div className="portal-empty-state"><span><Icon name="orders" /></span><b>No orders yet</b><p>{approved
+          ? 'New buyer orders will appear here with collection, delivery and payment progress.'
+          : 'Orders open once the Omoterra team approves your account.'}</p></div>}
       </section>
       <Link href="/account?view=payouts" className="portal-payout-summary"><span className="portal-stat-icon"><Icon name="coins" /></span><span><small>Pending supplier payments</small><strong>TZS {number.format(Number(invoices.pending_total))}</strong></span><Icon name="chevron" /></Link>
       </>}
