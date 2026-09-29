@@ -17,10 +17,15 @@ export type SupplierProfile = {
   production_profile: Record<string, { capacity: string; unit: string }>; production_frequency: string; supply_forms: string[];
   evidence_photos: string[]; submitted_at: string | null; approved_at: string | null; payout_methods: string[];
 };
+export type BatchCollection = {
+  id: string; collection_number: string; received_on: string; delivered_quantity: string; accepted_quantity: string;
+  rejected_quantity: string; sold: string; on_hand: string; cancelled_at: string | null;
+};
 export type Batch = {
-  id: string; category: string; subtype: string; initial_quantity: string; expected_ready_date: string | null;
+  id: string; category: string; subtype: string; initial_quantity: string; current_quantity: string;
+  sold_quantity: string; externally_sold_quantity: string; expected_ready_date: string | null;
   expected_min_weight_kg: string | null; expected_max_weight_kg: string | null; form: string; photos: string[];
-  status: string; approved_at: string | null; asking_price_per_unit: string | null;
+  status: string; approved_at: string | null; asking_price_per_unit: string | null; collections: BatchCollection[];
 };
 export type Listing = { id: string; listing_status: string };
 export type { SupplierOrder as Hold, PayoutRow as Payout } from './supplier-orders';
@@ -178,6 +183,10 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
                 ? [batch.expected_min_weight_kg, batch.expected_max_weight_kg].filter(Boolean).map((kg) => number.format(Number(kg))).join(' – ') + ' kg' : '';
               const reviewed = !!batch.approved_at;
               const amount = `${number.format(quantity)} ${units(batch.category, quantity)}`;
+              const collections = (batch.collections ?? []).filter((row) => !row.cancelled_at);
+              const collected = collections.reduce((sum, row) => sum + Number(row.accepted_quantity), 0);
+              const remaining = Math.max(Number(batch.current_quantity) - Number(batch.sold_quantity) - Number(batch.externally_sold_quantity), 0);
+              const onHand = collections.reduce((sum, row) => sum + Number(row.on_hand), 0);
               return (
                 <Fold key={batch.id} as="li" className="portal-batch" head={<>
                   <span className="portal-batch-photo" style={{ backgroundImage: `url(${batch.photos[0] ? media(batch.photos[0]) : categoryImage(batch.category)})` }} />
@@ -191,8 +200,12 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
                     <span><b>{amount}</b><small>Quantity</small></span>
                     <span><b>{weight || '—'}</b><small>Expected weight</small></span>
                     <span><b>{readiness(batch.expected_ready_date)}</b><small>{batch.expected_ready_date ? date.format(new Date(batch.expected_ready_date)) : 'Availability'}</small></span>
+                    <span><b>{number.format(collected)}</b><small>Collected by Omoterra</small></span>
+                    <span><b>{number.format(remaining)}</b><small>Still with you</small></span>
+                    <span><b>{number.format(onHand)}</b><small>Omoterra stock on hand</small></span>
                     {batch.asking_price_per_unit && <span><b>TZS {number.format(Number(batch.asking_price_per_unit))}</b><small>Asking price / {CATEGORY[batch.category]?.[1] ?? 'unit'} · {FORMS[batch.form] ?? batch.form}</small></span>}
                   </div>
+                  {collections.length > 0 && <div className="portal-collection-history"><h3>Collected by Omoterra</h3>{collections.map((row) => <div key={row.id}><span><b>{date.format(new Date(row.received_on))}</b><small>{row.collection_number}</small></span><span><b>{number.format(Number(row.accepted_quantity))} accepted</b><small>{number.format(Number(row.rejected_quantity))} rejected</small></span></div>)}</div>}
                 </Fold>
               );
             })}

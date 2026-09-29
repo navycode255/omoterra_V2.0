@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { SaleForm } from '@/components/finance/sale-form';
 import { Notice, PageHeader } from '@/components/ui';
 import { ApiError, get } from '@/lib/api';
-import { today, type Parties, type SaleDetail } from '@/lib/finance';
+import { today, type Parties, type SaleDetail, type SupplierCollectionStock } from '@/lib/finance';
 import type { LpoStockRow } from '@/lib/lpo';
 import styles from '@/components/finance/finance.module.css';
 
@@ -14,11 +14,13 @@ export default async function EditSale({ params }: { params: Promise<{ id: strin
   let sale: SaleDetail;
   let parties: Parties;
   let stock: LpoStockRow[];
+  let supplierStock: SupplierCollectionStock[];
   try {
-    [sale, parties, stock] = await Promise.all([
+    [sale, parties, stock, supplierStock] = await Promise.all([
       get<SaleDetail>(`/ops/sales/${id}`),
       get<Parties>('/ops/finance/parties'),
       get<LpoStockRow[]>('/ops/lpos/stock'),
+      get<SupplierCollectionStock[]>('/ops/supplier-collections/stock'),
     ]);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
@@ -40,12 +42,26 @@ export default async function EditSale({ params }: { params: Promise<{ id: strin
     });
   }
 
+
+  const presentCollections = new Set(supplierStock.map((row) => row.id));
+  for (const item of sale.items) {
+    if (!item.supplier_collection_id || presentCollections.has(item.supplier_collection_id)) continue;
+    supplierStock.push({
+      id: item.supplier_collection_id, collection_number: 'Current delivery note', supplier_id: item.supplier_id ?? '',
+      supplier_name: item.supplier_name || 'Supplier', supplier_phone: '', batch_id: '', category: item.category,
+      subtype: item.description, unit: item.unit, received_on: sale.sold_on, delivered_quantity: item.quantity,
+      accepted_quantity: item.quantity, rejected_quantity: '0', average_weight_kg: null,
+      unit_cost: item.unit_cost ?? '0', amount: item.cost_total ?? '0', sold: item.quantity, on_hand: '0',
+      notes: '', debt_id: null, created_at: sale.created_at, cancelled_at: null, cancel_reason: '',
+    });
+  }
+
   return <div className={styles.salePage}>
     <div className={styles.saleHeader}><div className={styles.saleFrame}>
       <PageHeader title={`Edit ${sale.sale_number}`} subtitle="Correct the buyer, items, prices, buying costs, or notes." />
     </div></div>
     <div className={styles.saleFrame}><div className={styles.saleWorkspace}>
-      <SaleForm parties={parties} today={today()} stock={stock} sale={sale} />
+      <SaleForm parties={parties} today={today()} stock={stock} supplierStock={supplierStock} sale={sale} />
       <Link href={`/sales/${sale.id}`} className={styles.backLink}>← <span>Back to sale</span></Link>
     </div></div>
   </div>;

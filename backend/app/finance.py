@@ -105,7 +105,8 @@ def sale_view(db, sale, detail=False):
     if detail:
         items = db.scalars(select(m.SaleItem).where(m.SaleItem.sale_id == sale.id).order_by(m.SaleItem.position)).all()
         view['items'] = [{k: getattr(i, k) for k in ('id', 'category', 'description', 'unit', 'quantity', 'unit_price',
-            'subtotal', 'supplier_id', 'supplier_name', 'unit_cost', 'cost_total', 'lpo_line_id')} for i in items]
+            'subtotal', 'supplier_id', 'supplier_name', 'unit_cost', 'cost_total', 'lpo_line_id',
+            'supplier_collection_id')} for i in items]
         view['debts'] = [{**debt_view(d), 'payments': [payment_view(db, p) for p in _payments(db, d.id)]} for d in debts]
     return view
 
@@ -197,6 +198,17 @@ def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operat
         subtotal = s.money(line.quantity * line.unit_price)
         if line.unit not in ('kg',) and line.quantity % 1:
             fail('err.birds_animals_require_whole_quantities', 422)
+        if line.supplier_collection_id:
+            from .batch_stock import take_collection_stock
+            collection, batch = take_collection_stock(db, line.supplier_collection_id, line.quantity,
+                taken[line.supplier_collection_id])
+            taken[line.supplier_collection_id] += line.quantity
+            items.append(m.SaleItem(sale_id=sale_id, position=position, category=line.category or batch.category,
+                description=line.description or batch.subtype or batch.category.replace('_', ' '), unit=line.unit,
+                quantity=line.quantity, unit_price=line.unit_price, subtotal=subtotal, supplier_id=collection.supplier_id,
+                unit_cost=collection.unit_cost, cost_total=s.money(line.quantity * collection.unit_cost),
+                supplier_collection_id=collection.id))
+            continue
         if line.lpo_line_id:
             # LPO stock: costed at the LPO price and already owed through the
             # LPO's receipts, so no payable here.
@@ -280,9 +292,12 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
     profile = _sale_buyer(db, data)
     old_items = db.scalars(select(m.SaleItem).where(m.SaleItem.sale_id == id).order_by(m.SaleItem.position)).all()
     old_lpo = defaultdict(lambda: ZERO)
+    old_collections = defaultdict(lambda: ZERO)
     for item in old_items:
         if item.lpo_line_id:
             old_lpo[item.lpo_line_id] += item.quantity
+        if item.supplier_collection_id:
+            old_collections[item.supplier_collection_id] += item.quantity
 
     items, costs = [], defaultdict(lambda: {'amount': ZERO, 'lines': []})
     taken = defaultdict(lambda: ZERO)
@@ -290,6 +305,17 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
         subtotal = s.money(line.quantity * line.unit_price)
         if line.unit not in ('kg',) and line.quantity % 1:
             fail('err.birds_animals_require_whole_quantities', 422)
+        if line.supplier_collection_id:
+            from .batch_stock import take_collection_stock
+            prior = taken[line.supplier_collection_id] - old_collections[line.supplier_collection_id]
+            collection, batch = take_collection_stock(db, line.supplier_collection_id, line.quantity, prior)
+            taken[line.supplier_collection_id] += line.quantity
+            items.append(m.SaleItem(sale_id=id, position=position, category=line.category or batch.category,
+                description=line.description or batch.subtype or batch.category.replace('_', ' '), unit=line.unit,
+                quantity=line.quantity, unit_price=line.unit_price, subtotal=subtotal, supplier_id=collection.supplier_id,
+                unit_cost=collection.unit_cost, cost_total=s.money(line.quantity * collection.unit_cost),
+                supplier_collection_id=collection.id))
+            continue
         if line.lpo_line_id:
             from .purchasing import take_stock
             prior = taken[line.lpo_line_id] - old_lpo[line.lpo_line_id]

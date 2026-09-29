@@ -225,6 +225,71 @@ def test_paid_supplier_debt_must_be_reversed_before_reconciliation(client, seede
     assert post(client, f"/ledger/payments/{payment['id']}/reverse", {'reason': 'Payment attached in error'}).status_code == 200
     assert post(client, f"/ledger/debts/{debt['id']}/cancel", {'reason': 'Wrong supplier cost'}).status_code == 200
 
+
+def test_staff_registers_batch_receives_delivery_notes_and_sales_use_only_received_stock(client, seeded):
+    batch_response = post(client, f"/suppliers/{seeded['supplier']}/batches", {
+        'category': 'broilers', 'subtype': 'Cobb 500', 'initial_quantity': '500',
+        'expected_ready_date': TODAY, 'form': 'live', 'asking_price_per_unit': '7000',
+        'region': 'Pwani', 'private_pickup_location': 'Kibaha farm', 'photos': [],
+    }, STAFF)
+    assert batch_response.status_code == 201, batch_response.text
+    batch = batch_response.json()
+
+    received = post(client, f"/suppliers/{seeded['supplier']}/collections", {
+        'batch_id': batch['id'], 'received_on': TODAY, 'delivered_quantity': '105',
+        'accepted_quantity': '100', 'average_weight_kg': '1.9', 'unit_cost': '7000',
+        'payment_terms_days': 2, 'notes': 'Five birds rejected at collection',
+    }, STAFF)
+    assert received.status_code == 201, received.text
+    note = received.json()
+    assert note['collection_number'].startswith('DN-')
+    assert Decimal(note['accepted_quantity']) == 100
+    assert Decimal(note['rejected_quantity']) == 5
+    assert Decimal(note['on_hand']) == 100
+
+    detail = client.get(API + f"/suppliers/{seeded['supplier']}", headers=STAFF).json()
+    tracked = next(row for row in detail['batches'] if row['id'] == batch['id'])
+    assert Decimal(tracked['sold_quantity']) == 100
+    assert Decimal(tracked['available_to_commit']) == 400
+    assert tracked['collections'][0]['collection_number'] == note['collection_number']
+
+    supplier_view = client.get('/api/v1/supplier/batches', headers={'Authorization': 'Bearer supplier'}).json()
+    supplier_batch = next(row for row in supplier_view if row['id'] == batch['id'])
+    assert Decimal(supplier_batch['collections'][0]['accepted_quantity']) == 100
+
+    stock = client.get(API + '/supplier-collections/stock', headers=STAFF).json()
+    assert next(row for row in stock if row['id'] == note['id'])['on_hand'] == '100.000'
+
+    sold = sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '60',
+        'unit_price': '9000', 'supplier_collection_id': note['id']}])
+    assert Decimal(sold['cost_amount']) == 420000
+    assert sold['items'][0]['supplier_collection_id'] == note['id']
+    # The supplier payable was opened by the physical receipt, never duplicated by the sale.
+    assert [row['direction'] for row in sold['debts']] == ['receivable']
+
+    refreshed = client.get(API + '/supplier-collections/stock', headers=OPS).json()
+    assert Decimal(next(row for row in refreshed if row['id'] == note['id'])['on_hand']) == 40
+
+def test_received_supplier_stock_cannot_be_oversold(client, seeded):
+    batch = post(client, f"/suppliers/{seeded['supplier']}/batches", {
+        'category': 'broilers', 'initial_quantity': '10', 'expected_ready_date': TODAY,
+        'form': 'live', 'asking_price_per_unit': '7000', 'region': 'Pwani', 'photos': [],
+    }).json()
+    note = post(client, f"/suppliers/{seeded['supplier']}/collections", {
+        'batch_id': batch['id'], 'received_on': TODAY, 'delivered_quantity': '10',
+        'accepted_quantity': '10', 'unit_cost': '7000',
+    }).json()
+    sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '8',
+        'unit_price': '9000', 'supplier_collection_id': note['id']}])
+    refused = post(client, '/sales', {
+        'new_buyer': {'business_name': 'Second buyer', 'phone': '0754111223'},
+        'sold_on': TODAY, 'items': [{'category': 'broilers', 'unit': 'bird', 'quantity': '3',
+            'unit_price': '9000', 'supplier_collection_id': note['id']}],
+    })
+    assert refused.status_code == 422
+    assert 'Only 2' in refused.text
+
+
 def test_one_supplier_payment_covers_many_invoices_and_is_visible_to_supplier(client, seeded):
     first = sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '10', 'unit_price': '12000',
         'supplier_id': seeded['supplier'], 'unit_cost': '9000'}])

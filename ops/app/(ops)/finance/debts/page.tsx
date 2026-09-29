@@ -20,7 +20,14 @@ const TABS = [
   { key: 'cancelled', label: 'Cancelled' },
 ];
 
-const SOURCE: Record<string, string> = { sale: 'Sale', sale_cost: 'Stock for a sale', manual: 'Entered by hand', expense: 'Expense', lpo: 'Received LPO batch' };
+const SOURCE: Record<string, string> = {
+  sale: 'Sale',
+  sale_cost: 'Stock for a sale',
+  batch_receipt: 'Received supplier stock',
+  manual: 'Entered by hand',
+  expense: 'Expense',
+  lpo: 'Received LPO batch',
+};
 
 export default async function Debts({ searchParams }: { searchParams: Promise<ListParams> }) {
   const params = await searchParams;

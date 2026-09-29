@@ -269,6 +269,33 @@ class SupplierBatch(Entity, Base):
         return self.current_quantity - self.reserved_quantity - self.sold_quantity - self.externally_sold_quantity
 
 
+class SupplierCollection(Entity, Base):
+    # A dated delivery note for stock physically accepted from one supplier batch.
+    __tablename__ = 'supplier_collections'
+    collection_number: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    supplier_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    batch_id: Mapped[str] = mapped_column(ForeignKey('supplier_batches.id'), index=True)
+    received_on: Mapped[date] = mapped_column(Date, index=True)
+    delivered_quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    accepted_quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    rejected_quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    average_weight_kg: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 3))
+    unit_cost: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    notes: Mapped[str] = mapped_column(Text, default='')
+    debt_id: Mapped[Optional[str]] = mapped_column(ForeignKey('ledger_debts.id', use_alter=True))
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    cancelled_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    cancel_reason: Mapped[str] = mapped_column(Text, default='')
+    __table_args__ = (
+        CheckConstraint('delivered_quantity > 0', name='supplier_collections_delivered_positive'),
+        CheckConstraint('accepted_quantity >= 0 AND rejected_quantity >= 0', name='supplier_collections_quantities_nonnegative'),
+        CheckConstraint('accepted_quantity + rejected_quantity = delivered_quantity', name='supplier_collections_counts_add_up'),
+        CheckConstraint('unit_cost > 0 AND amount >= 0', name='supplier_collections_cost_valid'),
+    )
+
+
 class MarketSlot(Entity, Base):
     """A future market requirement published by Omoterra operations."""
     __tablename__ = 'market_slots'
@@ -748,6 +775,8 @@ class SaleItem(Entity, Base):
     cost_total: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 2))
     # Stock received on an LPO: costed at its price, owed through the LPO.
     lpo_line_id: Mapped[Optional[str]] = mapped_column(ForeignKey('lpo_lines.id', use_alter=True), index=True)
+    # Stock physically accepted from a registered supplier batch.
+    supplier_collection_id: Mapped[Optional[str]] = mapped_column(ForeignKey('supplier_collections.id', use_alter=True), index=True)
     __table_args__ = (
         CheckConstraint('quantity > 0', name='sale_items_quantity_check'),
         CheckConstraint('unit_price > 0', name='sale_items_unit_price_check'),
@@ -794,7 +823,7 @@ class LedgerDebt(Entity, Base):
         CheckConstraint("direction IN ('receivable','payable')", name='ledger_debts_direction_check'),
         CheckConstraint("party_kind IN ('buyer','supplier','other')", name='ledger_debts_party_kind_check'),
         CheckConstraint('amount > 0', name='ledger_debts_amount_check'),
-        CheckConstraint("source IN ('sale','sale_cost','manual','expense','lpo')", name='ledger_debts_source_check'),
+        CheckConstraint("source IN ('sale','sale_cost','manual','expense','lpo','batch_receipt')", name='ledger_debts_source_check'),
         CheckConstraint("(source = 'lpo') = (lpo_id IS NOT NULL)", name='ledger_lpo_source'),
         CheckConstraint(f"expense_category IN ({', '.join(repr(v) for v in EXPENSE_CATEGORIES)})", name='ledger_debts_expense_category_check'),
         CheckConstraint("(source = 'expense') = (expense_category IS NOT NULL)", name='ledger_expense_category'),

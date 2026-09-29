@@ -502,6 +502,28 @@ class BatchExternalSaleInput(Input):
     notes: str = Field(default='', max_length=500)
 
 
+class SupplierCollectionInput(Input):
+    batch_id: str = Field(min_length=36, max_length=36)
+    received_on: date
+    delivered_quantity: Quantity
+    accepted_quantity: Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)]
+    average_weight_kg: Optional[Annotated[Decimal, Field(gt=0, max_digits=8, decimal_places=3)]] = None
+    unit_cost: Money
+    payment_terms_days: Annotated[int, Field(ge=0, le=180)] = 0
+    notes: str = Field(default='', max_length=1000)
+
+    @field_validator('received_on')
+    @classmethod
+    def not_future(cls, value):
+        return _not_future(value)
+
+    @model_validator(mode='after')
+    def valid_collection(self):
+        if self.accepted_quantity > self.delivered_quantity:
+            raise ValueError(M('err.accepted_cannot_exceed_delivered'))
+        return self
+
+
 class MarketSlotInput(Input):
     category: Category
     delivery_date: date
@@ -898,14 +920,17 @@ class SaleItemInput(Input):
     cost_payment: Optional[StockCostPaymentInput] = None
     # Stock received on an LPO: its cost and supplier come from the LPO.
     lpo_line_id: Optional[str] = Field(default=None, max_length=36)
+    supplier_collection_id: Optional[str] = Field(default=None, max_length=36)
 
     @model_validator(mode='after')
     def complete(self):
         if not self.category and len(self.description) < 2:
             raise ValueError(M('err.describe_what_was_sold'))
-        if self.lpo_line_id:
+        if self.lpo_line_id and self.supplier_collection_id:
+            raise ValueError(M('err.choose_one_received_stock_source'))
+        if self.lpo_line_id or self.supplier_collection_id:
             if self.supplier_id or self.supplier_name or self.unit_cost is not None or self.cost_payment:
-                raise ValueError(M('err.lpo_stock_cost_comes_from_lpo'))
+                raise ValueError(M('err.received_stock_cost_comes_from_receipt'))
             return self
         has_supplier = bool(self.supplier_id or self.supplier_name)
         if has_supplier != (self.unit_cost is not None):

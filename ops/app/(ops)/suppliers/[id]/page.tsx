@@ -5,10 +5,13 @@ import { Icons } from '@/components/icons';
 import { SupplierStatusControl, SupplierVerificationForm } from '@/components/supplier-controls';
 import { ApprovalGuide, EditableCard, EditSupplierButton, SupplierTabs } from '@/components/supplier-profile';
 import { SupplierPhotosCard, SupplierVideoCard } from '@/components/supplier-media';
+import { ActionForm } from '@/components/form';
 import { Empty, Status } from '@/components/ui';
+import { receiveSupplierBatch, registerSupplierBatch } from '@/lib/batch-stock-actions';
 import { ApiError, get } from '@/lib/api';
 import { category, date, listingTone, phone, quantity, reference, titleCase, tzs } from '@/lib/format';
 import { approvalRequirements, missingProfileFields, type RequiredProfileField } from '@/lib/supplier';
+import { today } from '@/lib/finance';
 import type { SupplierDetail } from '@/lib/types';
 
 const CATEGORY_KEYS = ['broilers','local_chicken','layers','eggs','goats','cattle','chicken_meat','beef','goat_meat'];
@@ -123,13 +126,50 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
         <SupplierVideoCard id={supplier.id} video={supplier.video ?? null} uploadEnabled={supplier.video_upload_enabled ?? false}/>
       </div>
       <section className="supplier-lower-section" id="production">
-        <h2>Current and planned production</h2>
-        {supplier.batches.length === 0 ? <Empty>No production batches recorded yet.</Empty> : <div className="table-wrap lower-table"><table><thead><tr><th>Category / type</th><th>Quantity</th><th>Age</th><th>Expected ready</th><th>Expected weight</th><th>Reserved</th><th>Available</th><th>Batch review</th></tr></thead><tbody>{supplier.batches.map((batch) => <tr key={batch.id}>
-          <td>{category(batch.category)}{batch.subtype ? ` · ${batch.subtype}` : ''}<div className="meta">{batch.region}</div></td><td>{quantity(batch.current_quantity)} / {quantity(batch.initial_quantity)}</td>
-          <td>{batch.current_age ? `${quantity(batch.current_age)} ${batch.age_unit}` : '—'}</td><td>{batch.expected_ready_date ? date(batch.expected_ready_date) : '—'}</td>
-          <td>{batch.expected_min_weight_kg || batch.expected_max_weight_kg ? `${batch.expected_min_weight_kg ?? '—'}–${batch.expected_max_weight_kg ?? '—'} kg` : '—'}</td>
-          <td>{quantity(batch.reserved_quantity)}</td><td>{quantity(batch.available_to_commit)}</td><td><Status tone={batch.approved_at ? 'positive' : 'warning'}>{batch.approved_at ? 'OMOTERRA APPROVED' : titleCase(batch.status)}</Status></td>
-        </tr>)}</tbody></table></div>}
+        <div className="between"><div><h2>Supplier batches and received stock</h2><p className="meta">A batch is the supplier&apos;s production. Only quantities recorded on a delivery note become saleable Omoterra stock.</p></div>
+          <details className="batch-action-panel"><summary className="button">Register supplier batch</summary>
+            <ActionForm action={registerSupplierBatch} label="Register batch" hidden={{ supplier_id: supplier.id }}>
+              <div className="grid-3">
+                <div className="field"><label htmlFor="batch-category">Product</label><select id="batch-category" name="category" className="input" defaultValue={supplier.primary_category ?? 'broilers'} required>{CATEGORY_KEYS.map((key) => <option key={key} value={key}>{category(key)}</option>)}</select></div>
+                <div className="field"><label htmlFor="batch-subtype">Breed / type</label><input id="batch-subtype" name="subtype" className="input" placeholder="e.g. Cobb 500" /></div>
+                <div className="field"><label htmlFor="batch-quantity">Batch quantity</label><input id="batch-quantity" name="initial_quantity" type="number" min="0.001" step="0.001" className="input" required /></div>
+                <div className="field"><label htmlFor="batch-ready">Ready date</label><input id="batch-ready" name="expected_ready_date" type="date" min={today()} defaultValue={today()} className="input" required /></div>
+                <div className="field"><label htmlFor="batch-cost">Agreed cost per unit (TZS)</label><input id="batch-cost" name="asking_price_per_unit" type="number" min="1" step="0.01" className="input" required /></div>
+                <div className="field"><label htmlFor="batch-form">Supply form</label><select id="batch-form" name="form" className="input" defaultValue="live"><option value="live">Live</option><option value="dressed">Dressed</option><option value="chilled">Chilled</option><option value="frozen">Frozen</option></select></div>
+                <div className="field"><label htmlFor="batch-age">Current age</label><input id="batch-age" name="current_age" type="number" min="0" step="0.001" className="input" /></div>
+                <div className="field"><label htmlFor="batch-age-unit">Age unit</label><select id="batch-age-unit" name="age_unit" className="input" defaultValue="weeks"><option value="days">Days</option><option value="weeks">Weeks</option><option value="months">Months</option></select></div>
+                <div className="field"><label htmlFor="batch-region">Region</label><input id="batch-region" name="region" className="input" defaultValue={supplier.region} required minLength={2} /></div>
+                <div className="field"><label htmlFor="batch-min-weight">Minimum weight (kg)</label><input id="batch-min-weight" name="expected_min_weight_kg" type="number" min="0.001" step="0.001" className="input" /></div>
+                <div className="field"><label htmlFor="batch-max-weight">Maximum weight (kg)</label><input id="batch-max-weight" name="expected_max_weight_kg" type="number" min="0.001" step="0.001" className="input" /></div>
+                <div className="field"><label htmlFor="batch-pickup">Pickup location</label><input id="batch-pickup" name="private_pickup_location" className="input" defaultValue={supplier.internal_pickup_address} /></div>
+              </div>
+            </ActionForm>
+          </details>
+        </div>
+        {supplier.batches.length === 0 ? <Empty>No production batches recorded yet.</Empty> : <div className="batch-stock-list">{supplier.batches.map((batch) => {
+          const active = batch.collections.filter((row) => !row.cancelled_at);
+          const collected = active.reduce((sum, row) => sum + Number(row.accepted_quantity), 0);
+          const onHand = active.reduce((sum, row) => sum + Number(row.on_hand), 0);
+          const remaining = Math.max(Number(batch.current_quantity) - Number(batch.sold_quantity) - Number(batch.externally_sold_quantity), 0);
+          return <article key={batch.id} className="batch-stock-card">
+            <div className="batch-stock-head"><div><strong>{category(batch.category)}{batch.subtype ? ` · ${batch.subtype}` : ''}</strong><span>Batch {batch.id.slice(0, 8)} · ready {batch.expected_ready_date ? date(batch.expected_ready_date) : '—'}</span></div><Status tone={batch.approved_at ? 'positive' : 'warning'}>{batch.approved_at ? titleCase(batch.status) : 'Pending review'}</Status></div>
+            <dl className="batch-stock-metrics"><div><dt>Registered</dt><dd>{quantity(batch.current_quantity)}</dd></div><div><dt>Collected</dt><dd>{quantity(String(collected))}</dd></div><div><dt>Still with supplier</dt><dd>{quantity(String(remaining))}</dd></div><div><dt>Omoterra on hand</dt><dd>{quantity(String(onHand))}</dd></div></dl>
+            <details className="batch-receive-panel"><summary>Receive stock / create delivery note</summary>
+              <ActionForm action={receiveSupplierBatch} label="Record collection" hidden={{ supplier_id: supplier.id, batch_id: batch.id }}>
+                <div className="grid-3">
+                  <div className="field"><label htmlFor={`received-${batch.id}`}>Collection date</label><input id={`received-${batch.id}`} name="received_on" type="date" max={today()} defaultValue={today()} className="input" required /></div>
+                  <div className="field"><label htmlFor={`delivered-${batch.id}`}>Delivered quantity</label><input id={`delivered-${batch.id}`} name="delivered_quantity" type="number" min="0.001" max={remaining} step="0.001" className="input" required /></div>
+                  <div className="field"><label htmlFor={`accepted-${batch.id}`}>Accepted into stock</label><input id={`accepted-${batch.id}`} name="accepted_quantity" type="number" min="0" max={remaining} step="0.001" className="input" required /></div>
+                  <div className="field"><label htmlFor={`unit-cost-${batch.id}`}>Cost per unit (TZS)</label><input id={`unit-cost-${batch.id}`} name="unit_cost" type="number" min="1" step="0.01" defaultValue={batch.supplier_payout_price_per_unit ?? batch.asking_price_per_unit ?? ''} className="input" required /></div>
+                  <div className="field"><label htmlFor={`weight-${batch.id}`}>Average weight (kg)</label><input id={`weight-${batch.id}`} name="average_weight_kg" type="number" min="0.001" step="0.001" className="input" /></div>
+                  <div className="field"><label htmlFor={`terms-${batch.id}`}>Payment due after (days)</label><input id={`terms-${batch.id}`} name="payment_terms_days" type="number" min="0" max="180" defaultValue="0" className="input" /></div>
+                </div>
+                <div className="field"><label htmlFor={`collection-note-${batch.id}`}>Delivery note comments</label><textarea id={`collection-note-${batch.id}`} name="notes" className="input" placeholder="Condition, rejected stock, vehicle or collection details" /></div>
+              </ActionForm>
+            </details>
+            {active.length > 0 && <div className="collection-history"><h3>Collection history</h3>{active.map((row) => <Link key={row.id} href={`/supplier-collections/${row.id}`}><span><strong>{row.collection_number}</strong><small>{date(row.received_on)} · accepted {quantity(row.accepted_quantity)} · rejected {quantity(row.rejected_quantity)}</small></span><span><b>{quantity(row.on_hand)} on hand</b><small>{quantity(row.sold)} sold</small></span></Link>)}</div>}
+          </article>;
+        })}</div>}
       </section>
       <section className="supplier-lower-section" id="history"><h2>Stock and supply history</h2>
         {supplier.listings.length === 0 ? <Empty>No stock submitted yet.</Empty> : <div className="table-wrap lower-table"><table><thead><tr><th>Reference</th><th>Category</th><th className="numeric">Total</th><th className="numeric">Available</th><th className="numeric">Asking</th><th className="numeric">Buyer price</th><th>Status</th></tr></thead><tbody>{supplier.listings.map((listing) => <tr key={listing.id}><td><Link href={`/supply/${listing.id}`} className="strong">{reference(listing.id, 'ST')}</Link></td><td>{category(listing.category)}</td><td className="numeric">{quantity(listing.quantity_total)}</td><td className="numeric">{quantity(listing.quantity_available)}</td><td className="numeric">{tzs(listing.farmer_asking_price_per_unit)}</td><td className="numeric">{tzs(listing.buyer_price_per_unit)}</td><td><Status tone={listingTone(listing.listing_status)}>{titleCase(listing.listing_status)}</Status></td></tr>)}</tbody></table></div>}

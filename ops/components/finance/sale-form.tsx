@@ -4,7 +4,7 @@ import { useActionState, useMemo, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { createSale, updateSale } from '@/lib/finance-actions';
 import { Icons } from '@/components/icons';
-import { DEFAULT_UNIT, METHODS, PRODUCTS, UNITS, type Parties, type SaleDetail } from '@/lib/finance';
+import { DEFAULT_UNIT, METHODS, PRODUCTS, UNITS, type Parties, type SaleDetail, type SupplierCollectionStock } from '@/lib/finance';
 import type { LpoStockRow } from '@/lib/lpo';
 import { tanzanianMobile } from '@/lib/phone';
 import styles from './finance.module.css';
@@ -16,8 +16,9 @@ type Line = {
   unit: string;
   quantity: string;
   unit_price: string;
-  source: 'own' | 'supplier' | 'named' | 'lpo';
+  source: 'own' | 'supplier' | 'named' | 'lpo' | 'collection';
   lpo_line_id: string;
+  supplier_collection_id: string;
   supplier_id: string;
   supplier_name: string;
   unit_cost: string;
@@ -31,7 +32,7 @@ const BUYER_TYPES = ['personal', 'restaurant', 'butchery', 'hotel', 'retailer', 
 
 function blank(key: number): Line {
   return { key, category: 'local_chicken', description: '', unit: 'bird', quantity: '', unit_price: '',
-    source: 'own', supplier_id: '', supplier_name: '', unit_cost: '', lpo_line_id: '',
+    source: 'own', supplier_id: '', supplier_name: '', unit_cost: '', lpo_line_id: '', supplier_collection_id: '',
     cost_status: 'owed', cost_method: 'cash', cost_reference: '', cost_paid_on: '' };
 }
 
@@ -51,7 +52,7 @@ function StepTitle({ number, children }: { number: number; children: React.React
   return <h2 className={styles.stepTitle}><span>{number}</span>{children}</h2>;
 }
 
-export function SaleForm({ parties, today, stock = [], sale }: { parties: Parties; today: string; stock?: LpoStockRow[]; sale?: SaleDetail }) {
+export function SaleForm({ parties, today, stock = [], supplierStock = [], sale }: { parties: Parties; today: string; stock?: LpoStockRow[]; supplierStock?: SupplierCollectionStock[]; sale?: SaleDetail }) {
   const editing = Boolean(sale);
   const [state, action] = useActionState(editing ? updateSale : createSale, null);
   // One key per filled-in form: a double click or retry records one sale.
@@ -64,8 +65,9 @@ export function SaleForm({ parties, today, stock = [], sale }: { parties: Partie
   const [lines, setLines] = useState<Line[]>(sale ? sale.items.map((item, index) => ({
     key: index + 1, category: item.category, description: item.description, unit: item.unit,
     quantity: item.quantity, unit_price: item.unit_price,
-    source: item.lpo_line_id ? 'lpo' : item.supplier_id ? 'supplier' : item.supplier_name ? 'named' : 'own',
-    lpo_line_id: item.lpo_line_id ?? '', supplier_id: item.supplier_id ?? '', supplier_name: item.supplier_name,
+    source: item.supplier_collection_id ? 'collection' : item.lpo_line_id ? 'lpo' : item.supplier_id ? 'supplier' : item.supplier_name ? 'named' : 'own',
+    lpo_line_id: item.lpo_line_id ?? '', supplier_collection_id: item.supplier_collection_id ?? '',
+    supplier_id: item.supplier_id ?? '', supplier_name: item.supplier_name,
     unit_cost: item.unit_cost ?? '', cost_status: 'owed', cost_method: 'cash', cost_reference: '', cost_paid_on: sale.sold_on,
   })) : [blank(1)]);
   const [paid, setPaid] = useState({ amount: '', method: 'cash', reference: '', paid_on: today });
@@ -113,6 +115,7 @@ export function SaleForm({ parties, today, stock = [], sale }: { parties: Partie
         ...(l.source === 'named' ? { supplier_name: l.supplier_name, unit_cost: clean(l.unit_cost),
           ...(!editing && l.cost_status === 'paid' ? { cost_payment: { paid_on: l.cost_paid_on || soldOn, method: l.cost_method, reference: l.cost_reference } } : {}) } : {}),
         ...(l.source === 'lpo' ? { lpo_line_id: l.lpo_line_id || null } : {}),
+        ...(l.source === 'collection' ? { supplier_collection_id: l.supplier_collection_id || null } : {}),
       })),
       ...(!editing && paidNow > 0 ? { payment: { amount: clean(paid.amount), method: paid.method, reference: paid.reference, paid_on: paid.paid_on } } : {}),
     });
@@ -244,9 +247,32 @@ export function SaleForm({ parties, today, stock = [], sale }: { parties: Partie
                     <option value="own">Stock I already owned (no buying cost for this sale)</option>
                     <option value="supplier">Bought for this sale · registered supplier</option>
                     <option value="named">Bought for this sale · other supplier</option>
+                    {supplierStock.length > 0 && <option value="collection">Stock collected from a supplier batch</option>}
                     {stock.length > 0 && <option value="lpo">Stock received on an LPO (already owed there)</option>}
                   </select>
                 </div>
+                {line.source === 'collection' && (() => {
+                  const chosen = supplierStock.find((row) => row.id === line.supplier_collection_id);
+                  return (
+                    <div className="field">
+                      <label htmlFor={`collection-${line.key}`}>Received supplier stock</label>
+                      <select id={`collection-${line.key}`} className="input" required value={line.supplier_collection_id}
+                        onChange={(e) => {
+                          const row = supplierStock.find((item) => item.id === e.target.value);
+                          update(line.key, { supplier_collection_id: e.target.value,
+                            ...(row ? { unit: row.unit, category: row.category, unit_cost: row.unit_cost } : {}) });
+                        }}>
+                        <option value="">Choose a delivery note…</option>
+                        {supplierStock.map((row) => (
+                          <option key={row.id} value={row.id}>
+                            {row.category.replaceAll('_', ' ')} · {row.collection_number} · {row.supplier_name} · {Number(row.on_hand)} {row.unit}s on hand
+                          </option>
+                        ))}
+                      </select>
+                      {chosen && <span className="meta">Received {chosen.received_on} from batch {chosen.batch_id.slice(0, 8)} · cost TZS {Number(chosen.unit_cost).toLocaleString('en-US')} each. Supplier debt was recorded on collection.</span>}
+                    </div>
+                  );
+                })()}
                 {line.source === 'lpo' && (() => {
                   const chosen = stock.find((row) => row.lpo_line_id === line.lpo_line_id);
                   return (

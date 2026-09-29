@@ -79,7 +79,8 @@ export default async function SaleWorkspace({ params, searchParams }: {
                     <td>{quantity(item.quantity)} {unitLabel(item.unit)}</td>
                     <td>{tzs(item.unit_price)}</td>
                     <td><b>{tzs(item.subtotal)}</b></td>
-                    <td>{item.lpo_line_id ? <>LPO stock<small>cost {tzs(item.unit_cost)} each</small></>
+                    <td>{item.supplier_collection_id ? <><Link href={`/supplier-collections/${item.supplier_collection_id}`}>Received batch stock</Link><small>{supplier} · cost {tzs(item.unit_cost)} each</small></>
+                      : item.lpo_line_id ? <>LPO stock<small>cost {tzs(item.unit_cost)} each</small></>
                       : item.unit_cost ? <>{supplier}<small>cost {tzs(item.unit_cost)} each</small></> : 'Own stock'}</td>
                   </tr>;
                 })}</tbody>

@@ -1799,7 +1799,8 @@ def create_supplier_batch(data: c.SupplierBatchInput, idempotency_key: str = Hea
 @app.get(prefix + '/supplier/batches')
 def supplier_batches(user=Depends(supplier), db=Depends(database)):
     rows = db.scalars(select(m.SupplierBatch).where(m.SupplierBatch.supplier_id == user.id).order_by(m.SupplierBatch.expected_ready_date.asc().nullslast())).all()
-    return result([dm.batch_view(row, private=True) for row in rows])
+    collections = batch_stock.collections_for_batches(db, rows)
+    return result([dm.batch_view(row, private=True) | {'collections': collections[row.id]} for row in rows])
 
 
 @app.post(prefix + '/supplier/batches/{id}/external-sales')
@@ -2789,6 +2790,7 @@ def ops_supplier(id: str, db=Depends(database)):
         m.SupplierBatch.expected_ready_date.asc().nullslast())).all()
     verifications = db.scalars(select(m.BatchVerification).where(
         m.BatchVerification.batch_id.in_([b.id for b in batches]))).all() if batches else []
+    batch_collections = batch_stock.collections_for_batches(db, batches)
     return result({'id': user.id, 'phone': user.phone, 'name': user.name, 'region': profile.region,
         'public_alias': profile.public_alias, 'alias_approved': profile.alias_approved,
         'legal_name': profile.legal_name, 'alternate_phone': profile.alternate_phone,
@@ -2813,7 +2815,7 @@ def ops_supplier(id: str, db=Depends(database)):
         'approved_by_actor': _actor(db, profile.approved_by_actor), 'approved_at': profile.approved_at,
         'suspended_by_actor': _actor(db, profile.suspended_by_actor), 'suspended_at': profile.suspended_at,
         'created_at': user.created_at,
-        'batches': [dm.batch_view(b, private=True) for b in batches],
+        'batches': [dm.batch_view(b, private=True) | {'collections': batch_collections[b.id]} for b in batches],
         'batch_verifications': [{'batch_id': v.batch_id, **{k: getattr(v, k) for k in (
             'verified_quantity', 'sampled_average_weight_kg', 'rejected_quantity',
             'readiness_confirmed', 'location_confirmed', 'notes', 'status', 'inspected_at')}} for v in verifications],
@@ -3056,7 +3058,8 @@ def reverse_sale(id: str, data: c.SaleReversalInput, idempotency_key: str = Head
 
 
 # Sales, the debts ledger and promotions live in their own modules.
-from . import finance, market_schedule, promotions, purchasing  # noqa: E402
+from . import batch_stock, finance, market_schedule, promotions, purchasing  # noqa: E402
+app.include_router(batch_stock.router)
 app.include_router(finance.router)
 app.include_router(market_schedule.router)
 app.include_router(promotions.router)

@@ -39,7 +39,7 @@ export interface Debt {
   incurred_on: string;
   due_on: string | null;
   overdue: boolean;
-  source: 'sale' | 'sale_cost' | 'manual' | 'expense' | 'lpo';
+  source: 'sale' | 'sale_cost' | 'manual' | 'expense' | 'lpo' | 'batch_receipt';
   expense_category: string | null;
   sale_id: string | null;
   lpo_id: string | null;
@@ -55,6 +55,33 @@ export interface DebtDetail extends Debt {
   payments: LedgerPayment[];
 }
 
+
+export interface SupplierCollectionStock {
+  id: string;
+  collection_number: string;
+  supplier_id: string;
+  supplier_name: string;
+  supplier_phone: string;
+  batch_id: string;
+  category: string;
+  subtype: string;
+  unit: string;
+  received_on: string;
+  delivered_quantity: string;
+  accepted_quantity: string;
+  rejected_quantity: string;
+  average_weight_kg: string | null;
+  unit_cost: string;
+  amount: string;
+  sold: string;
+  on_hand: string;
+  notes: string;
+  debt_id: string | null;
+  created_at: string;
+  cancelled_at: string | null;
+  cancel_reason: string;
+}
+
 export interface SaleItem {
   id: string;
   category: string;
@@ -68,6 +95,7 @@ export interface SaleItem {
   unit_cost: string | null;
   cost_total: string | null;
   lpo_line_id: string | null;
+  supplier_collection_id: string | null;
 }
 
 export interface Sale {
