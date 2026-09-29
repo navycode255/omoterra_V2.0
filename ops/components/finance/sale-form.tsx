@@ -79,8 +79,14 @@ export function SaleForm({ parties, today, stock = [], sale }: { parties: Partie
 
   const total = lines.reduce((sum, l) => sum + (num(l.quantity) * num(l.unit_price) || 0), 0);
   const cost = lines.reduce((sum, l) => sum + (l.source !== 'own' ? num(l.quantity) * num(l.unit_cost) || 0 : 0), 0);
-  const supplierDue = lines.reduce((sum, l) => sum + ((l.source === 'supplier' || l.source === 'named') && (editing || l.cost_status === 'owed') ? num(l.quantity) * num(l.unit_cost) || 0 : 0), 0);
+  const supplierCost = lines.reduce((sum, l) => sum + ((l.source === 'supplier' || l.source === 'named') ? num(l.quantity) * num(l.unit_cost) || 0 : 0), 0);
+  const alreadyPaidToSuppliers = sale?.debts.filter((d) => d.direction === 'payable' && d.status !== 'cancelled')
+    .reduce((sum, debt) => sum + Number(debt.paid_amount), 0) ?? 0;
+  const supplierDue = editing ? Math.max(supplierCost - alreadyPaidToSuppliers, 0)
+    : lines.reduce((sum, l) => sum + ((l.source === 'supplier' || l.source === 'named') && l.cost_status === 'owed' ? num(l.quantity) * num(l.unit_cost) || 0 : 0), 0);
   const paidNow = num(paid.amount) || 0;
+  const recordedReceived = editing ? Number(sale?.received_amount ?? 0) : paidNow;
+  const paymentProblem = recordedReceived > total;
   const phoneProblem = mode === 'new' && newBuyer.phone.trim() !== '' && !tanzanianMobile(newBuyer.phone);
 
   function update(key: number, change: Partial<Line>) {
@@ -363,15 +369,16 @@ export function SaleForm({ parties, today, stock = [], sale }: { parties: Partie
       </section>}
       {editing && <section className={styles.stepCard}><div className={styles.stepHeader}><StepTitle number={3}>Notes</StepTitle></div><div className={styles.paymentGrid}><div className={`field ${styles.notesField}`}><label htmlFor="notes">Notes (optional)</label><textarea id="notes" className="input" value={notes} onChange={(e) => setNotes(e.target.value)} /></div></div></section>}
 
-      {(paidNow > total || (state && !state.ok)) && <div className="notice" data-tone="error">
-        {paidNow > total ? 'The amount received is more than the sale total.' : state && !state.ok ? state.error : ''}
+      {(paymentProblem || (state && !state.ok)) && <div className="notice" data-tone="error">
+        {paymentProblem ? editing ? 'The sale total cannot be less than money already received.' : 'The amount received is more than the sale total.' : state && !state.ok ? state.error : ''}
       </div>}
       <section className={styles.saleSummary}>
         <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.cubes size={24} /></span><div><span>Sale total</span><strong>{tzs(total)}</strong></div></div>
-        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.card size={24} /></span><div><span>{editing ? 'Stock buying cost' : 'Received now'}</span><strong>{tzs(editing ? cost : paidNow)}</strong></div></div>
-        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.users size={24} /></span><div><span>{editing ? 'Gross profit' : 'Buyer will owe'}</span><strong>{tzs(editing ? total - cost : Math.max(total - paidNow, 0))}</strong></div></div>
-        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.box size={24} /></span><div><span>{editing ? 'Supplier cost' : 'Still owe suppliers'}</span><strong>{tzs(editing ? cost : supplierDue)}</strong></div></div>
-        <Submit editing={editing} disabled={phoneProblem || paidNow > total || total <= 0} />
+        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.card size={24} /></span><div><span>Stock buying cost</span><strong>{tzs(cost)}</strong></div></div>
+        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.users size={24} /></span><div><span>Gross profit</span><strong>{tzs(total - cost)}</strong></div></div>
+        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.card size={24} /></span><div><span>Buyer will owe</span><strong>{tzs(Math.max(total - recordedReceived, 0))}</strong></div></div>
+        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.box size={24} /></span><div><span>Supplier balance</span><strong>{tzs(supplierDue)}</strong></div></div>
+        <Submit editing={editing} disabled={phoneProblem || paymentProblem || total <= 0} />
       </section>
     </form>
   );

@@ -159,7 +159,7 @@ export function InvoiceList({ data }: { data: SupplierInvoices }) {
               <span><b>{tzs(payment.amount)} paid</b><small>{when(payment.paid_on)} · {payment.method.replaceAll('_', ' ')}{payment.reference ? ` · Ref ${payment.reference}` : ''}</small></span>
               <span className="portal-proof-links">
                 {payment.sms_text && <details><summary>Payment SMS</summary><p>{payment.sms_text}</p></details>}
-                {payment.has_receipt && payment.supplier_payment_id && <a href={`/account/payment-receipt/${payment.supplier_payment_id}`} target="_blank" rel="noreferrer">View receipt</a>}
+                {payment.has_receipt && payment.supplier_payment_id && <a href={`/account/payments/${payment.supplier_payment_id}`}>View proof</a>}
               </span>
             </div>)}
           </div>}

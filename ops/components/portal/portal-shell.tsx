@@ -17,8 +17,8 @@ function ago(value: string) {
 
 // The signed-in member's frame: header with notifications and account menu,
 // a sidebar on wide screens and a scrolling tab row on phones.
-export function PortalShell({ name, subtitle, avatar, nav, notices, unread, children }: {
-  name: string; subtitle: string; avatar: string | null; nav: NavItem[]; notices: Notice[]; unread: number; children: ReactNode;
+export function PortalShell({ name, subtitle, avatar, nav, notices, unread, activeHref, children }: {
+  name: string; subtitle: string; avatar: string | null; nav: NavItem[]; notices: Notice[]; unread: number; activeHref?: string; children: ReactNode;
 }) {
   const initials = name.split(/\s+/).filter(Boolean).slice(0, 2).map((word) => word[0]!.toUpperCase()).join('') || 'O';
   return (
@@ -58,16 +58,21 @@ export function PortalShell({ name, subtitle, avatar, nav, notices, unread, chil
         </div>
       </header>
       <nav className="portal-tabs" aria-label="Sections">
-        {nav.map((item, at) => <a key={item.href} href={item.href} className={at === 0 ? 'is-active' : ''}>{item.label}</a>)}
+        {nav.map((item, at) => <a key={item.href} href={item.href} className={(activeHref ? item.href === activeHref : at === 0) ? 'is-active' : ''}>{item.label}</a>)}
       </nav>
       <div className="portal-body">
         <aside className="portal-sidebar" aria-label="Sections">
           {nav.map((item, at) => (
-            <a key={item.href} href={item.href} className={at === 0 ? 'is-active' : ''}><Icon name={item.icon} />{item.label}</a>
+            <a key={item.href} href={item.href} className={(activeHref ? item.href === activeHref : at === 0) ? 'is-active' : ''}><Icon name={item.icon} />{item.label}</a>
           ))}
         </aside>
         <div className="portal-main">{children}</div>
       </div>
+      {nav.some((item) => item.label === 'Stock') && <nav className="portal-bottom-nav" aria-label="Main supplier navigation">
+        {nav.filter((item) => ['Dashboard', 'Market', 'Stock', 'Orders', 'Payouts'].includes(item.label)).map((item) => (
+          <a key={item.href} href={item.href} className={activeHref === item.href ? 'is-active' : ''}><Icon name={item.icon} /><span>{item.label}</span></a>
+        ))}
+      </nav>}
     </div>
   );
 }

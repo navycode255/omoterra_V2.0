@@ -18,11 +18,13 @@ const buyerTypes: Record<string, string> = {
   retailer: 'Retailer', caterer: 'Caterer', other: 'Other business',
 };
 const supplierNav: NavItem[] = [
-  { href: '#overview', label: 'Dashboard', icon: 'home' }, { href: '#profile', label: 'My profile', icon: 'user' },
-  { href: '#stock', label: 'Stock', icon: 'box' }, { href: '#orders', label: 'Orders', icon: 'orders' },
-  { href: '/account/market-schedule', label: 'Market Schedule', icon: 'calendar' },
-  { href: '#payments', label: 'Invoices & payments', icon: 'coins' }, { href: '#payouts', label: 'Payouts', icon: 'coins' },
-  { href: '#help', label: 'Help & support', icon: 'help' },
+  { href: '/account', label: 'Dashboard', icon: 'home' },
+  { href: '/account/market-schedule', label: 'Market', icon: 'calendar' },
+  { href: '/account?view=stock', label: 'Stock', icon: 'box' },
+  { href: '/account?view=orders', label: 'Orders', icon: 'orders' },
+  { href: '/account?view=payouts', label: 'Payouts', icon: 'coins' },
+  { href: '/account?view=profile', label: 'Profile', icon: 'user' },
+  { href: '/account?view=profile#help', label: 'Help & support', icon: 'help' },
 ];
 const buyerNav: NavItem[] = [
   { href: '#overview', label: 'Dashboard', icon: 'home' }, { href: '#help', label: 'Help & support', icon: 'help' },
@@ -31,7 +33,7 @@ const buyerNav: NavItem[] = [
 // Sections load on their own: one failing call shows an empty section, not an error page.
 const soft = <T,>(request: Promise<T>, fallback: T) => request.catch(() => fallback);
 
-export default async function Account({ searchParams }: { searchParams: Promise<{ pin?: string }> }) {
+export default async function Account({ searchParams }: { searchParams: Promise<{ pin?: string; view?: string }> }) {
   const token = (await cookies()).get(MEMBER_COOKIE)?.value;
   if (!token) redirect('/login');
   let member: Member;
@@ -55,7 +57,9 @@ export default async function Account({ searchParams }: { searchParams: Promise<
     supplierRole ? soft(call<MarketSlot[]>('/market-schedule', { token }), []) : [],
     supplierRole ? soft(call<MarketReservation[]>('/supplier/market-reservations', { token }), []) : [],
   ]);
-  const { pin } = await searchParams;
+  const { pin, view: requestedView } = await searchParams;
+  const view = ['stock', 'orders', 'payouts', 'profile'].includes(requestedView ?? '') ? requestedView! : 'dashboard';
+  const activeHref = view === 'dashboard' ? '/account' : `/account?view=${view}`;
   const businessDate = new Date().toLocaleDateString('en-CA', { timeZone: 'Africa/Dar_es_Salaam' });
   const photo = profile?.evidence_photos[0];
   const buyer = member.roles.includes('buyer');
@@ -65,11 +69,11 @@ export default async function Account({ searchParams }: { searchParams: Promise<
       name={profile?.public_alias || member.name || member.phone}
       subtitle={profile ? 'Supplier account' : buyer ? 'Buyer account' : 'Omoterra account'}
       avatar={photo ? `/account/media/${photo.split('/').pop()}` : null}
-      nav={profile ? supplierNav : buyerNav} notices={inbox.items} unread={inbox.unread}>
+      nav={profile ? supplierNav : buyerNav} notices={inbox.items} unread={inbox.unread} activeHref={profile ? activeHref : undefined}>
       {pin === 'changed' && <p className="portal-notice" role="status">Your PIN has been changed.</p>}
       {profile ? (
         <SupplierPanel phone={member.phone} profile={profile} batches={batches} listings={listings} orders={orders}
-          payouts={payouts} invoices={invoices} markets={markets} marketReservations={marketReservations} businessDate={businessDate} supportPhone={config.support_phone} />
+          payouts={payouts} invoices={invoices} markets={markets} marketReservations={marketReservations} businessDate={businessDate} supportPhone={config.support_phone} view={view} />
       ) : (
         <>
           <section className="portal-hero" id="overview">

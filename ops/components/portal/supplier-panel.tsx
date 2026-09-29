@@ -98,9 +98,9 @@ function Stat({ icon, title, value, locked, note }: { icon: IconName; title: str
   );
 }
 
-export function SupplierPanel({ phone, profile, batches, listings, orders, payouts, invoices, markets, marketReservations, businessDate, supportPhone }: {
+export function SupplierPanel({ phone, profile, batches, listings, orders, payouts, invoices, markets, marketReservations, businessDate, supportPhone, view = 'dashboard' }: {
   phone: string; profile: SupplierProfile; batches: Batch[]; listings: Listing[]; orders: SupplierOrder[]; payouts: PayoutRow[];
-  invoices: SupplierInvoices; markets: MarketSlot[]; marketReservations: MarketReservation[]; businessDate: string; supportPhone: string;
+  invoices: SupplierInvoices; markets: MarketSlot[]; marketReservations: MarketReservation[]; businessDate: string; supportPhone: string; view?: string;
 }) {
   const approved = profile.status === 'approved';
   const live = listings.filter((row) => row.listing_status === 'live').length;
@@ -130,6 +130,7 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
   const daysToDelivery = nextReserved ? Math.max(0, Math.ceil((new Date(nextReserved.slot.delivery_date).getTime() - new Date(`${businessDate}T00:00:00+03:00`).getTime()) / 86400000)) : 0;
   return (
     <>
+      {view === 'dashboard' && <>
       <section className="portal-hero" id="overview">
         <div>
           <p>Welcome to Omoterra</p>
@@ -160,7 +161,12 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
         <Stat icon="clock" title="Pending payment" value={`TZS ${number.format(Number(invoices.pending_total))}`} locked={false} />
         <Stat icon="check" title="Invoices paid" value={`TZS ${number.format(Number(invoices.paid_total))}`} locked={false} />
       </div>
+      </>}
 
+      {view === 'stock' && <>
+      <div className="portal-page-title"><div><p>Manage your supply</p><h1>My Stock</h1></div><span className="portal-title-icon"><Icon name="box" /></span></div>
+      <Link href="/account?view=payouts" className="portal-owed-strip"><span className="portal-stat-icon"><Icon name="coins" /></span><span><small>Amount owed to you</small><strong>TZS {number.format(Number(invoices.pending_total))}</strong></span><Icon name="chevron" /></Link>
+      {nextReserved && <section className="portal-linked-market"><h2>Linked to your next market</h2><div><span className="portal-batch-photo" style={{ backgroundImage: `url(${categoryImage(nextReserved.slot.category)})` }} /><span><b>{number.format(Number(nextReserved.quantity_approved))} {label(nextReserved.slot.category)}</b><small>{date.format(new Date(nextReserved.slot.delivery_date))}</small></span><span className="portal-badge is-approved">Market reserved</span></div></section>}
       <section id="stock" className="portal-card portal-stock">
         <h2><Icon name="box" />Submitted stock</h2>
         {batches.length ? (
@@ -198,7 +204,10 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
           </div>
         )}
       </section>
+      </>}
 
+      {view === 'profile' && <>
+      <div className="portal-page-title"><div><p>Your supplier account</p><h1>Profile</h1></div><span className="portal-title-icon"><Icon name="user" /></span></div>
       <div className="portal-grid" id="profile">
         <EditableCard icon="user" title="Profile" summary={profile.public_alias || profile.legal_name} kind="contact" contact={contact}>
           <Rows rows={[['Farm / supplier name', profile.public_alias], ['Legal / full name', profile.legal_name], ['Phone number', phone],
@@ -215,14 +224,22 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
             ['Pickup location', profile.internal_pickup_address], ['Pickup instructions', profile.pickup_instructions]]} />
         </EditableCard>
       </div>
+      </>}
 
+      {view === 'orders' && <>
+      <div className="portal-page-title"><div><p>Collection and delivery</p><h1>Orders</h1></div><span className="portal-title-icon"><Icon name="orders" /></span></div>
       <section id="orders" className="portal-card portal-stock">
         <h2><Icon name="orders" />Orders</h2>
-        {orders.length ? <OrderList orders={orders} /> : <p className="portal-empty">{approved
+        {placed.length ? <OrderList orders={placed} /> : <p className="portal-empty">{approved
           ? 'No orders yet. When a buyer orders your stock, you can follow collection, delivery and payment here.'
           : 'Orders open once the Omoterra team approves your account.'}</p>}
       </section>
+      <Link href="/account?view=payouts" className="portal-payout-summary"><span className="portal-stat-icon"><Icon name="coins" /></span><span><small>Pending supplier payments</small><strong>TZS {number.format(Number(invoices.pending_total))}</strong></span><Icon name="chevron" /></Link>
+      </>}
 
+      {view === 'payouts' && <>
+      <div className="portal-page-title"><div><p>Payments and proof</p><h1>Payouts</h1></div><span className="portal-title-icon"><Icon name="coins" /></span></div>
+      <section className="portal-payment-summary"><span><Icon name="check" /><small>Total paid</small><b>TZS {number.format(Number(invoices.paid_total) + paid)}</b></span><span><Icon name="clock" /><small>Owed to you</small><b>TZS {number.format(Number(invoices.pending_total))}</b></span><span><Icon name="coins" /><small>Preferred method</small><b>{methods || 'Not set'}</b></span></section>
       <Card id="payments" icon="coins" title="Supplier invoices"
         summary={`${invoices.invoices.filter((row) => row.status === 'open').length} pending · TZS ${number.format(Number(invoices.paid_total))} paid`}>
         <p className="portal-note">These are payments for batches and stock recorded directly by Omoterra. Each payment updates here automatically.</p>
@@ -235,8 +252,9 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
           ? 'No payouts yet. A payout is prepared for each delivered order.'
           : 'Payouts start after approval and your first completed order. We ask for your account details when a payout is due.'}</p>}
       </EditableCard>
+      </>}
 
-      <section id="help" className="portal-card portal-help-card">
+      {view === 'profile' && <section id="help" className="portal-card portal-help-card">
         <h2><Icon name="help" />Help & support</h2>
         {digits ? (
           <div className="portal-help">
@@ -245,7 +263,7 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
             <a className="button button-outline" href={`https://wa.me/${digits}`}><Icon name="chat" />WhatsApp</a>
           </div>
         ) : <p className="portal-empty">The Omoterra team will contact you on {phone} about your review.</p>}
-      </section>
+      </section>}
     </>
   );
 }

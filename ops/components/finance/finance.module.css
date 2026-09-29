@@ -371,7 +371,7 @@
   min-height: 64px;
   padding: 8px 10px 8px 20px;
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr)) 143px;
+  grid-template-columns: repeat(5, minmax(0, 1fr)) 143px;
   align-items: center;
   border: 1px solid #cce7da;
   border-radius: 10px;
