@@ -71,6 +71,8 @@ if __name__ == '__main__':
     from .db import engine
     from .promotions import send_queued
     print(f'Promotion SMS attempted: {send_queued(engine)}')
+    from .supplier_payment_sms import send_queued as send_supplier_receipts
+    print(f'Supplier receipt SMS attempted: {send_supplier_receipts(engine)}')
     # Same hourly run: delete uploads that were never saved onto anything.
     from .media import prune_unused_media
     with Session.begin() as db:

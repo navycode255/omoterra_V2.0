@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import Link from 'next/link';
 import { ActionForm } from '@/components/form';
-import { SupplierPaymentForm } from '@/components/finance/supplier-payment-form';
+import { SupplierPaymentForm, SupplierReceiptMessageFields } from '@/components/finance/supplier-payment-form';
 import { Card, Empty, Notice, PageHeader, Status } from '@/components/ui';
 import { ApiError, get } from '@/lib/api';
 import { recordUnlistedSupplierPayment } from '@/lib/finance-actions';
@@ -12,7 +12,7 @@ import type { Page } from '@/lib/paging';
 export const metadata = { title: 'Supplier payments · Omoterra Operations' };
 
 export default async function SupplierPayments({ searchParams }: {
-  searchParams: Promise<{ supplier?: string; debt?: string; paid?: string }>;
+  searchParams: Promise<{ supplier?: string; debt?: string; paid?: string; sms?: string }>;
 }) {
   const query = await searchParams;
   let data: Page<Debt>;
@@ -42,7 +42,7 @@ export default async function SupplierPayments({ searchParams }: {
         <Link href="/finance/debts?status=i_owe" className="button" data-variant="secondary">All amounts I owe</Link>
       </div>
       <div className="workspace">
-        {query.paid && <Notice>Payment recorded. The supplier can now see it in their dashboard, and all balances have been updated.</Notice>}
+        {query.paid && <Notice>Payment recorded. The supplier can now see it in their dashboard, and all balances have been updated.{query.sms === 'queued' ? ' Their receipt SMS is being sent.' : ''}</Notice>}
         <Notice>These payments cover batches received through LPOs and supplier costs on direct sales. Marketplace payouts remain under <Link href="/settlements">Settlements</Link>.</Notice>
 
         {!grouped.size ? <Empty>You have no open registered supplier balances to pay.</Empty> : (
@@ -79,9 +79,10 @@ export default async function SupplierPayments({ searchParams }: {
               <div className="field"><label htmlFor="unlisted-method">Method</label><select id="unlisted-method" name="method" className="input" defaultValue="mpesa">{METHODS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></div>
               <div className="field"><label htmlFor="unlisted-reference">Receipt / transaction number</label><input id="unlisted-reference" name="reference" className="input" placeholder="e.g. M-Pesa code" /></div>
             </div>
-            <div className="field"><label htmlFor="unlisted-sms">Payment SMS</label><textarea id="unlisted-sms" name="sms_text" className="input" rows={3} placeholder="Paste the payment confirmation SMS" /></div>
+            <div className="field"><label htmlFor="unlisted-sms">Payment confirmation SMS (proof)</label><textarea id="unlisted-sms" name="sms_text" className="input" rows={3} placeholder="Paste the payment confirmation SMS" /></div>
             <div className="field"><label htmlFor="unlisted-receipt">Receipt image</label><input id="unlisted-receipt" name="receipt" className="input" type="file" accept="image/jpeg,image/png,image/webp" /></div>
             <div className="field"><label htmlFor="unlisted-note">Note (optional)</label><input id="unlisted-note" name="note" className="input" placeholder="e.g. Batch paid in full" /></div>
+            <SupplierReceiptMessageFields idPrefix="unlisted" />
           </ActionForm>
         </Card>
       </div>

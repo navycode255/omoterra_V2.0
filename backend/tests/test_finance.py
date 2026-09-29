@@ -263,6 +263,74 @@ def test_one_supplier_payment_covers_many_invoices_and_is_visible_to_supplier(cl
     assert proof.status_code == 200 and proof.json()['content_type'] == 'image/jpeg'
 
 
+def test_supplier_payment_receipt_sms_is_bilingual_and_uses_recorded_amount(
+        client, seeded, sessions, inline, monkeypatch):
+    from app import sms
+    from app.config import settings
+
+    monkeypatch.setattr(settings(), 'sms_provider', 'sema')
+    sent = []
+
+    def fake_send(phone, text, reference='', validity_seconds=None):
+        sent.append((phone, text, reference, validity_seconds))
+
+    monkeypatch.setattr(sms, 'send', fake_send)
+
+    english_sale = sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '2',
+        'unit_price': '12000', 'supplier_id': seeded['supplier'], 'unit_cost': '9000'}])
+    english_debt = next(row for row in english_sale['debts'] if row['direction'] == 'payable')
+    english = post(client, f"/ledger/suppliers/{seeded['supplier']}/payments", {
+        'amount': '18000', 'paid_on': TODAY, 'method': 'mpesa', 'reference': 'MPESA-EN-01',
+        'debt_ids': [english_debt['id']], 'send_receipt_sms': True,
+        'receipt_language': 'en', 'include_thank_you': True,
+    }, STAFF)
+    assert english.status_code == 201, english.text
+    assert english.json()['receipt_sms_status'] == 'queued'
+
+    swahili_sale = sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '1',
+        'unit_price': '12000', 'supplier_id': seeded['supplier'], 'unit_cost': '7000'}])
+    swahili_debt = next(row for row in swahili_sale['debts'] if row['direction'] == 'payable')
+    swahili = post(client, f"/ledger/suppliers/{seeded['supplier']}/payments", {
+        'amount': '7000', 'paid_on': TODAY, 'method': 'bank_transfer', 'reference': 'BANK-SW-01',
+        'debt_ids': [swahili_debt['id']], 'send_receipt_sms': True,
+        'receipt_language': 'sw', 'include_thank_you': True,
+    }, STAFF)
+    assert swahili.status_code == 201, swahili.text
+
+    assert len(sent) == 2
+    assert sent[0][0] == '+255712345680'
+    assert 'TZS 18,000' in sent[0][1] and 'Thank you for supplying Omoterra.' in sent[0][1]
+    assert 'MPESA-EN-01' in sent[0][1]
+    assert 'TZS 7,000' in sent[1][1] and 'Asante kwa kusambaza bidhaa kwa Omoterra.' in sent[1][1]
+    assert 'uhamisho wa benki' in sent[1][1] and 'BANK-SW-01' in sent[1][1]
+    assert all(row[3] == 86400 for row in sent)
+    with sessions() as db:
+        rows = db.query(m.SupplierPayment).order_by(m.SupplierPayment.created_at).all()
+        assert [row.receipt_sms_status for row in rows[-2:]] == ['sent', 'sent']
+        assert all(row.receipt_sms_attempts == 1 for row in rows[-2:])
+
+
+def test_failed_supplier_receipt_sms_does_not_undo_payment(client, seeded, sessions, inline, monkeypatch):
+    from app import sms
+    from app.config import settings
+
+    monkeypatch.setattr(settings(), 'sms_provider', 'sema')
+    monkeypatch.setattr(sms, 'send', lambda *args, **kwargs: (_ for _ in ()).throw(sms.SmsNotSent('no balance')))
+    body = sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '1',
+        'unit_price': '12000', 'supplier_id': seeded['supplier'], 'unit_cost': '9000'}])
+    debt = next(row for row in body['debts'] if row['direction'] == 'payable')
+    response = post(client, f"/ledger/suppliers/{seeded['supplier']}/payments", {
+        'amount': '9000', 'paid_on': TODAY, 'method': 'cash', 'reference': 'CASH-FAIL-01',
+        'debt_ids': [debt['id']], 'send_receipt_sms': True, 'receipt_language': 'en',
+    })
+    assert response.status_code == 201, response.text
+    assert client.get(API + f"/ledger/debts/{debt['id']}", headers=OPS).json()['status'] == 'settled'
+    with sessions() as db:
+        payment = db.query(m.SupplierPayment).filter_by(reference='CASH-FAIL-01').one()
+        assert payment.receipt_sms_status == 'failed'
+        assert payment.receipt_sms_error == 'no balance'
+
+
 def test_supplier_payment_needs_proof_and_cannot_cross_suppliers(client, seeded):
     body = sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '1', 'unit_price': '12000',
         'supplier_id': seeded['supplier'], 'unit_cost': '9000'}])

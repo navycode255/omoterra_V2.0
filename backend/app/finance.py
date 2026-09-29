@@ -32,7 +32,7 @@ from fastapi import APIRouter, Depends, File, Header, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import Date, Text, and_, cast, exists, func, or_, select
 
-from . import auth, contracts as c, models as m, notifications as notes, paging, services as s
+from . import auth, contracts as c, models as m, notifications as notes, paging, services as s, supplier_payment_sms
 from .db import database
 from .i18n import M, fail
 from .media import save_photo
@@ -450,12 +450,12 @@ async def upload_supplier_payment_receipt(file: UploadFile = File(), operator=De
 def pay_supplier(supplier_id: str, data: c.SupplierPaymentInput, idempotency_key: str = Header(),
                  operator=Depends(auth.ops), db=Depends(database)):
     """Allocate one supplier transfer over selected invoices, oldest first."""
-    _supplier_party(db, supplier_id)
+    _supplier_name, supplier_phone = _supplier_party(db, supplier_id)
     payload = {'supplier_id': supplier_id, **data.model_dump()}
     key, fingerprint, prior = s.replay(db, operator.id, 'supplier-payment', idempotency_key, payload)
     if prior:
         row = db.get(m.SupplierPayment, prior)
-        return _result({'id': row.id, 'amount': row.amount}, 201)
+        return _result({'id': row.id, 'amount': row.amount, 'receipt_sms_status': row.receipt_sms_status}, 201)
     if data.receipt_media_id:
         asset = db.get(m.MediaAsset, data.receipt_media_id)
         if not asset or asset.owner_id is not None or not asset.content_type.startswith('image/'):
@@ -474,6 +474,12 @@ def pay_supplier(supplier_id: str, data: c.SupplierPaymentInput, idempotency_key
     group = m.SupplierPayment(supplier_id=supplier_id, amount=data.amount, paid_on=data.paid_on,
         method=data.method, reference=data.reference.strip(), sms_text=data.sms_text.strip(),
         receipt_media_id=data.receipt_media_id, note=data.note.strip(), recorded_by=operator.id)
+    if data.send_receipt_sms:
+        group.receipt_sms_language = data.receipt_language
+        group.receipt_sms_phone = supplier_phone
+        group.receipt_sms_message = supplier_payment_sms.message(data.amount, data.paid_on, data.method,
+            data.reference, data.receipt_language, data.include_thank_you)
+        supplier_payment_sms.queue(db, group)
     db.add(group)
     db.flush()
     remaining = data.amount
@@ -488,7 +494,8 @@ def pay_supplier(supplier_id: str, data: c.SupplierPaymentInput, idempotency_key
     notes.notify(db, supplier_id, 'supplier', 'supplier_payment', M('notify.supplier_payment',
         amount=f'{data.amount:,.0f}'), '/account#payments')
     s.remember(db, key, fingerprint, group.id)
-    return _result({'id': group.id, 'amount': group.amount, 'allocated': data.amount}, 201)
+    return _result({'id': group.id, 'amount': group.amount, 'allocated': data.amount,
+        'receipt_sms_status': group.receipt_sms_status}, 201)
 
 
 @router.post('/ledger/payments/{id}/reverse')

@@ -6,6 +6,32 @@ import { recordSupplierBatchPayment } from '@/lib/finance-actions';
 import { METHODS, day, today, type Debt } from '@/lib/finance';
 import { tzs } from '@/lib/format';
 
+export function SupplierReceiptMessageFields({ idPrefix }: { idPrefix: string }) {
+  const [enabled, setEnabled] = useState(true);
+  return (
+    <section className="supplier-receipt-message">
+      <label className="supplier-message-toggle">
+        <input type="checkbox" name="send_receipt_sms" value="true" checked={enabled}
+          onChange={(event) => setEnabled(event.target.checked)} />
+        <span><strong>Send receipt SMS to supplier</strong><small>Sent after this payment is safely recorded, using the amount paid above.</small></span>
+      </label>
+      {enabled && <div className="supplier-message-options">
+        <div className="field">
+          <label htmlFor={`language-${idPrefix}`}>Message language</label>
+          <select id={`language-${idPrefix}`} name="receipt_language" className="input" defaultValue="en">
+            <option value="en">English</option>
+            <option value="sw">Swahili</option>
+          </select>
+        </div>
+        <label className="supplier-thanks-option">
+          <input type="checkbox" name="include_thank_you" value="true" defaultChecked />
+          <span><strong>Include a thank-you note</strong><small>The note is translated into the selected language.</small></span>
+        </label>
+      </div>}
+    </section>
+  );
+}
+
 export function SupplierPaymentForm({ supplierId, debts, idempotencyKey }: {
   supplierId: string; debts: Debt[]; idempotencyKey: string;
 }) {
@@ -53,10 +79,11 @@ export function SupplierPaymentForm({ supplierId, debts, idempotencyKey }: {
       <div className="receipt-evidence">
         <div><strong>Add payment proof</strong><p className="meta">Add at least one: receipt number, payment SMS, or receipt image. You may add all three.</p></div>
         <div className="field"><label htmlFor={`reference-${supplierId}`}>Receipt / transaction number</label><input id={`reference-${supplierId}`} name="reference" className="input" placeholder="e.g. QI87KD92" /></div>
-        <div className="field"><label htmlFor={`sms-${supplierId}`}>Payment SMS</label><textarea id={`sms-${supplierId}`} name="sms_text" className="input" rows={3} placeholder="Paste the payment confirmation SMS" /></div>
+        <div className="field"><label htmlFor={`sms-${supplierId}`}>Payment confirmation SMS (proof)</label><textarea id={`sms-${supplierId}`} name="sms_text" className="input" rows={3} placeholder="Paste the payment confirmation SMS" /></div>
         <div className="field"><label htmlFor={`receipt-${supplierId}`}>Receipt image</label><input id={`receipt-${supplierId}`} name="receipt" className="input" type="file" accept="image/jpeg,image/png,image/webp" /></div>
       </div>
       <div className="field"><label htmlFor={`note-${supplierId}`}>Note (optional)</label><input id={`note-${supplierId}`} name="note" className="input" placeholder="Anything the supplier should know" /></div>
+      <SupplierReceiptMessageFields idPrefix={supplierId} />
       {!selected.size && <div className="notice" data-tone="error">Select at least one invoice.</div>}
     </ActionForm>
   );

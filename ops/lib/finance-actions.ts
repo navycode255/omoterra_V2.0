@@ -34,6 +34,20 @@ function key(formData: FormData) {
 
 const FINANCE = ['/finance', '/sales'];
 
+function supplierReceiptSmsBody(formData: FormData) {
+  return {
+    send_receipt_sms: text(formData, 'send_receipt_sms') === 'true',
+    receipt_language: text(formData, 'receipt_language') || 'en',
+    include_thank_you: text(formData, 'include_thank_you') === 'true',
+  };
+}
+
+type SupplierPaymentResult = {
+  id: string;
+  amount: string;
+  receipt_sms_status: 'queued' | 'sent' | 'failed' | 'skipped';
+};
+
 /** The sale form posts its whole order as JSON; on success, open the sale. */
 export async function createSale(_: ActionResult | null, formData: FormData): Promise<ActionResult> {
   await requireSession();
@@ -109,18 +123,20 @@ export async function recordSupplierBatchPayment(_: ActionResult | null, formDat
       const saved = await postFile<{ id: string }>('/ops/ledger/supplier-payment-receipts', receipt, randomUUID());
       receiptMediaId = saved.id;
     }
-    await post(`/ops/ledger/suppliers/${encodeURIComponent(supplier)}/payments`, {
+    await post<SupplierPaymentResult>(`/ops/ledger/suppliers/${encodeURIComponent(supplier)}/payments`, {
       ...paymentBody(formData),
       debt_ids: formData.getAll('debt_ids').map(String),
       sms_text: sms,
       receipt_media_id: receiptMediaId,
+      ...supplierReceiptSmsBody(formData),
     }, key(formData));
   } catch (error) {
     if (error instanceof ApiError) return { ok: false, error: error.message };
     throw error;
   }
   for (const path of [...FINANCE, '/finance/supplier-payments']) revalidatePath(path, 'layout');
-  redirect('/finance/supplier-payments?paid=1');
+  const smsRequested = text(formData, 'send_receipt_sms') === 'true';
+  redirect(`/finance/supplier-payments?paid=1${smsRequested ? '&sms=queued' : ''}`);
 }
 
 /** Record a supplier payment whose original stock cost was never entered. */
@@ -153,15 +169,17 @@ export async function recordUnlistedSupplierPayment(_: ActionResult | null, form
       const saved = await postFile<{ id: string }>('/ops/ledger/supplier-payment-receipts', receipt, randomUUID());
       receiptMediaId = saved.id;
     }
-    await post(`/ops/ledger/suppliers/${encodeURIComponent(text(formData, 'supplier_id'))}/payments`, {
+    await post<SupplierPaymentResult>(`/ops/ledger/suppliers/${encodeURIComponent(text(formData, 'supplier_id'))}/payments`, {
       ...paymentBody(formData), debt_ids: [debt.id], sms_text: sms, receipt_media_id: receiptMediaId,
+      ...supplierReceiptSmsBody(formData),
     }, text(formData, 'payment_key') || randomUUID());
   } catch (error) {
     if (error instanceof ApiError) return { ok: false, error: error.message };
     throw error;
   }
   for (const path of FINANCE) revalidatePath(path, 'layout');
-  redirect('/finance/supplier-payments?paid=1');
+  const smsRequested = text(formData, 'send_receipt_sms') === 'true';
+  redirect(`/finance/supplier-payments?paid=1${smsRequested ? '&sms=queued' : ''}`);
 }
 
 export async function reverseLedgerPayment(_: ActionResult | null, formData: FormData) {

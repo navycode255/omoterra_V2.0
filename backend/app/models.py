@@ -825,10 +825,21 @@ class SupplierPayment(Entity, Base):
     receipt_media_id: Mapped[Optional[str]] = mapped_column(ForeignKey('media_assets.id'))
     note: Mapped[str] = mapped_column(Text, default='')
     recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    receipt_sms_status: Mapped[str] = mapped_column(String(16), default='skipped')
+    receipt_sms_language: Mapped[str] = mapped_column(String(2), default='en')
+    receipt_sms_phone: Mapped[str] = mapped_column(String(20), default='')
+    receipt_sms_message: Mapped[str] = mapped_column(Text, default='')
+    receipt_sms_error: Mapped[str] = mapped_column(Text, default='')
+    receipt_sms_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    receipt_sms_sent_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     __table_args__ = (
         CheckConstraint('amount > 0', name='supplier_payments_amount_check'),
         CheckConstraint(f"method IN ({', '.join(repr(v) for v in LEDGER_METHODS)})", name='supplier_payments_method_check'),
         CheckConstraint("reference <> '' OR sms_text <> '' OR receipt_media_id IS NOT NULL", name='supplier_payment_has_evidence'),
+        CheckConstraint("receipt_sms_status IN ('queued','sent','failed','skipped')", name='supplier_payment_receipt_sms_status_check'),
+        CheckConstraint("receipt_sms_language IN ('en','sw')", name='supplier_payment_receipt_sms_language_check'),
+        Index('ix_supplier_payments_receipt_sms_queued', 'receipt_sms_status',
+            postgresql_where=text("receipt_sms_status = 'queued'")),
     )
 
 

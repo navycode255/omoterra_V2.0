@@ -2037,6 +2037,13 @@ textarea.join-input { min-height: 88px; resize: vertical; }
 .supplier-pay-choice label:has(input:checked) { border-color: #72b99a; background: #eff8f4; }
 .receipt-evidence { display: grid; gap: 12px; padding: 16px; border: 1px solid #cfe4da; border-radius: 12px; background: #f5faf7; }
 .receipt-evidence p { margin: 3px 0 0; }
+.supplier-receipt-message { display: grid; gap: 12px; padding: 16px; border: 1px solid #b9ddcc; border-radius: 12px; background: linear-gradient(135deg, #f0faf5, #fff); }
+.supplier-message-toggle, .supplier-thanks-option { display: flex; align-items: flex-start; gap: 11px; cursor: pointer; }
+.supplier-message-toggle input, .supplier-thanks-option input { width: 18px; height: 18px; margin-top: 2px; accent-color: var(--green); }
+.supplier-message-toggle span, .supplier-thanks-option span { display: grid; gap: 3px; }
+.supplier-message-toggle small, .supplier-thanks-option small { color: var(--muted); }
+.supplier-message-options { display: grid; grid-template-columns: minmax(180px, .7fr) minmax(240px, 1.3fr); align-items: end; gap: 14px; padding-top: 12px; border-top: 1px solid #dbece4; }
+.supplier-thanks-option { min-height: 42px; align-items: center; }
 
 .portal-invoices { display: grid; gap: 12px; margin: 14px 0 0; padding: 0; list-style: none; }
 .portal-invoices > li { padding: 14px; border: 1px solid #e5ece8; border-radius: 14px; }
@@ -2053,7 +2060,7 @@ textarea.join-input { min-height: 88px; resize: vertical; }
 .portal-proof-links details p { max-width: 460px; margin: 6px 0; padding: 10px; border-radius: 8px; background: #f4f7f5; color: var(--portal-ink); white-space: pre-wrap; }
 @media (max-width: 850px) { .supplier-payment-layout { grid-template-columns: 1fr; } }
 @media (max-width: 640px) {
-  .supplier-pay-choice { grid-template-columns: 1fr; }
+  .supplier-pay-choice, .supplier-message-options { grid-template-columns: 1fr; }
   .supplier-invoice-option { grid-template-columns: auto 1fr; }
   .supplier-invoice-option > b { grid-column: 2; }
   .portal-invoice-head, .portal-invoice-payments > div { flex-direction: column; }

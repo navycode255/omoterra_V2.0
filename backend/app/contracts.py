@@ -874,6 +874,9 @@ class SupplierPaymentInput(LedgerPaymentInput):
     debt_ids: list[str] = Field(default_factory=list, max_length=500)
     sms_text: str = Field(default='', max_length=2000)
     receipt_media_id: Optional[str] = Field(default=None, max_length=36)
+    send_receipt_sms: bool = False
+    receipt_language: Literal['en', 'sw'] = 'en'
+    include_thank_you: bool = True
 
     @model_validator(mode='after')
     def has_evidence(self):
