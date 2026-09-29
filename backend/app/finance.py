@@ -328,6 +328,16 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
             continue
         key = ('supplier', debt.supplier_id) if debt.supplier_id else ('other', debt.party_name.casefold())
         existing[key] = debt
+    # A supplier correction must keep the original debt and every payment on
+    # it. When one supplier was replaced by one other supplier, re-key that
+    # debt instead of treating the edit as deleting a paid debt and creating a
+    # new unpaid one.
+    removed_keys = [key for key in existing if key not in costs]
+    added_keys = [key for key in costs if key not in existing]
+    if len(removed_keys) == 1 and len(added_keys) == 1:
+        debt = existing.pop(removed_keys[0])
+        existing[added_keys[0]] = debt
+
     for key, debt in existing.items():
         desired = costs.get(key, {}).get('amount', ZERO)
         if desired < debt.paid_amount:
@@ -357,6 +367,8 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
     for (kind, party), owed in costs.items():
         debt = existing.get((kind, party))
         if debt:
+            debt.party_kind = 'supplier' if kind == 'supplier' else 'other'
+            debt.supplier_id = party if kind == 'supplier' else None
             debt.party_name, debt.party_phone = owed['name'], owed['phone']
             debt.amount, debt.incurred_on = owed['amount'], data.sold_on
             debt.description = f"Stock for sale {sale.sale_number}: {', '.join(owed['lines'])}"[:500]

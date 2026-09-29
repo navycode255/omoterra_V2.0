@@ -164,6 +164,35 @@ def test_sale_can_be_edited_without_losing_payments(client, seeded):
     })
     assert too_small.status_code == 422
 
+def test_editing_sale_reassigns_paid_supplier_debt(client, seeded, sessions):
+    original = sale(client, items=[
+        {'category': 'broilers', 'unit': 'bird', 'quantity': '3', 'unit_price': '7000',
+         'supplier_id': seeded['supplier'], 'unit_cost': '6500'}])
+    old_debt = next(row for row in original['debts'] if row['direction'] == 'payable')
+    assert pay(client, old_debt['id'], '19500').status_code == 201
+
+    with sessions.begin() as db:
+        replacement = m.User(phone='+255712345681', roles=['supplier'], name='Replacement Supplier', region='Morogoro')
+        db.add(replacement); db.flush()
+        db.add(m.SupplierProfile(user_id=replacement.id, legal_name='New Supplier', public_alias='New Farm',
+            status='approved', categories=['broilers'], district='Morogoro', internal_pickup_address='New farm'))
+        replacement_id = replacement.id
+
+    changed = client.put(API + f"/sales/{original['id']}", headers=OPS, json={
+        'buyer_profile_id': original['buyer_profile_id'], 'sold_on': TODAY,
+        'items': [{'category': 'broilers', 'unit': 'bird', 'quantity': '3', 'unit_price': '7000',
+                   'supplier_id': replacement_id, 'unit_cost': '6500'}],
+    })
+    assert changed.status_code == 200, changed.text
+    body = changed.json()
+    assert body['items'][0]['supplier_id'] == replacement_id
+    debt = next(row for row in body['debts'] if row['direction'] == 'payable' and row['status'] != 'cancelled')
+    assert debt['id'] == old_debt['id']
+    assert debt['supplier_id'] == replacement_id
+    assert debt['party_name'] == 'New Supplier'
+    assert Decimal(debt['paid_amount']) == Decimal('19500')
+    assert debt['status'] == 'settled'
+
 def test_one_supplier_payment_covers_many_invoices_and_is_visible_to_supplier(client, seeded):
     first = sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '10', 'unit_price': '12000',
         'supplier_id': seeded['supplier'], 'unit_cost': '9000'}])

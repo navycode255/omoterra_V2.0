@@ -478,3 +478,65 @@
   .summaryMetric { border-right: 0; border-bottom: 1px solid #d5e9df; padding: 8px 0; }
   .saveButton { width: 100%; }
 }
+
+/* Sale detail ------------------------------------------------------------ */
+.saleDetailPage {
+  min-height: 100%;
+  color: #0a1628;
+  background: radial-gradient(circle at 12% 4%, rgba(226, 244, 236, .48), transparent 25%), #fbfdfc;
+}
+.saleDetailTopbar { min-height: 150px; padding: 22px 30px 20px; align-items: flex-end; }
+.saleDetailTopbar h1 { margin-top: 14px; color: #0a1628; font-size: 34px; line-height: 1.08; letter-spacing: -.035em; }
+.saleBreadcrumb { display: flex; align-items: center; gap: 11px; color: #667895; font-size: 13px; }
+.saleBreadcrumb a { color: #526c91; }
+.saleDetailActions { display: flex; align-items: center; gap: 22px; padding-bottom: 7px; }
+.editSaleButton { min-height: 48px; padding: 0 22px; display: inline-flex; align-items: center; justify-content: center; gap: 10px; border-radius: 12px; background: linear-gradient(180deg, #087a59, #006446); color: #fff; font-weight: 700; box-shadow: 0 8px 20px rgba(0, 101, 70, .16); }
+.editSaleButton:hover { color: #fff; background: #005e42; }
+.saleDetailWorkspace { padding: 0 30px 42px; }
+.saleDetailGrid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1.04fr); gap: 20px; align-items: start; }
+.saleDetailColumn { min-width: 0; display: grid; gap: 20px; }
+.saleDetailCard { min-width: 0; padding: 20px; border: 1px solid #e0e9e4; border-radius: 15px; background: rgba(255,255,255,.97); box-shadow: 0 9px 26px rgba(28, 75, 53, .055); }
+.saleCardHeader { min-height: 46px; display: flex; align-items: center; gap: 13px; margin-bottom: 16px; }
+.saleCardHeader > span:first-child:not(:global(.status)) { width: 44px; height: 44px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 50%; background: #e7f6ed; color: #087e4c; }
+.saleCardHeader h2 { margin: 0; flex: 1; color: #0a1628; font-size: 19px; letter-spacing: -.02em; }
+.saleDefinition { padding: 12px 18px; display: grid; gap: 0; border: 1px solid #e4ebe8; border-radius: 12px; }
+.saleDefinition > div { min-height: 42px; display: grid; grid-template-columns: 132px minmax(0,1fr); align-items: center; gap: 12px; }
+.saleDefinition dt { color: #667895; }
+.saleDefinition dd { margin: 0; color: #111d31; font-weight: 550; }
+.saleItemsTable { overflow-x: auto; border: 1px solid #dfe7e3; border-radius: 12px; }
+.saleItemsTable table { width: 100%; border-collapse: collapse; }
+.saleItemsTable th { padding: 12px 14px; background: #f5f9f7; color: #526784; font-size: 11px; font-weight: 600; text-align: left; text-transform: uppercase; white-space: nowrap; }
+.saleItemsTable td { padding: 13px 14px; border-top: 1px solid #e7eeea; color: #111d31; font-size: 13px; white-space: nowrap; }
+.saleItemsTable td small { display: block; margin-top: 3px; color: #7890af; font-size: 11.5px; }
+.saleProduct { display: flex; align-items: center; gap: 11px; }
+.saleProduct > span { width: 48px; height: 42px; flex: 0 0 auto; display: grid; place-items: center; border-radius: 9px; background: #eef4f0 center / cover no-repeat; color: #087e4c; }
+.saleProduct > div { display: grid; }
+.saleProduct small { white-space: normal; }
+.saleSummaryCard { padding-bottom: 16px; }
+.saleSummaryCard dl { margin: 0; }
+.saleSummaryCard dl > div { min-height: 43px; padding: 0 6px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-top: 1px solid #e8eeeb; }
+.saleSummaryCard dt { color: #667895; }
+.saleSummaryCard dd { margin: 0; color: #0a1628; font-weight: 750; }
+.expenseLink { display: inline-block; margin: 12px 6px 0; color: #08784b; font-size: 13px; font-weight: 650; }
+.saleDetailCard :global(.stat-band) { border: 1px solid #dce8e2; border-radius: 12px; background: linear-gradient(90deg, #f5faf7, #fbfdfc); overflow: hidden; }
+.saleDetailCard :global(.stat) { min-height: 104px; padding: 19px; }
+.saleDetailCard :global(.stat-value) { font-size: 21px; }
+.salePayments { margin-top: 16px; }
+.salePayments :global(.table-wrap) { border-radius: 12px; }
+.salePayments :global(table) { min-width: 620px; }
+.saleDebtMeta { margin: -4px 0 16px; color: #71829b; font-size: 12.5px; }
+.saleDebtMeta a { color: #547395; }
+.cancelSaleCard { max-width: 620px; margin-top: 20px; }
+
+@media (max-width: 1120px) {
+  .saleDetailGrid { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .saleDetailTopbar { min-height: auto; padding: 18px 16px; align-items: flex-start; flex-direction: column; }
+  .saleDetailTopbar h1 { font-size: 28px; }
+  .saleDetailActions { width: 100%; justify-content: space-between; padding: 0; }
+  .saleDetailWorkspace { padding: 0 16px 32px; }
+  .saleDetailCard { padding: 15px; }
+  .saleDefinition > div { grid-template-columns: 92px minmax(0,1fr); }
+  .saleCardHeader h2 { font-size: 17px; }
+}
