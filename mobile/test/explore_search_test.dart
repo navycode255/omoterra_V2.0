@@ -60,6 +60,19 @@ Future<void> _open(WidgetTester tester, _Server server) async {
 }
 
 void main() {
+  testWidgets('an empty marketplace uses the designed hero and empty state',
+      (tester) async {
+    final server = _Server(total: 0);
+    await _open(tester, server);
+    expect(find.text('Marketplace'), findsOneWidget);
+    expect(find.text('No supply available'), findsOneWidget);
+    expect(find.text('Request the supply you need'), findsOneWidget);
+    expect(find.byType(TextField), findsNothing,
+        reason:
+            'empty markets show the clear reference state, not dead filters');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('typing waits for a pause, then asks the server once',
       (tester) async {
     final server = _Server();

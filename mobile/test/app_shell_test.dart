@@ -34,8 +34,9 @@ void main() {
     await tester.pumpWidget(host('/buyer', const SizedBox()));
     await tester.pump(const Duration(seconds: 1));
 
-    expect(find.text('BUYER'), findsOneWidget);
-    await tester.tap(find.text('BUYER'));
+    final buyerSwitcher = find.byIcon(Icons.person_outline).first;
+    expect(buyerSwitcher, findsOneWidget);
+    await tester.tap(buyerSwitcher);
     await tester.pumpAndSettle();
     expect(find.text('Register as supplier'), findsOneWidget,
         reason:

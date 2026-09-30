@@ -141,6 +141,18 @@ class Strings {
   String get availableToday => _t('Available Today', 'Zilizopo Leo');
   String get viewAll => _t('View all', 'Angalia zote');
   String get explore => _t('Explore', 'Tafuta');
+  String get marketplace => _t('Marketplace', 'Soko');
+  String get marketplaceOpen =>
+      _t('Fresh supply ready to order.', 'Bidhaa mpya tayari kuagizwa.');
+  String get marketplaceClosed =>
+      _t('No supply available right now.', 'Hakuna bidhaa zilizopo kwa sasa.');
+  String get marketplaceEmptyTitle =>
+      _t('No supply available', 'Hakuna bidhaa zinazopatikana');
+  String get marketplaceEmptyBody => _t(
+      'New supply will appear here when Omoterra publishes it.',
+      'Bidhaa mpya zitaonekana hapa Omoterra ikizichapisha.');
+  String get requestWhatYouNeed =>
+      _t('Request the supply you need', 'Omba bidhaa unayohitaji');
   String get searchHint => _t(
       'Search livestock, meat or produce…', 'Tafuta mifugo, nyama au mazao…');
   String get all => _t('All', 'Zote');

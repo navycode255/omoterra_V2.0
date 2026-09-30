@@ -235,7 +235,8 @@ final routerProvider = Provider<GoRouter>((ref) {
             path: '/account/support',
             builder: (_, __) => const AccountInfoScreen('support')),
         omoterraRoute(
-            path: '/legal/terms', builder: (_, __) => const LegalScreen('terms')),
+            path: '/legal/terms',
+            builder: (_, __) => const LegalScreen('terms')),
         omoterraRoute(
             path: '/legal/privacy',
             builder: (_, __) => const LegalScreen('privacy')),
@@ -374,28 +375,65 @@ class AppShell extends ConsumerWidget {
             // first controls never hide beneath it.
             extendBodyBehindAppBar: overPhoto,
             appBar: PreferredSize(
-                preferredSize: const Size.fromHeight(64),
-                child: SafeArea(
-                    bottom: false,
-                    child: Padding(
-                        padding: const EdgeInsets.fromLTRB(20, 8, 16, 8),
-                        // The logo hugs the left edge on its own (not Expanded,
-                        // which would center it in the leftover space); the role
-                        // switcher sits at the right with whatever room remains.
-                        child: Row(children: [
-                          // On the narrowest phones the logo scales down
-                          // rather than pushing the bell and role pill off.
-                          // The logo takes the free width (left-aligned) so it
-                          // can show at full size, shrinking only on narrow phones.
-                          const Expanded(
-                              child: Align(
-                                  alignment: Alignment.centerLeft,
-                                  // Only as tall as the logo, so the bar keeps its height.
-                                  heightFactor: 1,
-                                  child: BrandMark(size: 25))),
-                          const NotificationBell(),
-                          _RoleSwitcher(supplier: supplier, onPhoto: overPhoto),
-                        ])))),
+                preferredSize: Size.fromHeight(supplier ? 64 : 84),
+                child: Container(
+                    decoration: BoxDecoration(
+                        color: Colors.white,
+                        borderRadius: const BorderRadius.vertical(
+                            bottom: Radius.circular(26)),
+                        boxShadow: supplier
+                            ? null
+                            : [
+                                BoxShadow(
+                                    color:
+                                        OColors.forest.withValues(alpha: .08),
+                                    blurRadius: 18,
+                                    offset: const Offset(0, 5))
+                              ]),
+                    child: SafeArea(
+                        bottom: false,
+                        child: Padding(
+                            padding: EdgeInsets.fromLTRB(
+                                20, supplier ? 8 : 12, 16, supplier ? 8 : 12),
+                            // The logo hugs the left edge on its own (not Expanded,
+                            // which would center it in the leftover space); the role
+                            // switcher sits at the right with whatever room remains.
+                            child: Row(children: [
+                              // On the narrowest phones the logo scales down
+                              // rather than pushing the bell and role pill off.
+                              // The logo takes the free width (left-aligned) so it
+                              // can show at full size, shrinking only on narrow phones.
+                              Expanded(
+                                  child: Align(
+                                      alignment: Alignment.centerLeft,
+                                      // Only as tall as the logo, so the bar keeps its height.
+                                      heightFactor: 1,
+                                      child:
+                                          BrandMark(size: supplier ? 25 : 34))),
+                              Container(
+                                  width: supplier ? null : 48,
+                                  height: supplier ? null : 48,
+                                  decoration: supplier
+                                      ? null
+                                      : BoxDecoration(
+                                          color: Colors.white,
+                                          shape: BoxShape.circle,
+                                          border: Border.all(
+                                              color: const Color(0xFFE4ECE7)),
+                                          boxShadow: [
+                                              BoxShadow(
+                                                  color: OColors.forest
+                                                      .withValues(alpha: .06),
+                                                  blurRadius: 10,
+                                                  offset: const Offset(0, 3))
+                                            ]),
+                                  child: const NotificationBell()),
+                              const SizedBox(width: 8),
+                              _RoleSwitcher(
+                                  supplier: supplier,
+                                  onPhoto: overPhoto,
+                                  compact: !supplier),
+                            ]))))),
             body: SafeArea(
                 top: false,
                 child: RefreshIndicator(
@@ -416,12 +454,108 @@ class AppShell extends ConsumerWidget {
                           24),
                       child: child,
                     ))),
-            bottomNavigationBar: _BottomNav(
-                selected: routes.indexOf(path),
-                onSelect: (i) => context.go(routes[i]),
-                onDemand: () =>
-                    context.go(supplier ? '/supplier-demand' : '/explore'),
-                supplier: supplier)));
+            bottomNavigationBar: supplier
+                ? _BottomNav(
+                    selected: routes.indexOf(path),
+                    onSelect: (i) => context.go(routes[i]),
+                    onDemand: () => context.go('/supplier-demand'),
+                    supplier: true)
+                : _BuyerBottomNav(
+                    selected: switch (path) {
+                      '/buyer' => 0,
+                      '/explore' => 1,
+                      '/orders' => 3,
+                      '/account' => 4,
+                      _ => -1,
+                    },
+                    onSelect: (i) {
+                      const destinations = [
+                        '/buyer',
+                        '/explore',
+                        '/request',
+                        '/orders',
+                        '/account'
+                      ];
+                      i == 2
+                          ? context.push(destinations[i])
+                          : context.go(destinations[i]);
+                    })));
+  }
+}
+
+class _BuyerBottomNav extends StatelessWidget {
+  final int selected;
+  final ValueChanged<int> onSelect;
+  const _BuyerBottomNav({required this.selected, required this.onSelect});
+
+  @override
+  Widget build(BuildContext context) {
+    final bottomInset = MediaQuery.paddingOf(context).bottom;
+    final s = context.s;
+    final items = [
+      (Icons.home_outlined, Icons.home, s.home),
+      (Icons.storefront_outlined, Icons.storefront, s.marketplace),
+      (Icons.add_circle_outline, Icons.add_circle, s.requestSupply),
+      (Icons.receipt_long_outlined, Icons.receipt_long, s.orders),
+      (Icons.person_outline, Icons.person, s.account),
+    ];
+    return Container(
+        margin:
+            EdgeInsets.fromLTRB(10, 0, 10, bottomInset > 0 ? bottomInset : 10),
+        height: 82,
+        decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(26),
+            border: Border.all(color: const Color(0xFFE3EAE6)),
+            boxShadow: [
+              BoxShadow(
+                  color: OColors.forest.withValues(alpha: .13),
+                  blurRadius: 18,
+                  offset: const Offset(0, -3))
+            ]),
+        child: Row(
+            children: List.generate(items.length, (index) {
+          final item = items[index];
+          final active = selected == index;
+          return Expanded(
+              child: Semantics(
+                  button: true,
+                  selected: active,
+                  label: item.$3,
+                  child: InkWell(
+                      onTap: () => onSelect(index),
+                      borderRadius: BorderRadius.circular(22),
+                      child: Padding(
+                          padding: const EdgeInsets.only(top: 13),
+                          child: Column(children: [
+                            Icon(active ? item.$2 : item.$1,
+                                size: 25,
+                                color: active
+                                    ? const Color(0xFF08743F)
+                                    : const Color(0xFF64748B)),
+                            const SizedBox(height: 4),
+                            FittedBox(
+                                fit: BoxFit.scaleDown,
+                                child: Text(item.$3,
+                                    maxLines: 1,
+                                    style: TextStyle(
+                                        fontSize: 11,
+                                        fontWeight: active
+                                            ? FontWeight.w700
+                                            : FontWeight.w500,
+                                        color: active
+                                            ? const Color(0xFF08743F)
+                                            : const Color(0xFF64748B)))),
+                            const SizedBox(height: 5),
+                            AnimatedContainer(
+                                duration: AppMotion.control,
+                                width: active ? 30 : 0,
+                                height: 4,
+                                decoration: BoxDecoration(
+                                    color: const Color(0xFF08743F),
+                                    borderRadius: BorderRadius.circular(4)))
+                          ])))));
+        })));
   }
 }
 
@@ -691,7 +825,9 @@ class _RoleSwitcher extends ConsumerWidget {
 
   /// Over Supplier Home's photo the pill is white, as in the design.
   final bool onPhoto;
-  const _RoleSwitcher({required this.supplier, this.onPhoto = false});
+  final bool compact;
+  const _RoleSwitcher(
+      {required this.supplier, this.onPhoto = false, this.compact = false});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -746,7 +882,9 @@ class _RoleSwitcher extends ConsumerWidget {
         }
       },
       child: Container(
-        padding: const EdgeInsets.fromLTRB(10, 8, 8, 8),
+        padding: compact
+            ? const EdgeInsets.fromLTRB(13, 10, 10, 10)
+            : const EdgeInsets.fromLTRB(10, 8, 8, 8),
         decoration: BoxDecoration(
             color: onPhoto ? Colors.white : OColors.soft,
             borderRadius: BorderRadius.circular(20),
@@ -759,14 +897,18 @@ class _RoleSwitcher extends ConsumerWidget {
                   ]
                 : null),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
-          const Icon(Icons.person, size: 15, color: OColors.forest),
-          const SizedBox(width: 5),
-          Text(s.label(supplier ? 'supplier' : 'buyer').toUpperCase(),
-              style: const TextStyle(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: .8,
-                  color: OColors.forest)),
+          Icon(Icons.person_outline,
+              size: compact ? 23 : 15, color: OColors.forest),
+          if (!compact) ...[
+            const SizedBox(width: 5),
+            Text(s.label(supplier ? 'supplier' : 'buyer').toUpperCase(),
+                style: const TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: .8,
+                    color: OColors.forest)),
+          ],
+          const SizedBox(width: 2),
           const Icon(Icons.keyboard_arrow_down,
               size: 16, color: OColors.forest),
         ]),
