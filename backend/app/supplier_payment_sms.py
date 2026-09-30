@@ -8,7 +8,6 @@ from sqlalchemy.orm import Session
 
 from . import models as m, notifications as notes, sms
 from .config import settings
-from .db import Session as DatabaseSession
 
 log = logging.getLogger(__name__)
 BATCH = 20
@@ -56,7 +55,7 @@ def queue(db, payment):
 def send_queued(bind, limit=None):
     done = 0
     while limit is None or done < limit:
-        with DatabaseSession(bind) as db, db.begin():
+        with Session(bind) as db, db.begin():
             rows = db.scalars(select(m.SupplierPayment)
                 .where(m.SupplierPayment.receipt_sms_status == 'queued')
                 .order_by(m.SupplierPayment.created_at).limit(BATCH)

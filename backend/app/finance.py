@@ -273,6 +273,12 @@ def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operat
     return _result(sale_view(db, sale, True), 201)
 
 
+def _has_supplier_transfer(db, debt_id):
+    """Whether part of a "Pay supplier" transfer is allocated to this debt."""
+    return db.scalar(select(m.LedgerPayment.id).where(m.LedgerPayment.debt_id == debt_id,
+        m.LedgerPayment.supplier_payment_id.is_not(None), m.LedgerPayment.reversed_at.is_(None)).limit(1)) is not None
+
+
 @router.put('/sales/{id}')
 def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db=Depends(database)):
     """Correct an active direct sale while preserving every money record.
@@ -355,12 +361,17 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
         key = ('supplier', debt.supplier_id) if debt.supplier_id else ('other', debt.party_name.casefold())
         existing[key] = debt
     # A supplier correction must keep the original debt and every payment on
-    # it. When one supplier was replaced by one other supplier, re-key that
-    # debt instead of treating the edit as deleting a paid debt and creating a
-    # new unpaid one.
+    # it. When one supplier was replaced by one other supplier (the wrong name
+    # picked), re-key that debt instead of treating the edit as deleting a
+    # paid debt and creating a new unpaid one: a cost payment typed in with
+    # the sale was really made to the corrected supplier. Not so for money
+    # sent through "Pay supplier": that transfer reached the original
+    # supplier and stays on their account, so such a debt keeps its party and
+    # the check below refuses an edit that would leave it overpaid.
     removed_keys = [key for key in existing if key not in costs]
     added_keys = [key for key in costs if key not in existing]
-    if len(removed_keys) == 1 and len(added_keys) == 1:
+    if (len(removed_keys) == 1 and len(added_keys) == 1
+            and not _has_supplier_transfer(db, existing[removed_keys[0]].id)):
         debt = existing.pop(removed_keys[0])
         existing[added_keys[0]] = debt
 
@@ -646,6 +657,43 @@ def debt(id: str, operator=Depends(auth.ops), db=Depends(database)):
     if not row:
         fail('err.debt_not_found', 404)
     return _result(_debt_detail(db, row))
+
+
+@router.get('/ledger/suppliers/{supplier_id}/statement')
+def supplier_statement(supplier_id: str, operator=Depends(auth.ops), db=Depends(database)):
+    """Everything bought from one supplier outside app orders (direct sales,
+    LPO receipts, collections) and every payment made to them, newest first.
+    Cancelled purchases and reversed payments are left out of the totals."""
+    debts = db.scalars(select(m.LedgerDebt).where(m.LedgerDebt.supplier_id == supplier_id,
+        m.LedgerDebt.direction == 'payable', m.LedgerDebt.status != 'cancelled')
+        .order_by(m.LedgerDebt.incurred_on.desc(), m.LedgerDebt.created_at.desc())).all()
+    sale_numbers = dict(db.execute(select(m.Sale.id, m.Sale.sale_number)
+        .where(m.Sale.id.in_([row.sale_id for row in debts if row.sale_id]))).all())
+    live = db.scalars(select(m.LedgerPayment).where(m.LedgerPayment.debt_id.in_([row.id for row in debts]),
+        m.LedgerPayment.reversed_at.is_(None))).all()
+    by_transfer = defaultdict(lambda: ZERO)
+    payments = []
+    for row in live:
+        if row.supplier_payment_id:
+            by_transfer[row.supplier_payment_id] += row.amount
+        else:
+            # Paid with the sale or on one debt: its own line in the history.
+            payments.append({'id': row.id, 'kind': 'single', 'amount': row.amount, 'allocated': row.amount,
+                'paid_on': row.paid_on, 'method': row.method, 'reference': row.reference, 'note': row.note,
+                'debt_id': row.debt_id, 'created_at': row.created_at})
+    for row in db.scalars(select(m.SupplierPayment).where(m.SupplierPayment.supplier_id == supplier_id)):
+        payments.append({'id': row.id, 'kind': 'transfer', 'amount': row.amount,
+            'allocated': by_transfer.get(row.id, ZERO), 'paid_on': row.paid_on, 'method': row.method,
+            'reference': row.reference, 'note': row.note, 'debt_id': None, 'created_at': row.created_at})
+    payments.sort(key=lambda row: (row['paid_on'], row['created_at']), reverse=True)
+    return _result({
+        'bought': sum((row.amount for row in debts), ZERO),
+        'paid': sum((row.paid_amount for row in debts), ZERO),
+        'owed': sum((row.balance for row in debts), ZERO),
+        'open_count': sum(1 for row in debts if row.status == 'open'),
+        'debts': [{**debt_view(row), 'sale_number': sale_numbers.get(row.sale_id)} for row in debts],
+        'payments': payments,
+    })
 
 
 PAYMENTS = Spec(m.LedgerPayment, (m.LedgerPayment.paid_on.desc(), m.LedgerPayment.created_at.desc(), m.LedgerPayment.id.desc()),

@@ -193,6 +193,30 @@ def test_editing_sale_reassigns_paid_supplier_debt(client, seeded, sessions):
     assert Decimal(debt['paid_amount']) == Decimal('19500')
     assert debt['status'] == 'settled'
 
+def test_editing_sale_keeps_a_supplier_transfer_with_that_supplier(client, seeded):
+    """Money sent through "Pay supplier" reached that supplier: changing the
+    sale's supplier afterwards must not move it to someone else (the extra
+    3 birds a supplier gave free were edited to another name, and part of her
+    transfer followed them)."""
+    first = sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '20', 'unit_price': '7000',
+        'supplier_id': seeded['supplier'], 'unit_cost': '6500'}])
+    extra = sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '3', 'unit_price': '7000',
+        'supplier_id': seeded['supplier'], 'unit_cost': '6500'}])
+    transfer = post(client, f"/ledger/suppliers/{seeded['supplier']}/payments", {
+        'amount': '149500', 'paid_on': TODAY, 'method': 'bank_transfer', 'reference': 'BANK-23-BIRDS'})
+    assert transfer.status_code == 201, transfer.text
+
+    moved = client.put(API + f"/sales/{extra['id']}", headers=OPS, json={
+        'buyer_profile_id': extra['buyer_profile_id'], 'sold_on': TODAY,
+        'items': [{'category': 'broilers', 'unit': 'bird', 'quantity': '3', 'unit_price': '7000',
+                   'supplier_name': 'Tegeta Sokoni', 'unit_cost': '6500'}]})
+    assert moved.status_code == 422
+    after = client.get(API + f"/sales/{extra['id']}", headers=OPS).json()
+    debt = next(row for row in after['debts'] if row['direction'] == 'payable')
+    assert debt['supplier_id'] == seeded['supplier'] and Decimal(debt['paid_amount']) == Decimal('19500')
+    assert first['id'] != extra['id']
+
+
 def test_sale_supplier_debt_can_be_reconciled_as_recording_error(client, seeded):
     original = sale(client, items=[
         {'category': 'broilers', 'unit': 'bird', 'quantity': '3', 'unit_price': '7000',
@@ -604,3 +628,24 @@ def test_profit_is_sales_less_stock_cost_less_expenses(client, seeded, sessions)
     for_sale = client.get(API + f"/expenses?sale_id={first['id']}", headers=OPS).json()
     assert Decimal(for_sale['total']) == Decimal('30000.00')
     assert client.get(API + '/finance/profit?start=2026-01-02&end=2026-01-01', headers=OPS).status_code == 422
+
+
+def test_supplier_statement_shows_purchases_and_payments(client, seeded):
+    first = sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '20', 'unit_price': '7000',
+        'supplier_id': seeded['supplier'], 'unit_cost': '6500'}])
+    sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '10', 'unit_price': '7000',
+        'supplier_id': seeded['supplier'], 'unit_cost': '6500'}])
+    transfer = post(client, f"/ledger/suppliers/{seeded['supplier']}/payments", {
+        'amount': '150000', 'paid_on': TODAY, 'method': 'bank_transfer', 'reference': 'BANK-150'})
+    assert transfer.status_code == 201, transfer.text
+
+    statement = client.get(API + f"/ledger/suppliers/{seeded['supplier']}/statement", headers=OPS)
+    assert statement.status_code == 200, statement.text
+    body = statement.json()
+    assert Decimal(body['bought']) == Decimal('195000')
+    assert Decimal(body['paid']) == Decimal('150000')
+    assert Decimal(body['owed']) == Decimal('45000') and body['open_count'] == 1
+    assert {row['sale_number'] for row in body['debts']} >= {first['sale_number']}
+    [payment] = body['payments']
+    assert payment['kind'] == 'transfer' and Decimal(payment['allocated']) == Decimal('150000')
+    assert payment['reference'] == 'BANK-150'
