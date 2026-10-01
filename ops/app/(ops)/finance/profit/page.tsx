@@ -69,7 +69,7 @@ export default async function Profit({ searchParams }: { searchParams: Promise<L
             {Number(data.revenue) > 0 && <div className="meta">{Math.round((Number(data.net_profit) / Number(data.revenue)) * 100)}% of sales</div>}</div>
         </div>
 
-        <div className="grid-2" style={{ alignItems: 'start', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)' }}>
+        <div className="grid-main-side">
           <Card title="Day by day">
             {active.length === 0 ? <Empty>No sales or expenses in this period.</Empty> : (
               <div className="table-wrap">

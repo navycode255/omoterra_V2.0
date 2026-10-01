@@ -1,152 +1,40 @@
-import { randomUUID } from 'node:crypto';
 import Link from 'next/link';
-import { ActionForm } from '@/components/form';
-import { Card, Empty, Notice, PageHeader, Status } from '@/components/ui';
-import { ListControls } from '@/components/list-controls';
+import { Notice, PageHeader, Status } from '@/components/ui';
 import { debtStatus, debtTone } from '@/components/finance/ledger';
+import { ExpenseWorkspace, RecordExpenseButton } from '@/components/finance/expense-workspace';
+import { Icons } from '@/components/icons';
+import styles from '@/components/finance/expenses.module.css';
 import { ApiError, get } from '@/lib/api';
-import { createExpense } from '@/lib/finance-actions';
-import { EXPENSE_CATEGORIES, METHODS, day, expenseLabel, today, type Debt } from '@/lib/finance';
+import { EXPENSE_CATEGORIES, day, expenseLabel, today, type Debt } from '@/lib/finance';
 import { tzs } from '@/lib/format';
 import { listPath, param, type ListParams, type Page } from '@/lib/paging';
 
 export const metadata = { title: 'Expenses · Omoterra Operations' };
-
-type Expenses = Page<Debt> & { total: string; by_category: { category: string; amount: string; paid: string; owed: string }[] };
-
+type Expenses = Omit<Page<Debt>, 'total'> & { total: string; by_category: { category: string; amount: string; paid: string; owed: string }[] };
 export default async function ExpensesPage({ searchParams }: { searchParams: Promise<ListParams> }) {
   const params = await searchParams;
   const now = today();
-  const start = param(params, 'start') || `${now.slice(0, 8)}01`;
-  const end = param(params, 'end') || now;
-  const saleId = param(params, 'sale_id');
+  const start = param(params,'start') || `${now.slice(0,8)}01`;
+  const end = param(params,'end') || now;
+  const saleId = param(params,'sale_id');
   let data: Expenses;
-  try {
-    data = await get<Expenses>(listPath('/ops/expenses', params, ['start', 'end', 'category', 'sale_id'], saleId ? {} : { start, end }));
-  } catch (error) {
-    return <><div className="topbar"><PageHeader title="Expenses" /></div><div className="workspace"><Notice tone="error">
-      {error instanceof ApiError ? error.message : 'Expenses could not be loaded.'}</Notice></div></>;
-  }
-  return (
-    <>
-      <div className="topbar">
-        <PageHeader title="Expenses" subtitle="Operating costs: labour, transport, fuel, fees and anything unexpected. Record them the day they happen."
-          info="An expense paid now goes into the cash book. One not yet paid shows under “I owe” until you record the payment." />
-        <Link href="/finance/profit" className="button" data-variant="secondary">Profit</Link>
-      </div>
-      <div className="workspace">
-        {saleId && <Notice>Showing and recording expenses for one sale. <Link href={`/sales/${saleId}`}>Back to the sale</Link> · <Link href="/finance/expenses">All expenses</Link></Notice>}
-        <div className="grid-2" style={{ alignItems: 'start', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)' }}>
-          <div className="stack">
-            {!saleId && (
-              <form className="row" action="/finance/expenses" style={{ flexWrap: 'wrap', alignItems: 'end' }}>
-                <div className="field"><label htmlFor="start">From</label><input id="start" name="start" type="date" className="input" defaultValue={start} /></div>
-                <div className="field"><label htmlFor="end">To</label><input id="end" name="end" type="date" className="input" defaultValue={end} /></div>
-                <div className="field"><label htmlFor="category">Category</label>
-                  <select id="category" name="category" className="input" defaultValue={param(params, 'category')}>
-                    <option value="">All</option>
-                    {EXPENSE_CATEGORIES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-                  </select></div>
-                <button className="button" data-variant="secondary" type="submit">Show</button>
-              </form>
-            )}
-            <div className="stat-band" style={{ gridTemplateColumns: `repeat(${Math.min(data.by_category.length + 1, 4)}, minmax(0, 1fr))` }}>
-              <div className="stat"><div className="stat-label">Total spent</div><div className="stat-value">{tzs(data.total)}</div>
-                <div className="meta">{saleId ? 'on this sale' : `${day(start)} – ${day(end)}`}</div></div>
-              {data.by_category.slice(0, 3).map((row) => (
-                <div className="stat" key={row.category}><div className="stat-label">{expenseLabel(row.category)}</div>
-                  <div className="stat-value">{tzs(row.amount)}</div>{Number(row.owed) > 0 && <div className="meta">{tzs(row.owed)} not yet paid</div>}</div>
-              ))}
-            </div>
-            <ListControls path="/finance/expenses" params={params} data={data} noun={['expense', 'expenses']} actionLabel="unpaid"
-              keep={['start', 'end', 'category', 'sale_id']} placeholder="Search description or who was paid">
-              <div className="table-wrap">
-                {data.items.length === 0 ? <Empty>No expenses in this period.</Empty> : (
-                  <table>
-                    <thead><tr><th>Date</th><th>What</th><th>Paid to</th><th className="numeric">Amount</th><th className="numeric">Unpaid</th><th>Status</th></tr></thead>
-                    <tbody>
-                      {data.items.map((row) => (
-                        <tr key={row.id}>
-                          <td className="small">{day(row.incurred_on)}</td>
-                          <td><Link href={`/finance/debts/${row.id}`} className="strong">{row.description}</Link>
-                            <div className="meta">{expenseLabel(row.expense_category)}{row.sale_id && <> · <Link href={`/sales/${row.sale_id}`}>sale</Link></>}</div></td>
-                          <td className="small">{row.party_name}</td>
-                          <td className="numeric money">{tzs(row.amount)}</td>
-                          <td className="numeric">{Number(row.balance) > 0 ? tzs(row.balance) : '—'}</td>
-                          <td><Status tone={debtTone(row)}>{debtStatus(row)}</Status></td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            </ListControls>
-          </div>
-
-          <Card title="Record an expense">
-            <ActionForm action={createExpense} label="Save expense" hidden={{ idempotency_key: randomUUID(), sale_id: saleId }}>
-              <div className="field">
-                <label htmlFor="spent_on">Date</label>
-                <input id="spent_on" name="spent_on" type="date" className="input" defaultValue={now} max={now} required />
-              </div>
-              <div className="field">
-                <label htmlFor="exp-category">Category</label>
-                <select id="exp-category" name="category" className="input" required>
-                  {EXPENSE_CATEGORIES.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-                </select>
-              </div>
-              <div className="field">
-                <label htmlFor="description">What for</label>
-                <input id="description" name="description" className="input" required minLength={2} placeholder="e.g. 3 helpers for chicken prep" />
-              </div>
-              <div className="field">
-                <label htmlFor="amount">Amount (TZS)</label>
-                <input id="amount" name="amount" className="input" inputMode="decimal" required />
-              </div>
-              <div className="grid-2">
-                <div className="field">
-                  <label htmlFor="paid_to">Paid to (optional)</label>
-                  <input id="paid_to" name="paid_to" className="input" placeholder="e.g. Juma transport" />
-                </div>
-                <div className="field">
-                  <label htmlFor="paid_to_phone">Their phone (optional)</label>
-                  <input id="paid_to_phone" name="paid_to_phone" className="input" inputMode="tel" />
-                </div>
-              </div>
-              <div className="field">
-                <label htmlFor="paid_now">Paid?</label>
-                <select id="paid_now" name="paid_now" className="input" defaultValue="full">
-                  <option value="full">Paid in full now</option>
-                  <option value="part">Paid part now</option>
-                  <option value="none">Not paid yet (I owe it)</option>
-                </select>
-              </div>
-              <div className="grid-2">
-                <div className="field">
-                  <label htmlFor="method">Paid with</label>
-                  <select id="method" name="method" className="input" defaultValue="cash">
-                    {METHODS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
-                  </select>
-                </div>
-                <div className="field">
-                  <label htmlFor="paid_amount">Part paid (if part)</label>
-                  <input id="paid_amount" name="paid_amount" className="input" inputMode="decimal" />
-                </div>
-              </div>
-              <div className="grid-2">
-                <div className="field">
-                  <label htmlFor="reference">Reference (optional)</label>
-                  <input id="reference" name="reference" className="input" />
-                </div>
-                <div className="field">
-                  <label htmlFor="due_on">Due (if owed)</label>
-                  <input id="due_on" name="due_on" type="date" className="input" />
-                </div>
-              </div>
-            </ActionForm>
-          </Card>
-        </div>
-      </div>
-    </>
-  );
+  try { data = await get<Expenses>(listPath('/ops/expenses',params,['start','end','category','sale_id'],saleId ? {} : {start,end})); }
+  catch(error) { return <><div className="topbar"><PageHeader title="Expenses"/></div><div className="workspace"><Notice tone="error">{error instanceof ApiError ? error.message : 'Expenses could not be loaded.'}</Notice></div></>; }
+  function pageLink(page: number) { const query=new URLSearchParams(); for(const key of ['start','end','category','sale_id','q','page_size','status']) {const value=param(params,key);if(value)query.set(key,value);} query.set('page',String(page));return `/finance/expenses?${query}`; }
+  return <ExpenseWorkspace now={now} saleId={saleId}>
+    {saleId && <Notice>Expenses for this sale. <Link href={`/sales/${saleId}`}>Back to sale</Link> · <Link href="/finance/expenses">All expenses</Link></Notice>}
+    <form className={styles.filters} action="/finance/expenses" role="search">
+      {saleId && <input type="hidden" name="sale_id" value={saleId}/>}
+      {!saleId && <details className={styles.dateFilter}><summary><Icons.calendar size={19}/><span>{day(start)} – {day(end)}</span><Icons.chevronDown size={16}/></summary><div><label>From<input name="start" type="date" defaultValue={start}/></label><label>To<input name="end" type="date" defaultValue={end}/></label></div></details>}
+      <select name="category" aria-label="Expense category" defaultValue={param(params,'category')}><option value="">All categories</option>{EXPENSE_CATEGORIES.map(([id,label])=><option key={id} value={id}>{label}</option>)}</select>
+      <div className={styles.search}><Icons.search size={20}/><input type="search" name="q" defaultValue={param(params,'q')} placeholder="Search expenses…" aria-label="Search expenses"/></div>
+      <button className={styles.secondary} type="submit">Apply</button>
+    </form>
+    <section className={styles.summary} aria-label="Total expenses"><span className={styles.summaryIcon}><Icons.card size={36}/></span><div><p>Total spent</p><strong>{tzs(data.total)}</strong><p>{saleId ? 'On this sale' : `${day(start)} – ${day(end)}`}</p></div><svg className={styles.leaves} viewBox="0 0 200 145" aria-hidden="true"><path d="M200 0C156 23 150 87 181 145c24-57 29-102 19-145M122 93C64 66 31 107 16 145c58 9 98-9 106-52M162 77C110 76 90 30 99 0c50 4 83 30 63 77" fill="currentColor"/><path d="m196 12-15 126M34 139l78-39M106 10l53 58" stroke="white" fill="none"/></svg></section>
+    <section className={styles.history}><h2><Icons.clipboard size={22}/>Expense history</h2>
+      <div className={styles.tableWrap}><table className={styles.table}><thead><tr><th>Date</th><th>Category</th><th>Description</th><th>Paid to</th><th>Amount (TZS)</th><th>Payment</th></tr></thead><tbody>{data.items.map(row=><tr key={row.id}><td data-label="Date">{day(row.incurred_on)}</td><td data-label="Category">{expenseLabel(row.expense_category)}</td><td data-label="Description"><Link className={styles.description} href={`/finance/debts/${row.id}`}>{row.description}</Link>{row.sale_id && <Link className={styles.saleLink} href={`/sales/${row.sale_id}`}>View sale</Link>}</td><td data-label="Paid to">{row.party_name || '—'}</td><td data-label="Amount" className={styles.money}>{tzs(row.amount)}</td><td data-label="Payment"><div><Status tone={debtTone(row)}>{debtStatus(row)}</Status>{Number(row.balance)>0 && <small>{tzs(row.balance)} owed</small>}</div></td></tr>)}</tbody></table></div>
+      {!data.items.length && <div className={styles.empty}><span><Icons.file size={44}/></span><h3>No expenses for this period.</h3><p>Record your first expense to start tracking operating costs.</p><RecordExpenseButton/></div>}
+      {(data.page>1 || data.items.length>=data.page_size) && <nav className={styles.pagination} aria-label="Expense pages">{data.page>1 && <Link href={pageLink(data.page-1)}>Previous</Link>}<span>Page {data.page}</span>{data.items.length>=data.page_size && <Link href={pageLink(data.page+1)}>Next</Link>}</nav>}
+    </section>
+  </ExpenseWorkspace>;
 }

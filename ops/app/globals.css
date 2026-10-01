@@ -2533,3 +2533,49 @@ textarea.join-input { min-height: 88px; resize: vertical; }
 .portal-collection-history span { display: grid; gap: 2px; }
 .portal-collection-history span:last-child { text-align: right; }
 .portal-collection-history small { color: var(--portal-muted); font-size: 12px; }
+
+/* Operations dashboard on phones ------------------------------------------- */
+/* A list beside its form (debts, profit). */
+.grid-main-side { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: var(--s4); align-items: start; }
+/* Wide tables scroll inside their own box instead of widening the page. */
+.workspace > *, .list-controls > *, .card, .stack > *, .grid-2 > *, .grid-3 > *, .grid-main-side > * { min-width: 0; }
+@media (max-width: 900px) {
+  .grid-main-side { grid-template-columns: 1fr; }
+}
+@media (max-width: 720px) {
+  .shell { padding-top: 0; }
+  /* 16px text stops phones zooming into every field that is tapped. */
+  .shell .input, .shell select, .shell textarea, .shell input:not([type=checkbox]):not([type=radio]) { font-size: 16px; }
+  .shell .input, .shell select.input { min-height: 46px; }
+  .topbar { padding: 16px; flex-wrap: wrap; align-items: flex-start; }
+  .topbar > * { min-width: 0; }
+  .workspace { padding: 16px 16px 40px; gap: 16px; }
+  .card { padding: 16px; }
+  .grid-2, .grid-3, .category-editor, .supplier-card-grid, .verification-checks, .delivery-note-grid,
+  .supplier-payment-layout, .supplier-pay-choice, .supplier-message-options, .range-custom, .market-page-grid,
+  .supplier-market-content, .dash-row-charts, .dash-row-lists, .dash-row-metrics, .metric-grid, .video-body { grid-template-columns: 1fr !important; }
+  .delivery-note-stock, .batch-stock-metrics, .kpi-row, .supplier-photos { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  /* Stat bands set their own column count inline; two across fit a phone. */
+  .stat-band { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+  .stat { padding: 14px; border-right: 0; border-bottom: 1px solid var(--border); }
+  .stat:nth-child(odd) { border-right: 1px solid var(--border); }
+  .stat-value { font-size: 20px; overflow-wrap: anywhere; }
+  .table-wrap, .lower-table, .supplier-table-wrap { overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .table-wrap table { min-width: 560px; }
+  thead th, tbody td { padding: 10px 12px; }
+  .tabs, .filter-tabs { overflow-x: auto; scrollbar-width: none; }
+  .tab { white-space: nowrap; }
+  .list-search { flex-wrap: wrap; }
+  .list-search .input { max-width: none; flex: 1 1 100%; }
+  .list-search .button { flex: 1 1 auto; }
+  .between { flex-wrap: wrap; }
+  .row > .button, .row > .input { max-width: 100%; }
+  .button { min-height: 46px; height: auto; padding: 10px 16px; }
+  .field label { font-size: 14px; }
+}
+.signin-page { overflow-x: hidden; }
+.supplier-directory { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 720px) {
+  .status-control-wrap { grid-template-columns: 1fr; justify-items: stretch; }
+  .status-control, .status-control select { width: 100%; }
+}

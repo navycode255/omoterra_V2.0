@@ -49,7 +49,7 @@ export default async function Debts({ searchParams }: { searchParams: Promise<Li
           info="Sales create their debts automatically. Add anything else here: transport, loans, feed on credit, staff advances." />
       </div>
       <div className="workspace">
-        <div className="grid-2" style={{ alignItems: 'start', gridTemplateColumns: 'minmax(0, 2fr) minmax(0, 1fr)' }}>
+        <div className="grid-main-side">
           <ListControls path="/finance/debts" params={params} data={data} tabs={TABS} noun={['debt', 'debts']}
             actionLabel="open" placeholder="Search name, phone or description">
             <div className="table-wrap">
