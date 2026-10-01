@@ -47,6 +47,8 @@ export default async function Finance({ searchParams }: { searchParams: Promise<
     return <><div className="topbar"><PageHeader title="Finance" /></div><div className="workspace"><Notice tone="error">
       {error instanceof ApiError ? error.message : 'Finance could not be loaded.'}</Notice></div></>;
   }
+  // An API that predates the trend lines sends none; the cards still show.
+  const trends = data.trends ?? { owed_to_me: [], i_owe: [], revenue: [], net_profit: [] };
 
   return (
     <div className={styles.financePage}>
@@ -70,23 +72,23 @@ export default async function Finance({ searchParams }: { searchParams: Promise<
           <Link href="/finance/debts?status=owed_to_me" className={styles.summaryCard} aria-label="Money owed to me">
             <Icons.users className={styles.summaryIcon} size={34} />
             <div><span>Owed to me</span><strong>{tzs(data.owed_to_me.total)}</strong></div>
-            <Sparkline className={styles.spark} values={data.trends.owed_to_me} />
+            <Sparkline className={styles.spark} values={trends.owed_to_me} />
           </Link>
           <Link href="/finance/debts?status=i_owe" className={styles.summaryCard} aria-label="Money I owe">
             <Icons.card className={`${styles.summaryIcon} ${styles.oweIcon}`} size={34} />
             <div><span>I owe</span><strong>{tzs(data.i_owe.total)}</strong></div>
-            <Sparkline className={styles.spark} values={data.trends.i_owe} tone="red" />
+            <Sparkline className={styles.spark} values={trends.i_owe} tone="red" />
           </Link>
           <Link href="/sales" className={styles.summaryCard} aria-label="Sales">
             <Icons.chart className={styles.summaryIcon} size={34} />
             <div><span>{period === 'today' ? 'Sales today' : 'Sales this month'}</span><strong>{tzs(period === 'today' ? data.today.sales : data.month.sales)}</strong>
               <small>Cash received: {tzs(period === 'today' ? data.today.money_in : data.month.money_in)}</small></div>
-            <Sparkline className={styles.spark} values={data.trends.revenue} />
+            <Sparkline className={styles.spark} values={trends.revenue} />
           </Link>
           <Link href="/finance/profit" className={styles.summaryCard} aria-label="Profit">
             <Icons.trend className={styles.summaryIcon} size={34} />
             <div><span>{period === 'today' ? 'Profit today' : 'Profit this month'}</span><strong>{signed(period === 'today' ? data.profit_today.net_profit : data.profit_month.net_profit)}</strong></div>
-            <Sparkline className={styles.spark} values={data.trends.net_profit} tone={Number(data.profit_month.net_profit) < 0 ? 'red' : 'green'} />
+            <Sparkline className={styles.spark} values={trends.net_profit} tone={Number(data.profit_month.net_profit) < 0 ? 'red' : 'green'} />
           </Link>
         </section>
 
