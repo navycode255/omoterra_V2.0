@@ -11,7 +11,7 @@ Open http://localhost:3001. Validate with `npm run lint` and `npm run build`.
 
 ## Implementation
 
-- `app/(public)/page.tsx`: homepage entry, metadata, Inter font.
+- `app/(public)/page.tsx`: homepage entry, metadata, Sora and Inter fonts.
 - `components/home/homepage.tsx`: Header, Hero, LivestockCard, LivestockSection, BenefitsBlock, ProcessSteps, MarketplaceSection, CTASection, Footer, and Homepage.
 - `components/home/homepage.module.css`: reference layout, responsive styling, focus states, and motion.
 - `components/home/motion.tsx`: IntersectionObserver section reveals and scroll-sensitive sticky header.
@@ -19,7 +19,7 @@ Open http://localhost:3001. Validate with `npm run lint` and `npm run build`.
 - `app/layout.tsx`: adds Manrope weight 800 for headings.
 - `package.json`, `package-lock.json`: Tailwind/PostCSS dependencies.
 
-Manrope is used for headings and Inter for body/UI. CSS supplies hero entrance, card stagger, section reveal, button lift, and image hover effects. Reduced-motion preferences disable animations. Content stays visible without JavaScript.
+Sora is used for homepage headings and Inter for body/UI. The process uses icons and labels without visible step numbers. CSS supplies hero entrance, card stagger, section reveal, button lift, and image hover effects. Reduced-motion preferences disable animations. Content stays visible without JavaScript.
 
 The desktop layout follows the supplied reference: farmer-and-goat hero, five category cards, rounded Tanzania landscape, integrated four-step process, sunset cattle CTA, and compact footer. The written brief's three benefits are included beneath the marketplace introduction. Mobile stacks the imagery and uses a two-column category/process layout.
 

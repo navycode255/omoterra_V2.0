@@ -29,7 +29,7 @@ export function LoginForm() {
     <Wizard steps={['Log in']} step={0} busy={busy} onContinue={submit} continueLabel="Log in" eyebrow="Welcome back">
       <Text id="phone" label="Phone number" type="tel" inputMode="tel" autoComplete="tel" placeholder="0712 345 678"
         value={phone} onChange={setPhone} error={errors.phone} />
-      <Text id="pin" label="PIN" type="password" inputMode="numeric" autoComplete="current-password"
+      <Text id="pin" label="PIN" type="password" inputMode="numeric" autoComplete="current-password" placeholder="••••"
         value={pin} onChange={(value) => setPinValue(value.replace(/\D/g, '').slice(0, 6))} error={errors.pin} />
       <div className="join-inline-actions join-split">
         <Link className="join-link" href="/login/reset">Forgot PIN?</Link>

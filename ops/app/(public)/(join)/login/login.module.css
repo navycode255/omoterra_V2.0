@@ -1,0 +1,45 @@
+:global(.join-site):has(.page) { background: #eaf0e5; }
+:global(.join-site):has(.page) :global(.join-header) { height: 74px; min-height: 74px; padding: 0 max(24px,calc((100% - 1280px)/2)); background: #fff; box-shadow: none; position: relative; }
+:global(.join-site):has(.page) :global(.marketing-logo img) { width: 190px; height: auto; }
+:global(.join-site):has(.page) :global(.join-header .button) { min-width: 94px; height: 49px; border: 0; border-radius: 10px; background: #edf5f0; color: #064733; font-size: 15px; }
+:global(.join-body):has(.page) { position: relative; isolation: isolate; min-height: calc(100svh - 74px); padding: 85px 24px 90px; overflow: hidden; background: linear-gradient(180deg,#e5eee780 0%,#ffffff40 47%,#315c1d15 100%),url('/images/marketing/farm-landscape-v1.png') center 65% / cover no-repeat; }
+:global(.join-body):has(.page)::before { content: ''; position: absolute; inset: 0; z-index: -1; background: linear-gradient(120deg,#d9e9e366,#fbfcf780); clip-path: ellipse(90% 38% at 31% -15%); }
+.page { position: relative; width: min(680px,100%); margin: auto; }
+.art { position: fixed; inset: 74px 0 0; width: 100%; height: calc(100% - 74px); z-index: -1; pointer-events: none; }
+.page :global(.join-card) { width: 100%; padding: 40px 41px; border: 1px solid #ffffffb3; border-radius: 23px; background: linear-gradient(150deg,#fffffffa,#fffffff2 70%,#f6f8f1f5); box-shadow: 0 28px 60px #234b2826; }
+.page :global(.join-eyebrow) { margin: 0 0 13px; font-size: 14px; font-weight: 700; letter-spacing: .14em; color: #7faf99; gap: 22px; }
+.page :global(.join-eyebrow)::before,.page :global(.join-eyebrow)::after { width: 50px; background: #8fbfab; }
+.page :global(.join-card h1) { font-size: 56px; line-height: 1.1; letter-spacing: -.04em; font-weight: 800; margin: 0; }
+.page :global(.join-fields) { margin-top: 33px; gap: 19px; }
+.page :global(.join-field) { gap: 6px; }
+.page :global(.join-field > label) { font-size: 15px; font-weight: 650; color: #172f41; }
+.page :global(.join-input) { height: 59px; padding: 14px 18px 14px 67px; border: 1.5px solid #dbe2e8; border-radius: 14px; font-size: 17px; background-color: #ffffffa6; background-repeat: no-repeat; background-position: 20px center; background-size: 24px; }
+.page :global(.join-input)::placeholder { color: #8792a3; opacity: 1; }
+.page :global(input[type='tel']) { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238792a3' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 3 4 4c-4 5 11 20 16 16l1-3-5-3-2 2c-3-1-5-3-6-6l2-2Z'/%3E%3C/svg%3E"); }
+.page :global(input[type='password']) { letter-spacing: .12em; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238792a3' stroke-width='1.8' stroke-linecap='round'%3E%3Crect x='4' y='10' width='16' height='11' rx='2'/%3E%3Cpath d='M8 10V6a4 4 0 0 1 8 0v4m-4 5v3'/%3E%3C/svg%3E"); }
+.page :global(.join-input:focus) { border-color: #238462; outline: 3px solid #19845f18; }
+.page :global(.join-link) { font-size: 16px; color: #00754e; }
+.page :global(.join-split) { justify-content: space-between; margin-top: -2px; }
+.page :global(.join-staff) { margin: 3px 0 0; padding-top: 19px; border-top: 1px solid #dce3e7; color: #7c899c; font-size: 14px; line-height: 1.6; }
+.page :global(.join-staff .join-link) { font-size: inherit; }
+.page :global(.join-nav) { margin-top: 34px; }
+.page :global(.join-nav > span) { display: none; }
+.page :global(.join-nav .button) { width: 100%; min-height: 74px; border-radius: 15px; font-size: 24px; font-weight: 700; border: 0; background: linear-gradient(160deg,#0b7a5b,#005b3e); color: white; display: flex; align-items: center; justify-content: center; gap: 18px; }
+.page :global(.join-nav .button)::after { content: '→'; font-size: 30px; font-weight: 400; }
+.page :global(.join-nav .button:disabled)::after { content: ''; }
+.page :global(.join-consent) { margin: 26px 0 0; font-size: 14px; color: #7c899a; line-height: 1.6; text-align: center; }
+.page :global(.join-consent a) { color: #006e4b; }
+@media(max-width: 700px) {
+  :global(.join-body):has(.page) { padding: 35px 18px 50px; }
+  :global(.join-site):has(.page) :global(.join-header) { padding-inline: 20px; }
+  :global(.join-site):has(.page) :global(.marketing-logo img) { width: 157px; }
+  .page :global(.join-card) { padding: 30px 22px; border-radius: 20px; }
+  .page :global(.join-card h1) { font-size: 43px; }
+  .page :global(.join-eyebrow) { font-size: 11px; gap: 12px; }
+  .page :global(.join-eyebrow)::before,.page :global(.join-eyebrow)::after { width: 28px; }
+  .page :global(.join-nav .button) { min-height: 59px; font-size: 21px; }
+  .page :global(.join-input) { padding-left: 52px; background-position: 16px center; }
+  .page :global(.join-staff),.page :global(.join-consent) { font-size: 12px; }
+}
+:global(.join-site):has(.page) { max-width: none; width: 100%; margin: 0; padding: 0; }
+:global(.join-site):has(.page) :global(.join-header) { width: 100%; max-width: none; margin: 0; }

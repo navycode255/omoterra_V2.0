@@ -1,7 +1,7 @@
 .site { --green: #005d39; --ink: #080f21; --muted: #53678c; color: var(--ink); background: #fff; font-family: var(--font-home-inter), Arial, sans-serif; overflow: clip; }
 .site h1,.site h2,.site h3,.site p { margin: 0; }
-.site h1,.site h2,.site h3 { font-family: var(--font-manrope), sans-serif; }
-.site h1,.site h2 { font-weight: 800; letter-spacing: -.05em; }
+.site h1,.site h2,.site h3 { font-family: var(--font-home-heading), sans-serif; }
+.site h1,.site h2 { font-weight: 700; letter-spacing: -.045em; }
 .site em { color: var(--green); font-style: normal; }
 .site a { text-decoration: none; }
 .site svg { display: block; width: 24px; height: 24px; flex-shrink: 0; }
@@ -59,7 +59,7 @@
 .categoryCard > div { position: relative; aspect-ratio: 1.33; overflow: hidden; }
 .categoryCard img { object-fit: cover; transition: transform .5s; }
 .categoryCard:hover img { transform: scale(1.035); }
-.categoryCard h3 { font-size: 14px; font-weight: 800; padding: 8px 18px; line-height: 1.3; }
+.categoryCard h3 { font-size: 14px; font-weight: 600; padding: 8px 18px; line-height: 1.3; }
 .marketplace { position: relative; isolation: isolate; background: linear-gradient(110deg,#eef6ef,#fcfdfb 45%,#e7f0e4); padding: 34px 0 24px; overflow: hidden; }
 .landscape { position: absolute; top: 0; right: -3%; width: 56%; height: 75%; z-index: -1; border-radius: 44% 0 0 35%; border: 9px solid #e6f0e4; border-right: 0; }
 .landscape img { object-fit: cover; border-radius: inherit; }
@@ -74,8 +74,7 @@
 .process li { position: relative; display: flex; flex-direction: column; align-items: center; text-align: center; }
 .processIcon { border-radius: 50%; width: 69px; height: 69px; background: #e7f3e8; display: grid; place-items: center; color: var(--green); }
 .processIcon svg { width: 37px; height: 37px; }
-.process b { font-size: 16px; line-height: 1.25; margin-top: 3px; }
-.process h3 { font-size: 15px; line-height: 1.25; font-weight: 800; }
+.process h3 { font-size: 15px; line-height: 1.4; font-weight: 600; margin-top: 12px; }
 .processArrow { position: absolute; right: -17px; top: 29px; color: #005d3c; }
 .processArrow svg { width: 32px; height: 22px; stroke-width: 1; }
 .closing { min-height: clamp(300px,29.3vw,420px); position: relative; isolation: isolate; background: #f4f7e9; display: flex; align-items: center; }
@@ -172,7 +171,7 @@
   .benefits svg { width: 21px; height: 21px; }
   .processIcon { width: 100px; height: 100px; }
   .processIcon svg { width: 52px; height: 52px; }
-  .process b,.process h3 { font-size: 23px; }
+  .process h3 { font-size: 23px; }
   .processArrow { top: 42px; }
   .processArrow svg { width: 46px; height: 30px; }
   .closing { min-height: clamp(420px,29.3vw,550px); }
@@ -183,4 +182,23 @@
   .footer .logo img { width: 235px; }
   .footerNav { font-size: 14px; }
   .footer small,.legal { font-size: 12px; }
+}
+
+/* Sora headings pair with readable Inter body text. */
+.site { -webkit-font-smoothing: antialiased; }
+.site h3 { letter-spacing: -.025em; }
+.heroCopy h1 { line-height: 1.04; }
+.aboutCopy h2,.closing h2 { line-height: 1.08; }
+.heroCopy p,.aboutCopy p,.closing p { line-height: 1.5; letter-spacing: -.015em; }
+.nav,.footerNav { font-weight: 500; }
+.button,.login { font-weight: 600; letter-spacing: -.015em; }
+@media(min-width: 961px) and (max-width: 1399px) {
+  .nav { font-size: 12px; gap: 18px; }
+  .headerInner { gap: 16px; }
+  .header .button,.login { padding-inline: 16px; }
+}
+@media(max-width: 640px) {
+  .heroCopy h1 { font-size: clamp(37px,9.8vw,60px); }
+  .aboutCopy h2 { font-size: clamp(34px,9.8vw,43px); }
+  .closing h2 { font-size: clamp(29px,8.2vw,40px); }
 }
