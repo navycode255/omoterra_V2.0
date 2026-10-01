@@ -39,3 +39,4 @@
  .drawer { inset:0;width:100%;height:100dvh;border:0; }.drawerHeading { padding:14px 18px 10px; }.drawerHeading h2 { font-size:21px; }.fields { padding:8px 18px 20px; }.fields input,.fields select { font-size:16px;min-height:48px; }.formFooter { padding-inline:18px; }.formFooter button { min-height:49px; }.expenseForm { height:calc(100% - 64px); }
 }
 @media(prefers-reduced-motion:reduce) { .workspace * { scroll-behavior:auto; } }
+.fields input[type=checkbox] { width: auto; min-height: 0; flex: none; }

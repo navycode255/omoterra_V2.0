@@ -691,6 +691,72 @@ def debt(id: str, operator=Depends(auth.ops), db=Depends(database)):
     return _result(_debt_detail(db, row))
 
 
+DUE_SOON_DAYS = 7
+
+
+def _supplier_state(earliest_due, today):
+    """Where a supplier's oldest open invoice stands. No due date means it
+    is payable on receipt, so it counts as due now."""
+    if earliest_due is None or earliest_due == today:
+        return 'due_now'
+    if earliest_due < today:
+        return 'overdue'
+    return 'due_soon' if (earliest_due - today).days <= DUE_SOON_DAYS else 'on_track'
+
+
+@router.get('/ledger/supplier-balances')
+def supplier_balances(q: str = Query('', max_length=100), state: str = Query('', max_length=16),
+                      page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=100),
+                      operator=Depends(auth.ops), db=Depends(database)):
+    """Every registered supplier with an open balance (direct sales, LPOs,
+    collections), most urgent first, with totals for the whole set:
+    owed, due now (due today, overdue or without a due date), overdue."""
+    today = c.business_today()
+    rows = db.execute(select(m.LedgerDebt.supplier_id, func.count(), func.sum(m.LedgerDebt.amount - m.LedgerDebt.paid_amount),
+            func.min(m.LedgerDebt.due_on), func.bool_or(m.LedgerDebt.due_on.is_(None)))
+        .where(m.LedgerDebt.direction == 'payable', m.LedgerDebt.status == 'open', m.LedgerDebt.supplier_id.is_not(None))
+        .group_by(m.LedgerDebt.supplier_id)).all()
+    due = dict(db.execute(select(m.LedgerDebt.supplier_id, func.sum(m.LedgerDebt.amount - m.LedgerDebt.paid_amount))
+        .where(m.LedgerDebt.direction == 'payable', m.LedgerDebt.status == 'open', m.LedgerDebt.supplier_id.is_not(None),
+               or_(m.LedgerDebt.due_on.is_(None), m.LedgerDebt.due_on <= today)).group_by(m.LedgerDebt.supplier_id)).all())
+    late = dict(db.execute(select(m.LedgerDebt.supplier_id, func.sum(m.LedgerDebt.amount - m.LedgerDebt.paid_amount))
+        .where(m.LedgerDebt.direction == 'payable', m.LedgerDebt.status == 'open', m.LedgerDebt.supplier_id.is_not(None),
+               m.LedgerDebt.due_on < today).group_by(m.LedgerDebt.supplier_id)).all())
+    suppliers = []
+    for supplier_id, invoices, owed, earliest, undated in rows:
+        profile = db.get(m.SupplierProfile, supplier_id)
+        user = db.get(m.User, supplier_id)
+        last = db.execute(select(m.LedgerPayment.paid_on, m.LedgerPayment.amount).join(
+                m.LedgerDebt, m.LedgerDebt.id == m.LedgerPayment.debt_id)
+            .where(m.LedgerDebt.supplier_id == supplier_id, m.LedgerDebt.direction == 'payable',
+                   m.LedgerPayment.reversed_at.is_(None))
+            .order_by(m.LedgerPayment.paid_on.desc(), m.LedgerPayment.created_at.desc()).limit(1)).first()
+        # The earliest dated invoice; overdue money outranks an undated one.
+        first_due = earliest
+        place = ', '.join(part for part in ((profile.district if profile else ''), (profile.region if profile else user.region if user else '')) if part)
+        suppliers.append({'supplier_id': supplier_id,
+            'name': (profile.legal_name or profile.public_alias) if profile else (user.name if user else ''),
+            'alias': profile.public_alias if profile else '', 'phone': user.phone if user else '', 'place': place,
+            'open_invoices': invoices, 'owed': owed, 'due_now': due.get(supplier_id, ZERO), 'overdue': late.get(supplier_id, ZERO),
+            'earliest_due': first_due,
+            'state': 'overdue' if late.get(supplier_id, ZERO) > 0 else 'due_now' if undated else _supplier_state(first_due, today),
+            'last_payment': {'paid_on': last[0], 'amount': last[1]} if last else None})
+    rank = {'overdue': 0, 'due_now': 1, 'due_soon': 2, 'on_track': 3}
+    suppliers.sort(key=lambda row: (rank[row['state']], row['earliest_due'] or today, -row['owed']))
+    summary = {'total_owed': sum((row['owed'] for row in suppliers), ZERO), 'suppliers': len(suppliers),
+        'due_now': sum((row['due_now'] for row in suppliers), ZERO), 'due_now_suppliers': sum(1 for row in suppliers if row['due_now'] > 0),
+        'overdue': sum((row['overdue'] for row in suppliers), ZERO), 'overdue_suppliers': sum(1 for row in suppliers if row['overdue'] > 0),
+        'total_suppliers': db.scalar(select(func.count()).select_from(m.SupplierProfile)) or 0}
+    if q.strip():
+        needle = q.strip().casefold()
+        suppliers = [row for row in suppliers if needle in ' '.join((row['name'], row['alias'], row['phone'], row['place'])).casefold()]
+    if state in rank:
+        suppliers = [row for row in suppliers if row['state'] == state]
+    start = (page - 1) * page_size
+    return _result({'items': suppliers[start:start + page_size], 'total': len(suppliers), 'page': page,
+        'page_size': page_size, 'actionable': 0, 'summary': summary})
+
+
 @router.get('/ledger/suppliers/{supplier_id}/statement')
 def supplier_statement(supplier_id: str, operator=Depends(auth.ops), db=Depends(database)):
     """Everything bought from one supplier outside app orders (direct sales,

@@ -110,7 +110,8 @@ export async function recordSupplierBatchPayment(_: ActionResult | null, formDat
   const receipt = formData.get('receipt');
   const reference = text(formData, 'reference');
   const sms = text(formData, 'sms_text');
-  if (!formData.getAll('debt_ids').length) return { ok: false, error: 'Select at least one invoice to pay.' };
+  if (!supplier) return { ok: false, error: 'Choose the supplier you paid.' };
+  // No invoices picked: the backend pays the supplier's oldest invoices first.
   if (!reference && !sms && (!(receipt instanceof File) || receipt.size === 0)) {
     return { ok: false, error: 'Add a receipt number, payment SMS, or receipt image.' };
   }

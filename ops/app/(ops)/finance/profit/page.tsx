@@ -2,6 +2,7 @@ import Link from 'next/link';
 import type { ReactNode } from 'react';
 import { Notice, PageHeader } from '@/components/ui';
 import { Icons } from '@/components/icons';
+import { FilterMenu } from '@/components/list-toolbar';
 import { ListFooter } from '@/components/finance/list-footer';
 import ui from '@/components/finance/expenses.module.css';
 import styles from '@/components/finance/finance-list.module.css';
@@ -80,16 +81,10 @@ export default async function Profit({ searchParams }: { searchParams: Promise<L
         {presets.map(([label, s, e]) => <Link key={label} href={`/finance/profit?start=${s}&end=${e}`} data-active={label === preset} aria-current={label === preset ? 'page' : undefined}>{label}</Link>)}
         <span data-active={!preset}>Custom</span>
       </nav>
-      <form action="/finance/profit">
-        <details className={styles.filters}>
-          <summary><Icons.calendar size={18} />{day(start)} – {day(end)}<Icons.chevronDown size={16} /></summary>
-          <div>
-            <label>From<input type="date" name="start" defaultValue={start} max={now} /></label>
-            <label>To<input type="date" name="end" defaultValue={end} max={now} /></label>
-            <button type="submit">Show</button>
-          </div>
-        </details>
-      </form>
+      <FilterMenu icon="calendar" label={`${day(start)} – ${day(end)}`}>
+        <label>From<input type="date" name="start" defaultValue={start} max={now} /></label>
+        <label>To<input type="date" name="end" defaultValue={end} max={now} /></label>
+      </FilterMenu>
     </div>
 
     <section className={styles.stats} data-count="4" aria-label="Profit summary">

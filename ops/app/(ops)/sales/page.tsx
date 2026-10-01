@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Notice, PageHeader } from '@/components/ui';
 import { Icons } from '@/components/icons';
+import { FilterMenu, SearchBox } from '@/components/list-toolbar';
 import { ListFooter } from '@/components/finance/list-footer';
 import ui from '@/components/finance/expenses.module.css';
 import styles from '@/components/finance/finance-list.module.css';
@@ -60,21 +61,15 @@ export default async function Sales({ searchParams }: { searchParams: Promise<Li
       </Link>)}
     </nav>
 
-    <form className={styles.toolbar} action="/sales" role="search">
-      {status && <input type="hidden" name="status" value={status} />}
-      <label className={styles.search}><Icons.search size={19} /><input name="q" type="search" defaultValue={param(params, 'q')} placeholder="Search sale number, buyer, phone or product…" aria-label="Search sales" /></label>
-      <div className={styles.toolbarEnd}>
-        <details className={styles.filters}>
-          <summary><Icons.calendar size={18} />{start ? `${day(start)} – ${day(end)}` : 'All dates'}<Icons.chevronDown size={16} /></summary>
-          <div>
-            <label>From<input type="date" name="start" defaultValue={start} /></label>
-            <label>To<input type="date" name="end" defaultValue={end} /></label>
-            <button type="submit">Apply dates</button>
-            <Link href={href({ dates: 'all', start: '', end: '', page: '' })}>All dates</Link>
-          </div>
-        </details>
-      </div>
-    </form>
+    <div className={styles.toolbar} role="search">
+      <SearchBox placeholder="Search sale number, buyer, phone or product…" />
+      <FilterMenu icon="calendar" label={start ? `${day(start)} – ${day(end)}` : 'All dates'}>
+        <label>From<input type="date" name="start" defaultValue={start} /></label>
+        <label>To<input type="date" name="end" defaultValue={end} /></label>
+        <Link className={styles.filterReset} href={href({ dates: 'all', start: '', end: '', page: '' })}>Show all dates</Link>
+        <Link className={styles.filterReset} href="/sales">This month</Link>
+      </FilterMenu>
+    </div>
 
     <div className={styles.tableWrap}>
       <table className={styles.table} data-phone-show="1 5">

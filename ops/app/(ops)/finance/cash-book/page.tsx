@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Notice, PageHeader } from '@/components/ui';
 import { Icons } from '@/components/icons';
+import { FilterMenu, SearchBox } from '@/components/list-toolbar';
 import { ListFooter } from '@/components/finance/list-footer';
 import ui from '@/components/finance/expenses.module.css';
 import styles from '@/components/finance/finance-list.module.css';
@@ -43,19 +44,12 @@ export default async function CashBookPage({ searchParams }: { searchParams: Pro
     <div className={ui.heading}>
       <div className={styles.titleGroup}>
         <h1>Cash book</h1>
-        <form action="/finance/cash-book">
-          {status && <input type="hidden" name="status" value={status} />}
-          {method && <input type="hidden" name="method" value={method} />}
-          <details className={styles.filters}>
-            <summary><Icons.calendar size={18} />{start ? `${day(start)} – ${day(end)}` : 'All dates'}<Icons.chevronDown size={16} /></summary>
-            <div>
-              <label>From<input type="date" name="start" defaultValue={start} /></label>
-              <label>To<input type="date" name="end" defaultValue={end} /></label>
-              <button type="submit">Apply dates</button>
-              <Link href={href({ dates: 'all', start: '', end: '', page: '' })}>All dates</Link>
-            </div>
-          </details>
-        </form>
+        <FilterMenu icon="calendar" align="start" label={start ? `${day(start)} – ${day(end)}` : 'All dates'}>
+          <label>From<input type="date" name="start" defaultValue={start} /></label>
+          <label>To<input type="date" name="end" defaultValue={end} /></label>
+          <Link className={styles.filterReset} href={href({ dates: 'all', start: '', end: '', page: '' })}>Show all dates</Link>
+          <Link className={styles.filterReset} href="/finance/cash-book">This month</Link>
+        </FilterMenu>
       </div>
       <details className={styles.menu} data-wide="true">
         <summary className={ui.primary}><Icons.plus size={19} />Record transaction</summary>
@@ -85,20 +79,13 @@ export default async function CashBookPage({ searchParams }: { searchParams: Pro
           {label}<span>{data.counts?.[key || 'all'] ?? ''}</span>
         </Link>)}
       </nav>
-      <form className={styles.toolbar} action="/finance/cash-book" role="search">
-        {status && <input type="hidden" name="status" value={status} />}
-        {start && <><input type="hidden" name="start" value={start} /><input type="hidden" name="end" value={end} /></>}
-        {all && <input type="hidden" name="dates" value="all" />}
-        <label className={styles.search}><Icons.search size={19} /><input name="q" type="search" defaultValue={param(params, 'q')} placeholder="Search name, reference or note…" aria-label="Search the cash book" /></label>
-        <details className={styles.filters}>
-          <summary><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 5h16l-6 7.5V19l-4 1v-7.5z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /></svg>Filter<Icons.chevronDown size={16} /></summary>
-          <div>
-            <label>Payment method<select name="method" defaultValue={method}><option value="">All methods</option>{METHODS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-            <button type="submit">Apply</button>
-            <Link href="/finance/cash-book">Reset</Link>
-          </div>
-        </details>
-      </form>
+      <div className={styles.toolbar} role="search">
+        <SearchBox placeholder="Search name, reference or note…" />
+        <FilterMenu label={method ? methodLabel(method) : 'Filter'}>
+          <label>Payment method<select name="method" defaultValue={method}><option value="">All methods</option>{METHODS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
+          <Link className={styles.filterReset} href={href({ method: '', q: '', page: '' })}>Reset filters</Link>
+        </FilterMenu>
+      </div>
     </div>
 
     <div className={styles.tableWrap}>

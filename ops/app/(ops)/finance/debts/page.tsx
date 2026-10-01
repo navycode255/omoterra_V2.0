@@ -1,6 +1,7 @@
 import Link from 'next/link';
 import { Notice, PageHeader } from '@/components/ui';
 import { Icons } from '@/components/icons';
+import { FilterMenu, SearchBox } from '@/components/list-toolbar';
 import { DebtWorkspace } from '@/components/finance/debt-workspace';
 import { ListFooter } from '@/components/finance/list-footer';
 import styles from '@/components/finance/finance-list.module.css';
@@ -62,18 +63,13 @@ export default async function Debts({ searchParams }: { searchParams: Promise<Li
       </Link>)}
     </nav>
 
-    <form className={styles.toolbar} action="/finance/debts" role="search">
-      {status && <input type="hidden" name="status" value={status} />}
-      <label className={styles.search}><Icons.search size={19} /><input name="q" type="search" defaultValue={param(params, 'q')} placeholder="Search name, phone or description…" aria-label="Search debts" /></label>
-      <details className={styles.filters}>
-        <summary><svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true"><path d="M4 5h16l-6 7.5V19l-4 1v-7.5z" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" /></svg>Filter<Icons.chevronDown size={16} /></summary>
-        <div>
-          <label>Direction<select name="direction" defaultValue={param(params, 'direction')}><option value="">All directions</option><option value="receivable">They owe me</option><option value="payable">I owe them</option></select></label>
-          <button type="submit">Apply</button>
-          <Link href="/finance/debts">Reset</Link>
-        </div>
-      </details>
-    </form>
+    <div className={styles.toolbar} role="search">
+      <SearchBox placeholder="Search name, phone or description…" />
+      <FilterMenu label="Filter">
+        <label>Direction<select name="direction" defaultValue={param(params, 'direction')}><option value="">All directions</option><option value="receivable">They owe me</option><option value="payable">I owe them</option></select></label>
+        <Link className={styles.filterReset} href="/finance/debts">Reset filters</Link>
+      </FilterMenu>
+    </div>
 
     <div className={styles.tableWrap}>
       <table className={styles.table} data-phone-show="1 4">

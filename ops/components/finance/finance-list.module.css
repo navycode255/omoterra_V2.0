@@ -196,3 +196,75 @@
   .periodBar .filters summary { width: 100%; justify-content: center; }
   .panel { padding: 14px 10px; }
 }
+
+/* Shared list toolbar (components/list-toolbar.tsx) */
+.clear { display: grid; place-items: center; width: 28px; height: 28px; border: 0; border-radius: 50%; background: #f0f4f2; color: #5d6c80; cursor: pointer; flex: none; }
+.clear:hover { background: #e3ece7; color: var(--ink); }
+.search[data-busy], .filters[data-busy] summary { background-image: linear-gradient(90deg, transparent, #e7f3ec, transparent); background-size: 200% 100%; animation: list-busy 1s linear infinite; }
+@keyframes list-busy { from { background-position: 100% 0; } to { background-position: -100% 0; } }
+.filters[data-align='start'] > div { left: 0; right: auto; }
+.filters input[type='search'], .filters input:not([type]) { min-height: 42px; padding: 8px 10px; border: 1px solid #dce4e8; border-radius: 9px; font: inherit; }
+.filterReset { color: #50617a; font-size: 13px; text-align: center; }
+.filterRow { display: flex; gap: 8px; }
+.filterRow > * { flex: 1; min-width: 0; }
+/* Generic lists (components/list-controls.tsx) inside the old workspace frame */
+.listControls { display: flex; flex-direction: column; gap: 0; }
+.listControls :global(.table-wrap) { border-radius: 14px; }
+.filters :global(.filterRow) { display: flex; gap: 8px; }
+.filters :global(.filterRow) > * { flex: 1; min-width: 0; }
+.filters :global(.filterReset) { color: #50617a; font-size: 13px; text-align: center; }
+/* The toolbar pieces also sit on pages outside .page (generic lists, expenses). */
+.listControls, .toolbar, .tabs, .tabBar, .footer, .filters, .search { --ink: #0b1426; --muted: #6b7a8f; --line: #e3e9ed; --green: #00603f; }
+
+/* Supplier payments */
+.headingActions { display: flex; gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+.payLayout { display: grid; grid-template-columns: minmax(0, 1fr) 390px; gap: 16px; align-items: start; }
+.payLayout > .panel { margin-bottom: 0; }
+.payLayout .toolbar { margin-bottom: 14px; }
+.dueState { display: inline-flex; align-items: center; gap: 5px; margin-top: 3px; font-size: 12.5px; font-weight: 600; }
+.dueState[data-tone='red'] { color: #d9342b; }
+.dueState[data-tone='late'] { color: #e0861a; }
+.dueState[data-tone='in'] { color: #12925a; }
+.rowPay, .rowView { display: inline-grid; place-items: center; min-width: 78px; height: 38px; padding: 0 16px; border-radius: 9px; font-weight: 650; font-size: 14px; }
+.rowPay { background: #0b4f36; color: #fff; }
+.rowPay:hover { background: #083f2b; }
+.rowView { border: 1px solid #d5e0da; color: #1c2e40; background: #fff; }
+.rowView:hover { border-color: #b7cfc2; }
+.payForm { display: grid; gap: 14px; }
+.payForm > h2 { margin: 0; color: var(--ink); font-size: 22px; font-weight: 750; letter-spacing: -.02em; }
+.payForm label { display: grid; gap: 6px; color: #42536c; font-size: 13.5px; font-weight: 500; }
+.payForm input:not([type='checkbox']):not([type='file']), .payForm select, .payForm textarea { width: 100%; min-width: 0; min-height: 44px; padding: 9px 12px; border: 1px solid #dfe5ea; border-radius: 10px; background: #fff; font: inherit; font-size: 14px; color: #172942; }
+.payForm textarea { resize: vertical; }
+.payForm input:focus, .payForm select:focus, .payForm textarea:focus { outline: 2px solid #8ac9aa; outline-offset: 1px; }
+.proof { display: grid; gap: 10px; margin: 0; padding: 0; border: 0; min-width: 0; }
+.proof legend { margin-bottom: 8px; color: var(--ink); font-size: 14.5px; font-weight: 700; }
+.upload { justify-items: center; gap: 2px !important; padding: 16px; border: 1.5px dashed #cfdcd5; border-radius: 12px; background: #fafcfb; cursor: pointer; text-align: center; }
+.upload:hover { border-color: #8ac9aa; }
+.upload input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+.upload span { display: inline-flex; align-items: center; gap: 8px; color: #24364a; font-size: 14px; font-weight: 600; }
+.upload small { color: #8492a6; font-size: 12px; }
+.switch { display: flex !important; align-items: center; gap: 12px !important; color: #24364a !important; cursor: pointer; }
+.switch input { position: absolute; opacity: 0; width: 1px; height: 1px; }
+.switch span { position: relative; flex: none; width: 46px; height: 26px; border-radius: 13px; background: #cdd7d2; transition: background .15s; }
+.switch span::after { content: ''; position: absolute; top: 3px; left: 3px; width: 20px; height: 20px; border-radius: 50%; background: #fff; box-shadow: 0 1px 3px #0003; transition: transform .15s; }
+.switch input:checked + span { background: #0b5a3c; }
+.switch input:checked + span::after { transform: translateX(20px); }
+.switch input:focus-visible + span { outline: 2px solid #8ac9aa; outline-offset: 2px; }
+.smsOptions { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; align-items: end; padding: 12px; border-radius: 12px; background: #f5f9f7; }
+.payButton { min-height: 48px; border: 0; border-radius: 10px; background: linear-gradient(145deg, #00603f, #003e2d); color: #fff; font: inherit; font-size: 15px; font-weight: 700; cursor: pointer; }
+.payButton:disabled { opacity: .6; cursor: wait; }
+.payHint { margin: 0; color: #7a8899; font-size: 12.5px; font-weight: 400; line-height: 1.45; }
+.payError { margin: 0; padding: 10px 12px; border-radius: 9px; background: #fff2f2; color: #a62828; font-size: 14px; }
+@media (max-width: 1250px) { .payLayout { grid-template-columns: 1fr; } }
+@media (max-width: 700px) {
+  .headingActions { width: 100%; justify-content: stretch; }
+  .headingActions > * { flex: 1; }
+  .payForm input:not([type='checkbox']):not([type='file']), .payForm select, .payForm textarea { font-size: 16px; }
+  .smsOptions { grid-template-columns: 1fr; }
+}
+.payLayout .table th, .payLayout .table td { padding-left: 12px; padding-right: 12px; }
+.payLayout .table th { white-space: normal; line-height: 1.25; }
+.payLayout .table td:nth-child(4), .payLayout .table td:nth-child(5) { white-space: nowrap; }
+.payLayout .table td:first-child { min-width: 150px; }
+.payLayout .tableWrap { overflow-x: auto; }
+.smsOptions .switch { font-size: 13px; }

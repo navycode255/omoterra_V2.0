@@ -698,3 +698,26 @@ def test_cash_book_totals_follow_dates_and_method(client, seeded):
     assert Decimal(totals['cash_in_hand']) == Decimal('38000')
     mpesa = client.get(API + '/ledger/payments?method=mpesa', headers=OPS).json()
     assert mpesa['total'] == 1 and Decimal(mpesa['summary']['money_in']) == Decimal('20000')
+
+
+def test_supplier_balances_rank_and_total_open_payables(client, seeded):
+    from datetime import date as day_, timedelta as span
+    today_ = day_.fromisoformat(TODAY)
+    sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '10', 'unit_price': '7000',
+        'supplier_id': seeded['supplier'], 'unit_cost': '6500'}])
+    late = post(client, '/ledger/debts', {'direction': 'payable', 'party_kind': 'supplier', 'supplier_id': seeded['supplier'],
+        'description': 'Feed on credit', 'amount': '20000', 'incurred_on': (today_ - span(days=10)).isoformat(),
+        'due_on': (today_ - span(days=2)).isoformat()})
+    assert late.status_code == 201, late.text
+    transfer = post(client, f"/ledger/suppliers/{seeded['supplier']}/payments", {
+        'amount': '5000', 'paid_on': TODAY, 'method': 'mpesa', 'reference': 'MP-5000'})
+    assert transfer.status_code == 201
+    body = client.get(API + '/ledger/supplier-balances', headers=OPS).json()
+    [row] = body['items']
+    assert row['open_invoices'] == 2 and Decimal(row['owed']) == Decimal('80000')
+    assert row['state'] == 'overdue' and row['earliest_due'] == (today_ - span(days=2)).isoformat()
+    assert Decimal(row['overdue']) == Decimal('15000') and Decimal(row['last_payment']['amount']) == Decimal('5000')
+    summary = body['summary']
+    assert summary['suppliers'] == 1 and Decimal(summary['total_owed']) == Decimal('80000')
+    assert Decimal(summary['overdue']) == Decimal('15000') and summary['overdue_suppliers'] == 1
+    assert client.get(API + '/ledger/supplier-balances?q=nobody', headers=OPS).json()['total'] == 0

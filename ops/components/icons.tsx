@@ -13,6 +13,7 @@ export const Icons = {
   calendar: (props: IconProps) => <Icon {...props}><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M8 3v4M16 3v4M3 10h18M7 14h2M11 14h2M15 14h2M7 18h2M11 18h2"/></Icon>,
   card: (props: IconProps) => <Icon {...props}><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M3 9h18M7 15h3"/></Icon>,
   clock: (props: IconProps) => <Icon {...props}><circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/></Icon>,
+  coins: (props: IconProps) => <Icon {...props}><ellipse cx="9" cy="6" rx="6" ry="2.5"/><path d="M3 6v4c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5V6M3 10v4c0 1.4 2.7 2.5 6 2.5M3 14v4c0 1.4 2.7 2.5 6 2.5"/><ellipse cx="15" cy="14" rx="6" ry="2.5"/><path d="M9 14v4c0 1.4 2.7 2.5 6 2.5s6-1.1 6-2.5v-4"/></Icon>,
   cash: (props: IconProps) => <Icon {...props}><rect x="2" y="6" width="20" height="12" rx="2"/><circle cx="12" cy="12" r="2.6"/><path d="M6 9.5v5M18 9.5v5"/></Icon>,
   arrowUp: (props: IconProps) => <Icon {...props}><path d="M12 20V5M5.5 11.5 12 5l6.5 6.5"/></Icon>,
   arrowDown: (props: IconProps) => <Icon {...props}><path d="M12 4v15M5.5 12.5 12 19l6.5-6.5"/></Icon>,

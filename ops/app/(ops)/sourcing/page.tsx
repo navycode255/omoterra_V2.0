@@ -3,6 +3,7 @@ import { Empty, Notice, PageHeader, Status } from '@/components/ui';
 import { ApiError, get } from '@/lib/api';
 import { category, date, quantity, titleCase } from '@/lib/format';
 import { ListControls } from '@/components/list-controls';
+import { FilterMenu } from '@/components/list-toolbar';
 import { listPath, param, type ListParams, type Page } from '@/lib/paging';
 
 export const metadata = { title: 'Buyer demand · Omoterra Operations' };
@@ -45,17 +46,15 @@ export default async function Sourcing({ searchParams }: { searchParams: Promise
       <Link className="button" href="/sourcing/new">Record demand</Link>
     </div>
     <div className="workspace">
-      <form method="get" className="grid-3" style={{ marginBottom: 'var(--s4)', alignItems: 'end' }}>
-        {['status', 'q'].map((key) => param(params, key) && <input key={key} type="hidden" name={key} value={param(params, key)} />)}
-        <div className="field"><label htmlFor="category">Product</label><select className="input" id="category" name="category" defaultValue={filters.category}><option value="">All products</option>{categories.map((item) => <option key={item} value={item}>{category(item)}</option>)}</select></div>
-        <div className="field"><label htmlFor="region">Region</label><input className="input" id="region" name="region" defaultValue={filters.region} /></div>
-        <div className="field"><label htmlFor="requirement_type">Frequency</label><select className="input" id="requirement_type" name="requirement_type" defaultValue={filters.requirement_type}><option value="">One-time and recurring</option><option value="one_time">One-time</option><option value="recurring">Recurring</option></select></div>
-        <div className="field"><label htmlFor="needed_from">Needed between</label><div className="row"><input className="input" id="needed_from" name="needed_from" type="date" defaultValue={filters.needed_from} /><input className="input" name="needed_to" type="date" aria-label="Needed by date upper bound" defaultValue={filters.needed_to} /></div></div>
-        {filters.buyer_id && <input type="hidden" name="buyer_id" value={filters.buyer_id} />}
-        <div className="row"><button className="button" type="submit">Apply filters</button><Link className="button secondary" href="/sourcing">Clear</Link></div>
-      </form>
       <ListControls path="/sourcing" params={params} data={data} tabs={TABS} keep={FILTERS} noun={['requirement', 'requirements']}
-        actionLabel="open" placeholder="Search requirement, buyer, product or region">
+        actionLabel="open" placeholder="Search requirement, buyer, product or region"
+        filters={<FilterMenu label={`Filter${[filters.category, filters.region, filters.requirement_type, filters.needed_from, filters.needed_to].filter(Boolean).length ? ` (${[filters.category, filters.region, filters.requirement_type, filters.needed_from, filters.needed_to].filter(Boolean).length})` : ''}`}>
+          <label>Product<select name="category" defaultValue={filters.category}><option value="">All products</option>{categories.map((item) => <option key={item} value={item}>{category(item)}</option>)}</select></label>
+          <label>Region<input name="region" defaultValue={filters.region} placeholder="Any region" /></label>
+          <label>Frequency<select name="requirement_type" defaultValue={filters.requirement_type}><option value="">One-time and recurring</option><option value="one_time">One-time</option><option value="recurring">Recurring</option></select></label>
+          <div className="filterRow"><label>Needed from<input name="needed_from" type="date" defaultValue={filters.needed_from} /></label><label>to<input name="needed_to" type="date" defaultValue={filters.needed_to} /></label></div>
+          <Link className="filterReset" href="/sourcing">Reset filters</Link>
+        </FilterMenu>}>
       <div className="table-wrap">
         {requests.length === 0 ? <Empty>No buyer demand matches these filters.</Empty> : <table>
           <thead><tr><th>Requirement</th><th>Buyer</th><th>Product</th><th className="numeric">Quantity</th><th className="numeric">Secured</th><th className="numeric">Remaining</th><th>Needed by</th><th>Location</th><th>Type</th><th>Status</th></tr></thead>
