@@ -1,12 +1,13 @@
 import Link from 'next/link';
 import { Notice, PageHeader } from '@/components/ui';
 import { Icons } from '@/components/icons';
-import { DebtWorkspace, RowsPerPage } from '@/components/finance/debt-workspace';
-import styles from '@/components/finance/debts.module.css';
+import { DebtWorkspace } from '@/components/finance/debt-workspace';
+import { ListFooter } from '@/components/finance/list-footer';
+import styles from '@/components/finance/finance-list.module.css';
 import { ApiError, get } from '@/lib/api';
 import { day, today, type Debt, type Parties, type FinanceSummary } from '@/lib/finance';
 import { phone, tzs } from '@/lib/format';
-import { listPath, param, pageCount, type ListParams, type Page } from '@/lib/paging';
+import { listPath, param, type ListParams, type Page } from '@/lib/paging';
 
 export const metadata = { title: 'Debts · Omoterra Operations' };
 const tabs = [['', 'All'], ['owed_to_me', 'Owed to me'], ['i_owe', 'I owe'], ['settled', 'Settled'], ['cancelled', 'Cancelled']];
@@ -31,17 +32,12 @@ export default async function Debts({ searchParams }: { searchParams: Promise<Li
     return <><div className="topbar"><PageHeader title="Debts" /></div><div className="workspace"><Notice tone="error">{error instanceof ApiError ? error.message : 'Debts could not be loaded.'}</Notice></div></>;
   }
   const status = param(params, 'status');
-  const pages = pageCount(data);
-  const current = Math.min(data.page, pages);
-  const first = data.total ? (current - 1) * data.page_size + 1 : 0;
-  const last = Math.min(data.total, (current - 1) * data.page_size + data.items.length);
   function href(change: Record<string, string>) {
     const query = new URLSearchParams();
     for (const key of ['q', 'status', 'page_size', 'direction']) { const value = param(params, key); if (value) query.set(key, value); }
     for (const [key, value] of Object.entries(change)) { if (value) query.set(key, value); else query.delete(key); }
     return `/finance/debts${query.size ? `?${query}` : ''}`;
   }
-  const numbers = [...new Set([1, current - 1, current, current + 1, pages])].filter((n) => n >= 1 && n <= pages).sort((a, b) => a - b);
   const overdue = Number(summary.owed_to_me.overdue) + Number(summary.i_owe.overdue);
 
   return <DebtWorkspace parties={parties} now={today()}>
@@ -80,7 +76,7 @@ export default async function Debts({ searchParams }: { searchParams: Promise<Li
     </form>
 
     <div className={styles.tableWrap}>
-      <table className={styles.table}>
+      <table className={styles.table} data-phone-show="1 4">
         <thead><tr><th>Who</th><th>What</th><th>Original amount</th><th>Balance</th><th>Status</th><th>Action</th><th aria-label="More" /></tr></thead>
         <tbody>{data.items.map((debt) => {
           const open = debt.status === 'open';
@@ -108,17 +104,6 @@ export default async function Debts({ searchParams }: { searchParams: Promise<Li
       {!data.items.length && <div className={styles.empty}><Icons.file size={38} /><h2>No debts in this view.</h2><p>Try another tab or search.</p></div>}
     </div>
 
-    <footer className={styles.footer}>
-      <span className={styles.showing}>Showing {first} – {last} of {data.total}</span>
-      {pages > 1 && <nav className={styles.pages} aria-label="Debt pages">
-        {current > 1 ? <Link href={href({ page: String(current - 1) })} className={styles.step}>‹ Previous</Link> : <span className={styles.step} aria-disabled="true">‹ Previous</span>}
-        {numbers.map((n, index) => <span key={n} className={styles.pageGroup}>
-          {index > 0 && n - numbers[index - 1] > 1 && <span className={styles.ellipsis}>…</span>}
-          <Link href={href({ page: String(n) })} data-active={n === current} aria-current={n === current ? 'page' : undefined}>{n}</Link>
-        </span>)}
-        {current < pages ? <Link href={href({ page: String(current + 1) })} className={styles.step}>Next ›</Link> : <span className={styles.step} aria-disabled="true">Next ›</span>}
-      </nav>}
-      <RowsPerPage value={data.page_size} />
-    </footer>
+    <ListFooter data={data} label="Debt" href={(page) => href({ page: String(page) })} />
   </DebtWorkspace>;
 }

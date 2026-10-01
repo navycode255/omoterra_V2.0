@@ -209,6 +209,21 @@
 }
 
 .positive { color: #087d42 !important; font-weight: 700; }
+.negative { color: #c9372f !important; font-weight: 700; }
+.titleRow { display: flex; align-items: center; gap: 18px; }
+.period { position: relative; }
+.period summary { display: inline-flex; align-items: center; gap: 9px; min-height: 42px; padding: 0 14px; border: 1px solid #dfe6ea; border-radius: 10px; background: #fff; color: #183048; font-size: 14px; font-weight: 600; cursor: pointer; list-style: none; }
+.period summary::-webkit-details-marker { display: none; }
+.period > div { position: absolute; left: 0; top: 48px; z-index: 6; display: grid; min-width: 160px; padding: 6px; border: 1px solid #dce7e1; border-radius: 11px; background: #fff; box-shadow: 0 12px 28px #103c2b1f; }
+.period > div a { padding: 9px 12px; border-radius: 8px; color: #24364a; font-size: 14px; }
+.period > div a:hover, .period > div a[data-active='true'] { background: #f1f7f3; color: #00603f; }
+/* Cards link to their page; a real 30-day trend sits at the right. */
+a.summaryCard { color: inherit; transition: border-color .15s, box-shadow .15s; }
+a.summaryCard:hover { border-color: #c9dccf; box-shadow: 0 10px 26px rgba(31, 83, 57, .09); }
+/* The trend sits beside the label, above the amount, as in the design. */
+.spark { position: absolute; right: 20px; top: 34%; width: 40%; max-width: 120px; height: 44px; }
+.summaryCard > div { position: relative; z-index: 1; }
+.summaryCard strong { white-space: nowrap; }
 .totalRow { background: linear-gradient(90deg, #edf9f3, #f5fbf7); }
 .totalRow td { height: 62px; font-weight: 700; }
 
@@ -464,6 +479,7 @@
   .summaryCard small { font-size: 11.5px; }
   .summaryIcon { width: 22px; height: 22px; }
   .roundArrow { display: none; }
+  .spark { display: none; }
   .panel { overflow: hidden; }
   .panelHeader { align-items: flex-start; }
   .panelActions { flex-wrap: wrap; justify-content: flex-end; }

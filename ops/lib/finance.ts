@@ -98,6 +98,12 @@ export interface SaleItem {
   supplier_collection_id: string | null;
 }
 
+// Totals for the sales a list shows (GET /ops/sales -> summary).
+export interface SalesSummary {
+  sales_total: string; sales_count: number; received: string;
+  buyer_owes: string; buyer_owes_count: number; supplier_owed: string; supplier_owed_count: number;
+}
+
 export interface Sale {
   id: string;
   sale_number: string;
@@ -150,6 +156,8 @@ export interface FinanceSummary {
   debtors: Party[];
   creditors: Party[];
   recent_payments: LedgerPayment[];
+  /** Last 30 days, oldest first. */
+  trends: { owed_to_me: string[]; i_owe: string[]; revenue: string[]; net_profit: string[] };
 }
 
 export interface ProfitTotals {
@@ -267,6 +275,13 @@ export const PRODUCTS: [string, string][] = [
 ];
 
 /** Today's date (YYYY-MM-DD) on Omoterra's clock, for date inputs. */
+/** The first and last day of today's calendar month (YYYY-MM-DD). */
+export function thisMonth() {
+  const now = today();
+  const [year, month] = now.split('-').map(Number);
+  return { start: `${now.slice(0, 8)}01`, end: new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10) };
+}
+
 export function today() {
   return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Dar_es_Salaam' }).format(new Date());
 }

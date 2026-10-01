@@ -2613,9 +2613,9 @@ textarea.join-input { min-height: 88px; resize: vertical; }
   .shell [data-phone-table] thead tr, .shell [data-phone-table] tbody tr {
     display: grid; grid-template-columns: minmax(0, 1.1fr) minmax(0, 1fr); align-items: center; }
   .shell [data-phone-table] th, .shell [data-phone-table] td { padding: 12px 10px !important; border-bottom: 0 !important; min-width: 0 !important; }
-  .shell [data-phone-table] th:nth-child(n+3), .shell [data-phone-table] td:nth-child(n+3) { display: none !important; }
-  .shell [data-phone-table] th:first-child, .shell [data-phone-table] td[data-phone-toggle] { position: relative; padding-left: 64px !important; }
-  .shell [data-phone-table] th:first-child::before { content: '#'; position: absolute; left: 16px; color: #93a1b3; }
+  .shell [data-phone-table] [data-phone-hidden] { display: none !important; }
+  .shell [data-phone-table] td[data-phone-toggle], .shell [data-phone-table] thead th[data-phone-first] { position: relative; padding-left: 64px !important; }
+  .shell [data-phone-table] thead th[data-phone-first]::before { content: '#'; position: absolute; left: 16px; color: #93a1b3; }
   .shell [data-phone-table] tbody { counter-reset: phone-row; }
   .shell [data-phone-table] tbody tr { counter-increment: phone-row; border-bottom: 1px solid #edf1ef; }
   .shell [data-phone-table] tbody tr:last-child { border-bottom: 0; }
@@ -2629,12 +2629,12 @@ textarea.join-input { min-height: 88px; resize: vertical; }
     transition: transform .2s, background-color .2s; }
   .shell [data-phone-table] tr[data-open] { background: #f8fbf9; }
   .shell [data-phone-table] tr[data-open] td[data-phone-toggle]::after { transform: rotate(180deg); background-color: #dcefe4; }
-  .shell [data-phone-table] tr[data-open] td:nth-child(n+3) {
+  .shell [data-phone-table] tr[data-open] td[data-phone-hidden] {
     display: flex !important; grid-column: 1 / -1; justify-content: space-between; align-items: center; gap: 14px;
     padding: 7px 14px 7px 64px !important; text-align: right; font-size: 13.5px; }
-  .shell [data-phone-table] tr[data-open] td:nth-child(n+3)::before {
+  .shell [data-phone-table] tr[data-open] td[data-phone-hidden]::before {
     content: attr(data-label); flex: none; color: #8392a5; font-size: 12px; font-weight: 500; text-align: left; text-transform: none; }
-  .shell [data-phone-table] tr[data-open] td:nth-child(n+3):not([data-label]) { justify-content: flex-start; }
+  .shell [data-phone-table] tr[data-open] td[data-phone-hidden]:not([data-label]) { justify-content: flex-start; }
   .shell [data-phone-table] tr[data-open] td:last-child { padding-bottom: 14px !important; }
   .shell [data-phone-table] tr[data-open] td > div { justify-items: end; }
   /* A message row ("No orders yet") spans the table. */

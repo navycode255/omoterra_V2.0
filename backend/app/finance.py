@@ -613,11 +613,41 @@ SALES = Spec(m.Sale, (m.Sale.sold_on.desc(), m.Sale.created_at.desc(), m.Sale.id
     column=m.Sale.status)
 
 
+def _sales_summary(db, where, q):
+    """Totals for the sales a list shows (its dates, buyer and search; every
+    status tab): what was sold, received, still owed by buyers and still owed
+    to suppliers, with how many sales each covers. Cancelled sales count for
+    nothing."""
+    chosen = select(m.Sale.id).where(m.Sale.status == 'active', *where)
+    if q:
+        chosen = chosen.where(SALES.search(q))
+    sold, count = db.execute(select(func.coalesce(func.sum(m.Sale.total_amount), 0), func.count())
+        .where(m.Sale.id.in_(chosen))).one()
+    def owed(direction):
+        debts = select(m.LedgerDebt).where(m.LedgerDebt.sale_id.in_(chosen), m.LedgerDebt.direction == direction,
+            m.LedgerDebt.status != 'cancelled').subquery()
+        paid, balance, sales = db.execute(select(func.coalesce(func.sum(debts.c.paid_amount), 0),
+            func.coalesce(func.sum(debts.c.amount - debts.c.paid_amount), 0),
+            func.count(func.distinct(debts.c.sale_id)).filter(debts.c.amount > debts.c.paid_amount))).one()
+        return paid, balance, sales
+    received, buyer_owes, owing_sales = owed('receivable')
+    _paid, supplier_owed, supplier_sales = owed('payable')
+    return {'sales_total': sold, 'sales_count': count, 'received': received,
+            'buyer_owes': buyer_owes, 'buyer_owes_count': owing_sales,
+            'supplier_owed': supplier_owed, 'supplier_owed_count': supplier_sales}
+
+
 @router.get('/sales')
-def sales(params: Paging = Depends(), buyer_profile_id: Optional[str] = None, operator=Depends(auth.ops),
-          db=Depends(database)):
+def sales(params: Paging = Depends(), buyer_profile_id: Optional[str] = None, start: Optional[date] = None,
+          end: Optional[date] = None, operator=Depends(auth.ops), db=Depends(database)):
     where = [m.Sale.buyer_profile_id == buyer_profile_id] if buyer_profile_id else []
-    return _result(paging.page(db, SALES, params, lambda row: sale_view(db, row), where=where))
+    if start:
+        where.append(m.Sale.sold_on >= start)
+    if end:
+        where.append(m.Sale.sold_on <= end)
+    body = paging.page(db, SALES, params, lambda row: sale_view(db, row), where=where)
+    body['summary'] = _sales_summary(db, where, params.q)
+    return _result(body)
 
 
 @router.get('/sales/{id}')
@@ -709,17 +739,36 @@ PAYMENTS = Spec(m.LedgerPayment, (m.LedgerPayment.paid_on.desc(), m.LedgerPaymen
           'reversed': m.LedgerPayment.reversed_at.is_not(None)})
 
 
+def _cash_totals(db, where, q):
+    """Money in and out for the payments a cash book view shows (its dates,
+    method and search; reversed payments count for nothing), and cash in hand:
+    every cash payment received minus every cash payment made, all time."""
+    live = [m.LedgerPayment.reversed_at.is_(None)]
+    def total(direction, *conditions):
+        query = select(func.coalesce(func.sum(m.LedgerPayment.amount), 0)).join(
+            m.LedgerDebt, m.LedgerDebt.id == m.LedgerPayment.debt_id).where(m.LedgerDebt.direction == direction, *live, *conditions)
+        return db.scalar(query) or ZERO
+    chosen = [*where, PAYMENTS.search(q)] if q else list(where)
+    money_in, money_out = total('receivable', *chosen), total('payable', *chosen)
+    cash = m.LedgerPayment.method == 'cash'
+    return {'money_in': money_in, 'money_out': money_out, 'net': money_in - money_out,
+            'cash_in_hand': total('receivable', cash) - total('payable', cash)}
+
+
 @router.get('/ledger/payments')
 def cash_book(params: Paging = Depends(), start: Optional[date] = None, end: Optional[date] = None,
-              operator=Depends(auth.ops), db=Depends(database)):
+              method: Optional[str] = None, operator=Depends(auth.ops), db=Depends(database)):
     """Every installment in and out, newest first: the cash book."""
     where = []
     if start:
         where.append(m.LedgerPayment.paid_on >= start)
     if end:
         where.append(m.LedgerPayment.paid_on <= end)
-    return _result(paging.page(db, PAYMENTS, params,
-        lambda row: payment_view(db, row, db.get(m.LedgerDebt, row.debt_id)), where=where))
+    if method:
+        where.append(m.LedgerPayment.method == method)
+    body = paging.page(db, PAYMENTS, params, lambda row: payment_view(db, row, db.get(m.LedgerDebt, row.debt_id)), where=where)
+    body['summary'] = _cash_totals(db, where, params.q)
+    return _result(body)
 
 
 def _parties(db, direction):
@@ -749,6 +798,31 @@ def _paid(db, direction, *conditions):
 def _sold(db, *conditions):
     return db.scalar(select(func.coalesce(func.sum(m.Sale.total_amount), 0))
         .where(m.Sale.status == 'active', *conditions)) or ZERO
+
+
+def _trends(db, today, days=30):
+    """Daily figures for the last `days` days, oldest first, for the overview's
+    small charts: what buyers owed and what Omoterra owed at the end of each
+    day (from debts and their payment dates), and each day's revenue and net
+    profit. Cancelled debts and reversed payments are left out."""
+    start = today - timedelta(days=days - 1)
+    def balances(direction):
+        live = and_(m.LedgerDebt.direction == direction, m.LedgerDebt.status != 'cancelled')
+        owed = dict(db.execute(select(m.LedgerDebt.incurred_on, func.sum(m.LedgerDebt.amount)).where(live)
+            .group_by(m.LedgerDebt.incurred_on)).all())
+        paid = dict(db.execute(select(m.LedgerPayment.paid_on, func.sum(m.LedgerPayment.amount))
+            .join(m.LedgerDebt, m.LedgerDebt.id == m.LedgerPayment.debt_id)
+            .where(live, m.LedgerPayment.reversed_at.is_(None)).group_by(m.LedgerPayment.paid_on)).all())
+        balance = sum((v for d, v in owed.items() if d < start), ZERO) - sum((v for d, v in paid.items() if d < start), ZERO)
+        series = []
+        for n in range(days):
+            d = start + timedelta(n)
+            balance += owed.get(d, ZERO) - paid.get(d, ZERO)
+            series.append(balance)
+        return series
+    profit = sorted(profit_between(db, start, today)['days'], key=lambda row: row['date'])
+    return {'owed_to_me': balances('receivable'), 'i_owe': balances('payable'),
+            'revenue': [row['revenue'] for row in profit], 'net_profit': [row['net_profit'] for row in profit]}
 
 
 @router.get('/finance/summary')
@@ -789,6 +863,7 @@ def finance_summary(operator=Depends(auth.ops), db=Depends(database)):
         'by_method': [{'method': k, **v, 'net': v['in'] - v['out']} for k, v in sorted(by_method.items())],
         'debtors': debtors[:100], 'creditors': creditors[:100],
         'recent_payments': [payment_view(db, p, db.get(m.LedgerDebt, p.debt_id)) for p in recent],
+        'trends': _trends(db, today),
     })
 
 

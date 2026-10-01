@@ -5,7 +5,8 @@ import { useEffect } from 'react';
 const PHONE = '(max-width: 720px)';
 
 // On phones every operations table shows a row number, an expand button and
-// its first two columns; the button opens the rest of that row as a list of
+// two columns: the first two, or the ones a table names in
+// data-phone-show="1 3" (1-based); the button opens the rest of that row as a list of
 // labelled values (styles: "Tables on phones" in globals.css). Tables with
 // form fields in their rows keep sideways scrolling so the fields stay usable.
 // Only attributes are added here, never elements, so React's own rendering
@@ -29,6 +30,15 @@ export function MobileTables() {
         if (!table.hasAttribute('data-phone-table') && phone.matches && body.rows[0]
           && getComputedStyle(body.rows[0]).display !== 'table-row') continue;
         if (!table.hasAttribute('data-phone-table')) table.setAttribute('data-phone-table', '');
+        const show = (table.dataset.phoneShow ?? '1 2').split(/\s+/).map(Number);
+        const mark = (cells: HTMLCollectionOf<HTMLTableCellElement>) => [...cells].forEach((cell, index) => {
+          const hidden = !show.includes(index + 1);
+          if (cell.hasAttribute('data-phone-hidden') !== hidden) cell.toggleAttribute('data-phone-hidden', hidden);
+        });
+        for (const head of table.tHead?.rows ?? []) {
+          mark(head.cells);
+          [...head.cells].forEach((cell, index) => cell.toggleAttribute('data-phone-first', index === show[0] - 1));
+        }
         // Numbering continues across pages (page 2 starts at 11).
         body.style.counterReset = `phone-row ${(page - 1) * perPage}`;
         for (const row of body.rows) {
@@ -36,7 +46,9 @@ export function MobileTables() {
           [...row.cells].forEach((cell, index) => {
             if (heads[index] && cell.getAttribute('data-label') !== heads[index]) cell.setAttribute('data-label', heads[index]);
           });
-          const first = row.cells[0];
+          mark(row.cells);
+          // The expand button sits in the first shown cell.
+          const first = row.cells[show[0] - 1] ?? row.cells[0];
           if (!first.hasAttribute('data-phone-toggle')) {
             first.setAttribute('data-phone-toggle', '');
             first.setAttribute('aria-expanded', row.hasAttribute('data-open') ? 'true' : 'false');

@@ -1,11 +1,11 @@
 'use client';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
-import { usePathname, useRouter, useSearchParams } from 'next/navigation';
+import { useRouter } from 'next/navigation';
 import { Icons } from '@/components/icons';
 import { createDebt } from '@/lib/finance-actions';
 import type { Parties } from '@/lib/finance';
 import ui from './expenses.module.css';
-import styles from './debts.module.css';
+import styles from './finance-list.module.css';
 
 // The Debts page frame: heading with "Add debt", and the drawer that adds one.
 export function DebtWorkspace({ children, parties, now }: { children: ReactNode; parties: Parties; now: string }) {
@@ -76,18 +76,4 @@ export function DebtWorkspace({ children, parties, now }: { children: ReactNode;
       </form>
     </dialog>
   </div>;
-}
-
-// "Rows per page" in the list footer: reloads the list from page 1.
-export function RowsPerPage({ value }: { value: number }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const search = useSearchParams();
-  return <label className={styles.rows}>Rows per page
-    <select value={String(value)} onChange={(event) => {
-      const query = new URLSearchParams(search.toString());
-      query.set('page_size', event.target.value); query.delete('page');
-      router.push(`${pathname}?${query}`);
-    }}>{[10, 25, 50, 100].map((n) => <option key={n} value={n}>{n}</option>)}</select>
-  </label>;
 }

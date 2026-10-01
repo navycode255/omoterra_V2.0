@@ -649,3 +649,52 @@ def test_supplier_statement_shows_purchases_and_payments(client, seeded):
     [payment] = body['payments']
     assert payment['kind'] == 'transfer' and Decimal(payment['allocated']) == Decimal('150000')
     assert payment['reference'] == 'BANK-150'
+
+
+def test_sales_list_totals_follow_dates_and_search(client, seeded):
+    from datetime import date as day_, timedelta as span
+    earlier = (day_.fromisoformat(TODAY) - span(days=40)).isoformat()
+    sale(client, sold_on=earlier, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '1', 'unit_price': '5000'}])
+    paid = sale(client, payment={'amount': '70000', 'paid_on': TODAY, 'method': 'cash'}, items=[
+        {'category': 'broilers', 'unit': 'bird', 'quantity': '10', 'unit_price': '7000',
+         'supplier_id': seeded['supplier'], 'unit_cost': '6500'}])
+    sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '4', 'unit_price': '7000'}])
+    body = client.get(API + f'/sales?start={TODAY}&end={TODAY}', headers=OPS).json()
+    assert body['total'] == 2
+    totals = body['summary']
+    assert Decimal(totals['sales_total']) == Decimal('98000') and totals['sales_count'] == 2
+    assert Decimal(totals['received']) == Decimal('70000')
+    assert Decimal(totals['buyer_owes']) == Decimal('28000') and totals['buyer_owes_count'] == 1
+    assert Decimal(totals['supplier_owed']) == Decimal('65000') and totals['supplier_owed_count'] == 1
+    every = client.get(API + '/sales', headers=OPS).json()
+    assert every['total'] == 3 and every['summary']['sales_count'] == 3
+    assert client.get(API + f"/sales?q={paid['sale_number']}", headers=OPS).json()['summary']['sales_count'] == 1
+
+
+def test_overview_trends_end_at_todays_balances(client, seeded):
+    sale(client, payment={'amount': '30000', 'paid_on': TODAY, 'method': 'cash'}, items=[
+        {'category': 'broilers', 'unit': 'bird', 'quantity': '10', 'unit_price': '7000',
+         'supplier_id': seeded['supplier'], 'unit_cost': '6500'}])
+    body = client.get(API + '/finance/summary', headers=OPS).json()
+    trends = body['trends']
+    assert all(len(trends[key]) == 30 for key in ('owed_to_me', 'i_owe', 'revenue', 'net_profit'))
+    assert Decimal(trends['owed_to_me'][-1]) == Decimal(body['owed_to_me']['ledger']) == Decimal('40000')
+    assert Decimal(trends['i_owe'][-1]) == Decimal(body['i_owe']['ledger']) == Decimal('65000')
+    assert Decimal(trends['revenue'][-1]) == Decimal('70000')
+    assert Decimal(trends['owed_to_me'][0]) == 0
+
+
+def test_cash_book_totals_follow_dates_and_method(client, seeded):
+    sale(client, payment={'amount': '50000', 'paid_on': TODAY, 'method': 'cash'})
+    sale(client, payment={'amount': '20000', 'paid_on': TODAY, 'method': 'mpesa'})
+    supplier_sale = sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '2', 'unit_price': '7000',
+        'supplier_id': seeded['supplier'], 'unit_cost': '6000'}])
+    debt = next(row for row in supplier_sale['debts'] if row['direction'] == 'payable')
+    assert pay(client, debt['id'], '12000').status_code == 201
+    body = client.get(API + f'/ledger/payments?start={TODAY}&end={TODAY}', headers=OPS).json()
+    totals = body['summary']
+    assert Decimal(totals['money_in']) == Decimal('70000') and Decimal(totals['money_out']) == Decimal('12000')
+    assert Decimal(totals['net']) == Decimal('58000')
+    assert Decimal(totals['cash_in_hand']) == Decimal('38000')
+    mpesa = client.get(API + '/ledger/payments?method=mpesa', headers=OPS).json()
+    assert mpesa['total'] == 1 and Decimal(mpesa['summary']['money_in']) == Decimal('20000')

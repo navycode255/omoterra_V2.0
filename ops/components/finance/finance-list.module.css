@@ -1,5 +1,5 @@
-/* Debts page (app/(ops)/finance/debts). The frame, heading and drawer come
-   from expenses.module.css; this file adds the debt list around them. */
+/* Finance list pages (debts, sales). The frame, heading and drawer come
+   from expenses.module.css; this file adds the list around them. */
 
 .page { --ink: #0b1426; --muted: #6b7a8f; --line: #e3e9ed; --green: #00603f; container-type: inline-size; }
 
@@ -16,12 +16,30 @@
 .stat[data-tone='out'] .statIcon { background: #fdecec; color: #d0453f; }
 .stat[data-tone='late'] .statIcon { background: #fff1e2; color: #e98b1c; }
 
+/* Four cards (sales): plain icons, as in the sales design. */
+.stats[data-count='4'] { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.stats[data-count='4'] .statIcon { width: 44px; height: 56px; background: none !important; }
+.stats[data-count='4'] .statIcon svg { width: 32px; height: 32px; }
+.stats[data-count='4'] .stat[data-tone='late'] .statIcon { color: #e98b1c; }
+
+.stats[data-count='4'] .stat[data-tone='red'] .statIcon { color: #d9342b; }
+
+/* Title with its date range (cash book) */
+.titleGroup { display: flex; align-items: center; gap: 18px; flex-wrap: wrap; min-width: 0; }
+.titleGroup .filters > div { left: 0; right: auto; }
+
 /* Status tabs */
 .tabs { display: flex; gap: 6px; margin-bottom: 16px; border-bottom: 1px solid var(--line); overflow-x: auto; scrollbar-width: none; }
 .tabs a { display: inline-flex; align-items: center; gap: 8px; padding: 12px 16px; margin-bottom: -1px; border-bottom: 2px solid transparent; color: #50617a; font-size: 14px; white-space: nowrap; }
 .tabs a span { color: #93a1b3; font-size: 13px; }
 .tabs a[data-active='true'] { border-color: var(--green); color: var(--green); font-weight: 650; }
 .tabs a[data-active='true'] span { color: var(--green); }
+
+/* Tabs on the left, search and filter on the right (cash book) */
+.tabBar { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin-bottom: 14px; border-bottom: 1px solid var(--line); }
+.tabBar .tabs { margin-bottom: -1px; border-bottom: 0; }
+.tabBar .toolbar { flex: 0 1 640px; margin-bottom: 8px; }
+.tabBar .search { flex: 1; }
 
 /* Search and filter */
 .toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
@@ -36,6 +54,10 @@
 .filters select { min-height: 42px; padding: 8px 10px; border: 1px solid #dce4e8; border-radius: 9px; background: #fff; font: inherit; }
 .filters button { min-height: 40px; border: 0; border-radius: 9px; background: var(--green); color: #fff; font: inherit; font-weight: 650; cursor: pointer; }
 .filters a { color: #50617a; font-size: 13px; text-align: center; }
+
+.toolbarEnd { display: flex; gap: 10px; }
+.filters summary { white-space: nowrap; }
+.filters input[type='date'] { min-height: 42px; padding: 8px 10px; border: 1px solid #dce4e8; border-radius: 9px; background: #fff; font: inherit; }
 
 /* The list */
 .tableWrap { border: 1px solid var(--line); border-radius: 14px; background: #fff; overflow-x: auto; }
@@ -68,6 +90,20 @@
 .menu > div { position: absolute; right: 0; top: 38px; z-index: 6; display: grid; min-width: 170px; padding: 6px; border: 1px solid #dce7e1; border-radius: 11px; background: #fff; box-shadow: 0 12px 28px #103c2b1f; text-align: left; }
 .menu > div a { padding: 9px 12px; border-radius: 8px; color: #24364a; font-size: 13.5px; white-space: nowrap; }
 .menu > div a:hover { background: #f1f7f3; color: var(--green); }
+.table .inAmount { color: #12925a; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.table .outAmount { color: #d9342b; font-weight: 700; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.forCell { min-width: 170px; max-width: 260px; }
+.block { display: block; }
+.reversed { color: #a8323a; font-size: 12.5px; }
+.table tr[data-reversed] td { opacity: .55; }
+.table tr[data-reversed] .inAmount, .table tr[data-reversed] .outAmount { text-decoration: line-through; }
+.menu[data-wide] summary { display: inline-flex; width: auto; height: auto; color: #fff; }
+.menu[data-wide] summary:hover, .menu[data-wide][open] summary { background: #006347; color: #fff; }
+/* A signed amount column shown only on phones (cash book). */
+.phoneOnly { display: none; }
+.menu[data-wide] > div { top: 54px; min-width: 230px; z-index: 8; }
+.rowLink { display: inline-grid; place-items: center; width: 34px; height: 34px; border-radius: 8px; color: #46586c; }
+.rowLink:hover { background: #f0f5f2; color: var(--green); }
 .empty { display: grid; justify-items: center; gap: 6px; padding: 56px 16px; color: #9aa7b6; text-align: center; }
 .empty h2 { color: var(--ink); font-size: 18px; }
 .empty p { color: var(--muted); font-size: 14px; }
@@ -90,6 +126,9 @@
 .page textarea { width: 100%; min-width: 0; padding: 10px 13px; border: 1px solid #dfe5ea; border-radius: 11px; background: #fff; font: inherit; color: #172942; resize: vertical; }
 
 /* Narrow content area (the drawer is open, or a small laptop). */
+@container (max-width: 1180px) {
+  .stats[data-count='4'] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 @container (max-width: 1080px) {
   .stat { gap: 12px; padding: 16px; }
   .statIcon { width: 46px; height: 46px; }
@@ -102,14 +141,24 @@
 }
 @media (max-width: 700px) {
   .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
-  .stats > :last-child { grid-column: 1 / -1; }
+  .stats:not([data-count='4']) > :last-child { grid-column: 1 / -1; }
   .stat { flex-direction: column; align-items: flex-start; gap: 8px; padding: 14px; }
-  .stats > :last-child { flex-direction: row; align-items: center; }
+  .stats:not([data-count='4']) > :last-child { flex-direction: row; align-items: center; }
+  .stats[data-count='4'] .statIcon { width: 30px; height: 30px; }
+  .stats[data-count='4'] .statIcon svg { width: 24px; height: 24px; }
+  .toolbarEnd { flex: 1 1 auto; }
+  .toolbarEnd .filters { flex: 1; }
+  .filters input[type='date'] { font-size: 16px; }
   .stat strong { white-space: normal; overflow-wrap: anywhere; }
   .statIcon { width: 42px; height: 42px; }
   .statIcon svg { width: 20px; height: 20px; }
   .stat strong { font-size: 17px; }
   .toolbar { flex-wrap: wrap; }
+  .table .phoneOnly { display: table-cell; }
+  .tabBar { flex-direction: column; align-items: stretch; border-bottom: 0; }
+  .tabBar .tabs { border-bottom: 1px solid var(--line); margin-bottom: 0; }
+  .tabBar .toolbar { flex: 1 1 auto; margin-bottom: 0; }
+  .titleGroup { gap: 10px; }
   .search { flex: 1 1 100%; }
   .search input { font-size: 16px; }
   .filters { flex: 1 1 auto; }
