@@ -31,7 +31,8 @@ export default async function CashBookPage({ searchParams }: { searchParams: Pro
   }
   const status = param(params, 'status');
   const method = param(params, 'method');
-  const total = data.summary;
+  // An API that predates the totals sends none; the list still shows.
+  const total = data.summary ?? { money_in: '0', money_out: '0', net: '0', cash_in_hand: '0' };
   function href(change: Record<string, string>) {
     const query = new URLSearchParams();
     for (const key of ['q', 'status', 'page_size', 'start', 'end', 'dates', 'method']) { const value = param(params, key); if (value) query.set(key, value); }

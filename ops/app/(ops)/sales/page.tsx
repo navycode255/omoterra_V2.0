@@ -31,7 +31,8 @@ export default async function Sales({ searchParams }: { searchParams: Promise<Li
       {error instanceof ApiError ? error.message : 'Sales could not be loaded.'}</Notice></div></>;
   }
   const status = param(params, 'status');
-  const total = data.summary;
+  // An API that predates the totals sends none; the list still shows.
+  const total: SalesSummary = data.summary ?? { sales_total: '0', sales_count: 0, received: '0', buyer_owes: '0', buyer_owes_count: 0, supplier_owed: '0', supplier_owed_count: 0 };
   const share = Number(total.sales_total) > 0 ? Math.round(Number(total.received) / Number(total.sales_total) * 100) : 0;
   function href(change: Record<string, string>) {
     const query = new URLSearchParams();
