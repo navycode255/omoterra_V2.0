@@ -1,7 +1,12 @@
 import Link from 'next/link';
-import { Card, Empty, Notice, PageHeader } from '@/components/ui';
+import type { ReactNode } from 'react';
+import { Notice, PageHeader } from '@/components/ui';
+import { Icons } from '@/components/icons';
+import { ListFooter } from '@/components/finance/list-footer';
+import ui from '@/components/finance/expenses.module.css';
+import styles from '@/components/finance/finance-list.module.css';
 import { ApiError, get } from '@/lib/api';
-import { day, expenseLabel, today, type ProfitReport } from '@/lib/finance';
+import { day, expenseLabel, thisMonth, today, type ProfitReport } from '@/lib/finance';
 import { tzs } from '@/lib/format';
 import { param, type ListParams } from '@/lib/paging';
 
@@ -12,24 +17,35 @@ function shift(isoDate: string, days: number) {
   d.setUTCDate(d.getUTCDate() + days);
   return d.toISOString().slice(0, 10);
 }
+const plain = (value: string | number) => Number(value).toLocaleString('en-US', { maximumFractionDigits: 2 });
+const signed = (value: string | number) => `${Number(value) < 0 ? '-' : ''}${plain(Math.abs(Number(value)))}`;
 
-function Signed({ value }: { value: string }) {
-  const negative = Number(value) < 0;
-  return <span className="money" style={{ color: negative ? 'var(--error)' : 'var(--positive)' }}>{negative ? '−' : ''}{tzs(String(Math.abs(Number(value))))}</span>;
-}
+// A coloured icon per expense category in "Where the money went".
+const CATEGORY_ICONS: Record<string, [ReactNode, string]> = {
+  transport: [<Icons.truck key="i" size={18} />, '#2f6fde'],
+  labour: [<Icons.users key="i" size={18} />, '#8a4fd8'],
+  fuel: [<svg key="i" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinejoin="round" aria-hidden="true"><path d="M5 21V5a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v16M3 21h14M15 9h2a2 2 0 0 1 2 2v5a1.5 1.5 0 0 0 3 0V9l-3-3M8 7h4" /></svg>, '#e98b1c'],
+  packaging: [<Icons.box key="i" size={18} />, '#12925a'],
+  feed: [<Icons.sprout key="i" size={18} />, '#5c9a2d'],
+  medicine_vet: [<Icons.shield key="i" size={18} />, '#d9342b'],
+};
 
 export default async function Profit({ searchParams }: { searchParams: Promise<ListParams> }) {
   const params = await searchParams;
   const now = today();
+  const month = thisMonth();
   const presets: [string, string, string][] = [
     ['Today', now, now],
-    ['Last 7 days', shift(now, -6), now],
-    ['This month', `${now.slice(0, 8)}01`, now],
-    ['Last 30 days', shift(now, -29), now],
+    ['7 days', shift(now, -6), now],
+    ['This month', month.start, now],
+    ['30 days', shift(now, -29), now],
     ['This year', `${now.slice(0, 4)}-01-01`, now],
   ];
-  const start = param(params, 'start') || `${now.slice(0, 8)}01`;
+  const start = param(params, 'start') || month.start;
   const end = param(params, 'end') || now;
+  // On the 1st, "Today" and "This month" are the same dates: the default
+  // view (no dates chosen) is "This month".
+  const preset = param(params, 'start') ? presets.find(([, s, e]) => s === start && e === end)?.[0] : 'This month';
   let data: ProfitReport;
   try {
     data = await get<ProfitReport>(`/ops/finance/profit?start=${start}&end=${end}`);
@@ -37,79 +53,96 @@ export default async function Profit({ searchParams }: { searchParams: Promise<L
     return <><div className="topbar"><PageHeader title="Profit" /></div><div className="workspace"><Notice tone="error">
       {error instanceof ApiError ? error.message : 'Profit could not be calculated.'}</Notice></div></>;
   }
-  const hasMarketplace = Number(data.marketplace_sales) > 0;
-  const active = data.days.filter((d) => Number(d.revenue) || Number(d.expenses) || Number(d.stock_lost));
-  return (
-    <>
-      <div className="topbar">
-        <PageHeader title="Profit" subtitle={`${day(data.start)} – ${day(data.end)}: what you made, what it cost, what is left.`}
-          info="Sales count on the day sold, whether paid yet or not. Stock cost is what the stock sold cost you (supplier cost or LPO price). Expenses count on the day incurred, and so does LPO stock lost. Birds received but not yet sold are stock, not a cost yet." />
-        <Link href="/finance/expenses" className="button">+ Expense</Link>
-      </div>
-      <div className="workspace">
-        <div className="row" style={{ flexWrap: 'wrap', alignItems: 'end' }}>
-          {presets.map(([label, s, e]) => (
-            <Link key={label} href={`/finance/profit?start=${s}&end=${e}`} className="tab" data-active={s === start && e === end}>{label}</Link>
-          ))}
-          <form className="row" action="/finance/profit" style={{ alignItems: 'end' }}>
-            <div className="field"><label htmlFor="start">From</label><input id="start" name="start" type="date" className="input" defaultValue={start} max={now} /></div>
-            <div className="field"><label htmlFor="end">To</label><input id="end" name="end" type="date" className="input" defaultValue={end} max={now} /></div>
-            <button className="button" data-variant="secondary" type="submit">Show</button>
-          </form>
-        </div>
 
-        <div className="stat-band">
-          <div className="stat"><div className="stat-label">Made (sales)</div><div className="stat-value">{tzs(data.revenue)}</div>
-            {hasMarketplace && <div className="meta">incl. marketplace {tzs(data.marketplace_sales)}</div>}</div>
-          <div className="stat"><div className="stat-label">Stock cost</div><div className="stat-value">{tzs(String(Number(data.stock_cost) + Number(data.marketplace_cost)))}</div>
-            <div className="meta">gross profit <Signed value={data.gross_profit} /></div></div>
-          <div className="stat"><div className="stat-label">Expenses</div><div className="stat-value">{tzs(data.expenses)}</div>
-            {Number(data.stock_lost) > 0 && <div className="meta">+ stock lost {tzs(data.stock_lost)}</div>}</div>
-          <div className="stat"><div className="stat-label">Net profit</div><div className="stat-value"><Signed value={data.net_profit} /></div>
-            {Number(data.revenue) > 0 && <div className="meta">{Math.round((Number(data.net_profit) / Number(data.revenue)) * 100)}% of sales</div>}</div>
-        </div>
+  // Day by day, oldest first, 10 a page. Stock lost counts with expenses so
+  // each row adds up: sales − stock cost − expenses = net profit.
+  const days = [...data.days].sort((a, b) => a.date.localeCompare(b.date));
+  const size = Math.min(100, Math.max(1, Number(param(params, 'page_size')) || 10));
+  const pages = Math.max(1, Math.ceil(days.length / size));
+  const page = Math.min(pages, Math.max(1, Number(param(params, 'page')) || 1));
+  const shown = days.slice((page - 1) * size, page * size);
+  const listing = { items: shown, total: days.length, page, page_size: size, actionable: 0 };
+  const href = (change: Record<string, string>) => {
+    const query = new URLSearchParams({ start, end });
+    const keepSize = param(params, 'page_size'); if (keepSize) query.set('page_size', keepSize);
+    for (const [key, value] of Object.entries(change)) { if (value) query.set(key, value); else query.delete(key); }
+    return `/finance/profit?${query}`;
+  };
+  const stockCost = Number(data.stock_cost) + Number(data.marketplace_cost);
+  const spent = Number(data.expenses) + Number(data.stock_lost);
+  const loss = Number(data.net_profit) < 0;
 
-        <div className="grid-main-side">
-          <Card title="Day by day">
-            {active.length === 0 ? <Empty>No sales or expenses in this period.</Empty> : (
-              <div className="table-wrap">
-                <table>
-                  <thead><tr><th>Day</th><th className="numeric">Sales</th><th className="numeric">Stock cost</th><th className="numeric">Expenses</th><th className="numeric">Stock lost</th><th className="numeric">Net profit</th></tr></thead>
-                  <tbody>
-                    {active.map((d) => (
-                      <tr key={d.date}>
-                        <td className="small"><Link href={`/finance/expenses?start=${d.date}&end=${d.date}`}>{day(d.date)}</Link></td>
-                        <td className="numeric">{tzs(d.revenue)}</td>
-                        <td className="numeric">{tzs(String(Number(d.stock_cost) + Number(d.marketplace_cost)))}</td>
-                        <td className="numeric">{tzs(d.expenses)}</td>
-                        <td className="numeric">{Number(d.stock_lost) ? tzs(d.stock_lost) : '—'}</td>
-                        <td className="numeric"><Signed value={d.net_profit} /></td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-          <Card title="Where the money went">
-            {data.expenses_by_category.length === 0 ? <Empty>No expenses recorded in this period.</Empty> : (
-              <div className="table-wrap">
-                <table>
-                  <tbody>
-                    {data.expenses_by_category.map((row) => (
-                      <tr key={row.category}>
-                        <td><Link href={`/finance/expenses?start=${data.start}&end=${data.end}&category=${row.category}`}>{expenseLabel(row.category)}</Link></td>
-                        <td className="numeric money">{tzs(row.amount)}</td>
-                        <td className="numeric meta">{Math.round((Number(row.amount) / Number(data.expenses)) * 100)}%</td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </Card>
-        </div>
+  return <div className={`${ui.workspace} ${styles.page}`}>
+    <div className={ui.heading}><h1>Profit</h1><Link href="/finance/expenses" className={ui.primary}>+ Expense</Link></div>
+
+    <div className={styles.periodBar}>
+      <nav className={styles.periodTabs} aria-label="Period">
+        {presets.map(([label, s, e]) => <Link key={label} href={`/finance/profit?start=${s}&end=${e}`} data-active={label === preset} aria-current={label === preset ? 'page' : undefined}>{label}</Link>)}
+        <span data-active={!preset}>Custom</span>
+      </nav>
+      <form action="/finance/profit">
+        <details className={styles.filters}>
+          <summary><Icons.calendar size={18} />{day(start)} – {day(end)}<Icons.chevronDown size={16} /></summary>
+          <div>
+            <label>From<input type="date" name="start" defaultValue={start} max={now} /></label>
+            <label>To<input type="date" name="end" defaultValue={end} max={now} /></label>
+            <button type="submit">Show</button>
+          </div>
+        </details>
+      </form>
+    </div>
+
+    <section className={styles.stats} data-count="4" aria-label="Profit summary">
+      <article className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.chart size={26} /></span>
+        <div><span>Sales</span><strong>{tzs(data.revenue)}</strong>{Number(data.marketplace_sales) > 0 && <small>incl. marketplace {tzs(data.marketplace_sales)}</small>}</div></article>
+      <article className={styles.stat} data-tone="late"><span className={styles.statIcon}><Icons.box size={26} /></span>
+        <div><span>Stock cost</span><strong>{tzs(String(stockCost))}</strong></div></article>
+      <Link href={`/finance/expenses?start=${start}&end=${end}`} className={styles.stat} data-tone="red"><span className={styles.statIcon}><Icons.file size={26} /></span>
+        <div><span>Expenses</span><strong>{tzs(String(spent))}</strong>{Number(data.stock_lost) > 0 && <small>incl. stock lost {tzs(data.stock_lost)}</small>}</div></Link>
+      <article className={styles.stat} data-tone={loss ? 'red' : 'in'} data-highlight={loss ? 'loss' : 'gain'}><span className={styles.statIcon}><Icons.trend size={26} /></span>
+        <div><span>{loss ? 'Net loss' : 'Net profit'}</span><strong>{loss ? '-' : ''}{tzs(String(Math.abs(Number(data.net_profit))))}</strong></div></article>
+    </section>
+
+    <section className={styles.panel}>
+      <h2>Day by day</h2>
+      <div className={styles.tableWrap}>
+        <table className={styles.table} data-phone-show="1 5">
+          <thead><tr><th>Date</th><th>Sales (TZS)</th><th>Stock cost (TZS)</th><th>Expenses (TZS)</th><th>Net profit (TZS)</th></tr></thead>
+          <tbody>{shown.map((d) => <tr key={d.date}>
+            <td data-label="Date"><Link className={styles.plainLink} href={`/sales?start=${d.date}&end=${d.date}`}>{day(d.date)}</Link></td>
+            <td data-label="Sales" className={styles.money}>{plain(d.revenue)}</td>
+            <td data-label="Stock cost" className={styles.money}>{plain(Number(d.stock_cost) + Number(d.marketplace_cost))}</td>
+            <td data-label="Expenses" className={styles.money}>{plain(Number(d.expenses) + Number(d.stock_lost))}</td>
+            <td data-label="Net profit" className={Number(d.net_profit) < 0 ? styles.outAmount : styles.inAmount}>{signed(d.net_profit)}</td>
+          </tr>)}</tbody>
+        </table>
       </div>
-    </>
-  );
+      <ListFooter data={listing} label="Day" href={(n) => href({ page: String(n) })} />
+    </section>
+
+    <section className={styles.panel}>
+      <h2>Where the money went</h2>
+      {data.expenses_by_category.length === 0 && Number(data.stock_lost) === 0
+        ? <div className={styles.empty}><Icons.file size={34} /><h2>No expenses in this period.</h2><p><Link href="/finance/expenses">Record an expense</Link></p></div>
+        : <div className={styles.tableWrap}>
+          <table className={styles.table}>
+            <thead><tr><th>Category</th><th className={styles.right}>Amount (TZS)</th></tr></thead>
+            <tbody>
+              {data.expenses_by_category.map((row) => {
+                const [icon, color] = CATEGORY_ICONS[row.category] ?? [<Icons.more key="i" size={18} />, '#8a96a6'];
+                return <tr key={row.category}>
+                  <td><Link className={styles.category} href={`/finance/expenses?start=${start}&end=${end}&category=${row.category}`}>
+                    <span style={{ color, background: `${color}1a` }}>{icon}</span>{expenseLabel(row.category)}</Link></td>
+                  <td className={`${styles.money} ${styles.right}`}>{plain(row.amount)}</td>
+                </tr>;
+              })}
+              {Number(data.stock_lost) > 0 && <tr>
+                <td><span className={styles.category}><span style={{ color: '#d9342b', background: '#d9342b1a' }}><Icons.alert size={18} /></span>Stock lost (dead or missing)</span></td>
+                <td className={`${styles.money} ${styles.right}`}>{plain(data.stock_lost)}</td>
+              </tr>}
+            </tbody>
+          </table>
+        </div>}
+    </section>
+  </div>;
 }

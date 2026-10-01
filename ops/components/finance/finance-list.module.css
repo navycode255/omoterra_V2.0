@@ -126,7 +126,7 @@
 .page textarea { width: 100%; min-width: 0; padding: 10px 13px; border: 1px solid #dfe5ea; border-radius: 11px; background: #fff; font: inherit; color: #172942; resize: vertical; }
 
 /* Narrow content area (the drawer is open, or a small laptop). */
-@container (max-width: 1180px) {
+@container (max-width: 900px) {
   .stats[data-count='4'] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
 @container (max-width: 1080px) {
@@ -170,4 +170,29 @@
   .pages .step { padding: 0 8px; }
   .dates { grid-template-columns: 1fr; }
   .page textarea { font-size: 16px; }
+}
+
+/* Profit page: period tabs, highlighted net card, panels */
+.periodBar { display: flex; align-items: center; justify-content: space-between; gap: 14px; margin-bottom: 16px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.periodTabs { display: flex; gap: 4px; overflow-x: auto; scrollbar-width: none; }
+.periodTabs a, .periodTabs span { padding: 9px 22px; border-radius: 9px; color: #33465a; font-size: 14px; white-space: nowrap; }
+.periodTabs span { color: #8a96a6; }
+.periodTabs a:hover { background: #f3f8f5; }
+.periodTabs [data-active='true'] { background: #e7f3ec; color: var(--ink); font-weight: 650; box-shadow: inset 0 -2px 0 var(--green); }
+.stat[data-highlight='gain'] { background: #eef7f1; border-color: #cfe6d8; }
+.stat[data-highlight='loss'] { background: #fdf1f0; border-color: #f2d2cf; }
+.panel { margin-bottom: 16px; padding: 18px 16px 16px; border: 1px solid var(--line); border-radius: 16px; background: #fff; }
+.panel > h2 { margin: 0 0 14px 2px; color: var(--ink); font-size: 18px; font-weight: 700; letter-spacing: -.01em; }
+.panel .tableWrap { border-radius: 12px; }
+.panel .footer { margin-top: 14px; }
+.plainLink { color: #24364a; }
+.plainLink:hover { color: var(--green); }
+.right { text-align: right !important; }
+.category { display: inline-flex; align-items: center; gap: 12px; color: #24364a; }
+.category > span { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 8px; }
+@media (max-width: 700px) {
+  .periodBar { flex-direction: column; align-items: stretch; padding: 8px; }
+  .periodTabs a, .periodTabs span { padding: 8px 14px; }
+  .periodBar .filters summary { width: 100%; justify-content: center; }
+  .panel { padding: 14px 10px; }
 }
