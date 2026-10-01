@@ -50,9 +50,9 @@ export default async function DebtWorkspace({ params }: { params: Promise<{ id: 
           </div>
           <div className="stack">
             {debt.status === 'open' && (
-              <Card title={incoming ? 'Record money received' : 'Record a payment'}>
+              <div id="pay" style={{ scrollMarginTop: 96 }}><Card title={incoming ? 'Record money received' : 'Record a payment'}>
                 <PaymentForm debt={debt} today={today()} saleId={debt.sale_id ?? undefined} />
-              </Card>
+              </Card></div>
             )}
             {admin && ['manual', 'expense', 'sale_cost'].includes(debt.source) && debt.status !== 'cancelled' && (
               <Card title={debt.source === 'sale_cost' ? 'Reconcile recording error' : 'Cancel'}>

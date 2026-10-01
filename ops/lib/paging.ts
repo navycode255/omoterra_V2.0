@@ -1,6 +1,6 @@
 // The one paging contract every /ops list speaks (backend/app/paging.py).
-// Rows that need action are never paged: all of them come first on page 1.
-// Paging applies only to the history behind them.
+// Rows that need action come first, then the history behind them; both are
+// paged together, 10 rows a page unless a screen asks for more.
 
 export interface Page<T> {
   items: T[];
@@ -36,5 +36,5 @@ export function listPath(path: string, params: ListParams, keys: string[] = [], 
 
 /** Pages of history behind the rows that need action. */
 export function pageCount(page: Page<unknown>) {
-  return Math.max(1, Math.ceil((page.total - page.actionable) / page.page_size));
+  return Math.max(1, Math.ceil(page.total / page.page_size));
 }

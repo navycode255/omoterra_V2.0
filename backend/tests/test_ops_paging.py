@@ -58,7 +58,7 @@ def test_oldest_unpaid_settlement_is_on_the_first_page(client, sessions, seeded)
     seen = volume(sessions, seeded)
     body = ops(client, '/settlements')
     assert body['total'] == 300
-    assert body['page'] == 1 and body['page_size'] == 50
+    assert body['page'] == 1 and body['page_size'] == 10 and len(body['items']) == 10
     assert body['actionable'] == 1
     # Unpaid work leads the page even though it is the oldest row of 300.
     assert body['items'][0]['id'] == seen['oldest_unpaid']
@@ -66,7 +66,7 @@ def test_oldest_unpaid_settlement_is_on_the_first_page(client, sessions, seeded)
     assert body['counts'] == {'all': 300, 'pending': 1, 'paid': 299, 'awaiting_confirmation': 299, 'not_received': 0, 'received': 0}
     assert Decimal(body['totals']['pending']) == Decimal('9000')
     assert Decimal(body['totals']['paid']) == Decimal('9000') * 299
-    # History pages behind it are paid rows only, newest first, and never repeat.
+    # Pages behind it are paid rows only, newest first, and never repeat.
     second = ops(client, '/settlements?page=2&page_size=100')
     assert all(row['status'] == 'paid' for row in second['items'])
     ids = [row['id'] for page in (1, 2, 3) for row in ops(client, f'/settlements?page={page}&page_size=100')['items']]
@@ -90,17 +90,22 @@ def test_searching_a_supplier_finds_all_their_orders(client, sessions, seeded):
     assert ops(client, '/settlements?q=kilimo')['total'] == 60
 
 
-def test_orders_in_progress_are_never_paged_away(client, sessions, seeded):
+def test_orders_in_progress_come_first_and_are_paged(client, sessions, seeded):
     volume(sessions, seeded)
     body = ops(client, '/orders?page_size=5')
     assert body['total'] == 500 and body['actionable'] == 20
-    assert len(body['items']) == 25
-    assert all(row['internal_status'] == 'reserved' for row in body['items'][:20])
-    # Oldest open order first.
-    created = [row['created_at'] for row in body['items'][:20]]
+    assert len(body['items']) == 5
+    # Open orders lead, oldest first, across the first four pages.
+    open_rows = [row for page in (1, 2, 3, 4) for row in ops(client, f'/orders?page={page}&page_size=5')['items']]
+    assert all(row['internal_status'] == 'reserved' for row in open_rows)
+    created = [row['created_at'] for row in open_rows]
     assert created == sorted(created)
-    assert len(ops(client, '/orders?page=2&page_size=5')['items']) == 5
-    open_only = ops(client, '/orders?status=open')
+    # Page 5 holds history only; nothing repeats across the boundary.
+    fifth = ops(client, '/orders?page=5&page_size=5')['items']
+    assert len(fifth) == 5 and all(row['internal_status'] != 'reserved' for row in fifth)
+    ids = [row['id'] for page in range(1, 7) for row in ops(client, f'/orders?page={page}&page_size=5')['items']]
+    assert len(ids) == len(set(ids)) == 30
+    open_only = ops(client, '/orders?status=open&page_size=50')
     assert open_only['total'] == 20 and len(open_only['items']) == 20
     assert open_only['counts']['open'] == 20 and open_only['counts']['delivered'] == 480
 

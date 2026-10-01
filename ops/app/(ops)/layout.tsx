@@ -1,5 +1,6 @@
 import { Sidebar } from '@/components/sidebar';
 import { OpsAlerts } from '@/components/ops-alerts';
+import { MobileTables } from '@/components/mobile-tables';
 import Image from 'next/image';
 import { Icons } from '@/components/icons';
 import { get } from '@/lib/api';
@@ -31,6 +32,7 @@ export default async function OpsLayout({ children }: { children: React.ReactNod
       </header>
       <Sidebar counts={counts} admin={operator.role === 'admin'} />
       <div className="main">{children}</div>
+      <MobileTables />
     </div>
   );
 }

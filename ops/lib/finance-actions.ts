@@ -206,6 +206,10 @@ export async function createDebt(_: ActionResult | null, formData: FormData) {
   const [kind, id] = party.includes(':') ? party.split(':') : ['other', ''];
   const phone = text(formData, 'party_phone');
   const due = text(formData, 'due_on');
+  // Debts keep one description: an optional reference and note ride along.
+  const reference = text(formData, 'reference');
+  const note = text(formData, 'note');
+  const description = [text(formData, 'description'), reference && `Ref ${reference}`, note].filter(Boolean).join(' · ').slice(0, 500);
   const body = {
     direction: text(formData, 'direction'),
     party_kind: kind,
@@ -213,7 +217,7 @@ export async function createDebt(_: ActionResult | null, formData: FormData) {
     ...(kind === 'supplier' ? { supplier_id: id } : {}),
     party_name: kind === 'other' ? text(formData, 'party_name') : '',
     party_phone: phone ? tanzanianMobile(phone) ?? phone : '',
-    description: text(formData, 'description'),
+    description,
     amount: text(formData, 'amount').replace(/,/g, ''),
     incurred_on: text(formData, 'incurred_on'),
     due_on: due || null,

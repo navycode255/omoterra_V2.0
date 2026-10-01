@@ -633,7 +633,9 @@ DEBTS = Spec(m.LedgerDebt, (m.LedgerDebt.incurred_on.desc(), m.LedgerDebt.create
     lambda q: paging.matches(q, m.LedgerDebt.party_name, m.LedgerDebt.party_phone, m.LedgerDebt.description),
     tabs={'owed_to_me': and_(OPEN_DEBT, m.LedgerDebt.direction == 'receivable'),
           'i_owe': and_(OPEN_DEBT, m.LedgerDebt.direction == 'payable'),
-          'settled': m.LedgerDebt.status == 'settled', 'cancelled': m.LedgerDebt.status == 'cancelled'},
+          'settled': m.LedgerDebt.status == 'settled', 'cancelled': m.LedgerDebt.status == 'cancelled',
+          # Open and past its due date, by the business's own calendar day.
+          'overdue': and_(OPEN_DEBT, m.LedgerDebt.due_on < cast(func.timezone('Africa/Dar_es_Salaam', func.now()), Date))},
     column=m.LedgerDebt.status, urgent=OPEN_DEBT,
     urgent_order=(m.LedgerDebt.due_on.asc().nulls_last(), m.LedgerDebt.incurred_on, m.LedgerDebt.id))
 

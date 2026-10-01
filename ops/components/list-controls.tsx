@@ -110,7 +110,7 @@ function ListFooter({
     <footer className="list-footer">
       <span className="small muted">
         {data.total} {data.total === 1 ? noun[0] : noun[1]}
-        {data.actionable > 0 && <> · <strong>{data.actionable} {actionLabel}</strong>, all shown on page 1</>}
+        {data.actionable > 0 && <> · <strong>{data.actionable} {actionLabel}</strong>, shown first</>}
       </span>
       {pages > 1 && (
         <nav className="list-pages" aria-label="Pages">

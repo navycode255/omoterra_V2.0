@@ -24,8 +24,17 @@ const TABS = [
 export default async function Settlements({ searchParams }: { searchParams: Promise<ListParams> }) {
   const params = await searchParams;
   let data: Settlements;
+  let due: Settlement[];
   try {
-    data = await get<Settlements>(listPath('/ops/settlements', params));
+    // The table shows one page; the payout form needs every payout still to
+    // send: unpaid ones and ones a supplier reports as not received.
+    const [list, pendingRows, missingRows] = await Promise.all([
+      get<Settlements>(listPath('/ops/settlements', params)),
+      get<Settlements>('/ops/settlements?status=pending&page_size=100'),
+      get<Settlements>('/ops/settlements?status=not_received&page_size=100'),
+    ]);
+    data = list;
+    due = [...pendingRows.items, ...missingRows.items];
   } catch (error) {
     return (
       <>
@@ -42,9 +51,7 @@ export default async function Settlements({ searchParams }: { searchParams: Prom
   }
 
   const settlements = data.items;
-  // Every unpaid settlement, and every payout its supplier reports as not
-  // received, is on page 1, so the payout form always lists them all.
-  const pending = settlements.filter((s) => s.status === 'pending' || s.supplier_confirmation === 'not_received');
+  const pending = due;
 
   return (
     <>

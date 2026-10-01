@@ -3,18 +3,19 @@
     GET /ops/<list>?status=&q=&page=&page_size=
     -> {items, total, page, page_size, actionable, counts}
 
-- `page_size` defaults to 50 and is capped at 100.
+- `page_size` defaults to 10 and is capped at 100.
 - `status` picks a tab (a named group such as `open` for orders in progress)
   or, failing that, one raw status value. Empty or `all` means every row.
 - `q` searches references, supplier alias or legal name, buyer name or phone,
   category and region with ILIKE. Migration 017 gives those columns trigram
   indexes, so a `%text%` match stays indexed.
 - Rows that need action (unpaid settlements, orders in progress, stock
-  awaiting review...) are never paged: every one of them comes first on
-  page 1, most urgent first. Paging applies only to the history behind them,
-  so work can never fall off the end of a list. `actionable` says how many
-  of `total` are such rows; the history pages are
-  ceil((total - actionable) / page_size), at least one.
+  awaiting review...) come first, most urgent first, then the history behind
+  them. Both are paged together, so a page never holds more than
+  `page_size` rows; pages are ceil(total / page_size), at least one.
+  `actionable` says how many of `total` are such rows. A screen that must
+  act on all of them (a payout form) asks for that tab with a large
+  `page_size` instead of relying on one page.
 - `counts` gives each tab's row count under the same search, from the
   database, so tab badges never depend on what one page happens to hold.
 """
@@ -30,7 +31,7 @@ from sqlalchemy import Text, and_, cast, false, func, literal, not_, or_, select
 from . import contracts as c, models as m
 
 MAX_PAGE_SIZE = 100
-DEFAULT_PAGE_SIZE = 50
+DEFAULT_PAGE_SIZE = 10
 
 
 class Paging:
@@ -295,11 +296,15 @@ def page(db, spec: Spec, params: Paging, view: Callable = lambda row: row, where
         rows = _fetch(db, spec, query.order_by(*spec.order).offset(params.offset).limit(params.page_size))
         actionable = 0
     else:
+        # Rows that need action come first, most urgent first, then the rest;
+        # both are paged together so no page holds more than page_size rows.
         urgent = func.coalesce(spec.urgent, false())
-        first = _fetch(db, spec, query.where(urgent).order_by(*spec.urgent_order)) if params.page == 1 else []
-        actionable = len(first) if params.page == 1 else _count(db, query.where(urgent))
-        rows = [*first, *_fetch(db, spec, query.where(not_(urgent)).order_by(*spec.order)
-            .offset(params.offset).limit(params.page_size))]
+        actionable = _count(db, query.where(urgent))
+        rows = _fetch(db, spec, query.where(urgent).order_by(*spec.urgent_order)
+            .offset(params.offset).limit(params.page_size)) if params.offset < actionable else []
+        if len(rows) < params.page_size:
+            rows += _fetch(db, spec, query.where(not_(urgent)).order_by(*spec.order)
+                .offset(max(0, params.offset - actionable)).limit(params.page_size - len(rows)))
     body = {'items': [view(row) for row in rows], 'total': total, 'page': params.page,
             'page_size': params.page_size, 'actionable': actionable}
     if counts is not None:

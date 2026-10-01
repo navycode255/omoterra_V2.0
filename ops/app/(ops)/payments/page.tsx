@@ -20,8 +20,15 @@ const TABS = [
 export default async function Payments({ searchParams }: { searchParams: Promise<ListParams> }) {
   const params = await searchParams;
   let data: Page<Payment>;
+  let open: Payment[];
   try {
-    data = await get<Page<Payment>>(listPath('/ops/payments', params));
+    // The table shows one page; the receipt form needs every outstanding one.
+    const [list, outstandingRows] = await Promise.all([
+      get<Page<Payment>>(listPath('/ops/payments', params)),
+      get<Page<Payment>>('/ops/payments?status=outstanding&page_size=100'),
+    ]);
+    data = list;
+    open = outstandingRows.items;
   } catch (error) {
     return (
       <>
@@ -38,8 +45,7 @@ export default async function Payments({ searchParams }: { searchParams: Promise
   }
 
   const payments = data.items;
-  // Every outstanding payment is on page 1, so the receipt form lists them all.
-  const outstanding = payments.filter((p) => Number(p.balance) > 0 && p.status !== 'failed');
+  const outstanding = open.filter((p) => Number(p.balance) > 0 && p.status !== 'failed');
 
   return (
     <>
