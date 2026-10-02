@@ -106,7 +106,7 @@ def sale_view(db, sale, detail=False):
         items = db.scalars(select(m.SaleItem).where(m.SaleItem.sale_id == sale.id).order_by(m.SaleItem.position)).all()
         view['items'] = [{k: getattr(i, k) for k in ('id', 'category', 'description', 'unit', 'quantity', 'unit_price',
             'subtotal', 'supplier_id', 'supplier_name', 'unit_cost', 'cost_total', 'lpo_line_id',
-            'supplier_collection_id')} for i in items]
+            'supplier_collection_id', 'supplier_batch_id')} for i in items]
         view['debts'] = [{**debt_view(d), 'payments': [payment_view(db, p) for p in _payments(db, d.id)]} for d in debts]
     return view
 
@@ -221,10 +221,13 @@ def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operat
                 unit_cost=stock.unit_price, cost_total=s.money(line.quantity * stock.unit_price), lpo_line_id=stock.id))
             continue
         cost_total = s.money(line.quantity * line.unit_cost) if line.unit_cost is not None else None
+        if line.supplier_batch_id:
+            from .batch_stock import take_from_batch
+            take_from_batch(db, line.supplier_batch_id, line.supplier_id, line.quantity)
         items.append(m.SaleItem(sale_id=sale_id, position=position, category=line.category or '',
             description=line.description or '', unit=line.unit, quantity=line.quantity, unit_price=line.unit_price,
             subtotal=subtotal, supplier_id=line.supplier_id, supplier_name=line.supplier_name,
-            unit_cost=line.unit_cost, cost_total=cost_total))
+            unit_cost=line.unit_cost, cost_total=cost_total, supplier_batch_id=line.supplier_batch_id))
         if cost_total is not None:
             if line.supplier_id:
                 party = ('supplier', line.supplier_id)
@@ -299,6 +302,12 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
     old_items = db.scalars(select(m.SaleItem).where(m.SaleItem.sale_id == id).order_by(m.SaleItem.position)).all()
     old_lpo = defaultdict(lambda: ZERO)
     old_collections = defaultdict(lambda: ZERO)
+    # Birds the old version took from supplier batches go back first, so
+    # the edited lines can take them again.
+    from .batch_stock import return_to_batch
+    for item in old_items:
+        if item.supplier_batch_id:
+            return_to_batch(db, item.supplier_batch_id, item.quantity)
     for item in old_items:
         if item.lpo_line_id:
             old_lpo[item.lpo_line_id] += item.quantity
@@ -333,10 +342,13 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
                 unit_cost=stock.unit_price, cost_total=s.money(line.quantity * stock.unit_price), lpo_line_id=stock.id))
             continue
         cost_total = s.money(line.quantity * line.unit_cost) if line.unit_cost is not None else None
+        if line.supplier_batch_id:
+            from .batch_stock import take_from_batch
+            take_from_batch(db, line.supplier_batch_id, line.supplier_id, line.quantity)
         items.append(m.SaleItem(sale_id=id, position=position, category=line.category or '',
             description=line.description or '', unit=line.unit, quantity=line.quantity, unit_price=line.unit_price,
             subtotal=subtotal, supplier_id=line.supplier_id, supplier_name=line.supplier_name,
-            unit_cost=line.unit_cost, cost_total=cost_total))
+            unit_cost=line.unit_cost, cost_total=cost_total, supplier_batch_id=line.supplier_batch_id))
         if cost_total is not None:
             if line.supplier_id:
                 party = ('supplier', line.supplier_id)
@@ -433,6 +445,9 @@ def cancel_sale(id: str, data: c.ReasonInput, idempotency_key: str = Header(), o
         if any(d.paid_amount > 0 for d in debts):
             fail('err.reverse_payments_before_cancelling')
         at = m.now()
+        from .batch_stock import return_to_batch
+        for item in db.scalars(select(m.SaleItem).where(m.SaleItem.sale_id == id, m.SaleItem.supplier_batch_id.is_not(None))):
+            return_to_batch(db, item.supplier_batch_id, item.quantity)
         sale.status, sale.cancelled_at, sale.cancelled_by, sale.cancel_reason = 'cancelled', at, operator.id, data.reason
         for debt in debts:
             debt.status, debt.cancelled_at, debt.cancelled_by, debt.cancel_reason = 'cancelled', at, operator.id, data.reason

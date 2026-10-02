@@ -42,3 +42,18 @@ export async function receiveSupplierBatch(_: ActionResult | null, form: FormDat
     notes: text(form, 'notes'),
   }, randomUUID()), ['/suppliers/' + supplier, '/sales/new', '/finance', '/finance/debts', '/finance/supplier-payments']);
 }
+
+// The supplier sold some of this batch to someone else.
+export async function recordSoldElsewhere(_: ActionResult | null, form: FormData) {
+  const supplier = text(form, 'supplier_id');
+  return run(() => post('/ops/batches/' + text(form, 'batch_id') + '/sold-elsewhere', {
+    quantity: text(form, 'quantity'), notes: text(form, 'notes'),
+  }, randomUUID()), ['/suppliers/' + supplier, '/sales/new', '/batches']);
+}
+
+// Everything still left in this batch was sold elsewhere: finish it.
+export async function closeSupplierBatch(_: ActionResult | null, form: FormData) {
+  const supplier = text(form, 'supplier_id');
+  return run(() => post('/ops/batches/' + text(form, 'batch_id') + '/close', { notes: text(form, 'notes') }, randomUUID()),
+    ['/suppliers/' + supplier, '/sales/new', '/batches']);
+}

@@ -502,6 +502,11 @@ class BatchExternalSaleInput(Input):
     notes: str = Field(default='', max_length=500)
 
 
+class BatchCloseInput(Input):
+    """Staff: the supplier sold the rest of this batch elsewhere."""
+    notes: str = Field(default='', max_length=500)
+
+
 class SupplierCollectionInput(Input):
     batch_id: str = Field(min_length=36, max_length=36)
     received_on: date
@@ -921,9 +926,15 @@ class SaleItemInput(Input):
     # Stock received on an LPO: its cost and supplier come from the LPO.
     lpo_line_id: Optional[str] = Field(default=None, max_length=36)
     supplier_collection_id: Optional[str] = Field(default=None, max_length=36)
+    # The registered supplier's batch these came from (reduces that batch).
+    supplier_batch_id: Optional[str] = Field(default=None, max_length=36)
 
     @model_validator(mode='after')
     def complete(self):
+        # The form sends "" for "not from a registered batch".
+        self.supplier_batch_id = self.supplier_batch_id or None
+        if self.supplier_batch_id and not self.supplier_id:
+            raise ValueError(M('err.batch_needs_registered_supplier'))
         if not self.category and len(self.description) < 2:
             raise ValueError(M('err.describe_what_was_sold'))
         if self.lpo_line_id and self.supplier_collection_id:

@@ -4,7 +4,7 @@ import { useActionState, useMemo, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { createSale, updateSale } from '@/lib/finance-actions';
 import { Icons } from '@/components/icons';
-import { DEFAULT_UNIT, METHODS, PRODUCTS, UNITS, type Parties, type SaleDetail, type SupplierCollectionStock } from '@/lib/finance';
+import { DEFAULT_UNIT, METHODS, PRODUCTS, UNITS, type OpenBatch, type Parties, type SaleDetail, type SupplierCollectionStock } from '@/lib/finance';
 import type { LpoStockRow } from '@/lib/lpo';
 import { tanzanianMobile } from '@/lib/phone';
 import styles from './finance.module.css';
@@ -19,6 +19,7 @@ type Line = {
   source: 'own' | 'supplier' | 'named' | 'lpo' | 'collection';
   lpo_line_id: string;
   supplier_collection_id: string;
+  supplier_batch_id: string;
   supplier_id: string;
   supplier_name: string;
   unit_cost: string;
@@ -32,7 +33,7 @@ const BUYER_TYPES = ['personal', 'restaurant', 'butchery', 'hotel', 'retailer', 
 
 function blank(key: number): Line {
   return { key, category: 'local_chicken', description: '', unit: 'bird', quantity: '', unit_price: '',
-    source: 'own', supplier_id: '', supplier_name: '', unit_cost: '', lpo_line_id: '', supplier_collection_id: '',
+    source: 'own', supplier_id: '', supplier_name: '', unit_cost: '', lpo_line_id: '', supplier_collection_id: '', supplier_batch_id: '',
     cost_status: 'owed', cost_method: 'cash', cost_reference: '', cost_paid_on: '' };
 }
 
@@ -52,7 +53,7 @@ function StepTitle({ number, children }: { number: number; children: React.React
   return <h2 className={styles.stepTitle}><span>{number}</span>{children}</h2>;
 }
 
-export function SaleForm({ parties, today, stock = [], supplierStock = [], sale }: { parties: Parties; today: string; stock?: LpoStockRow[]; supplierStock?: SupplierCollectionStock[]; sale?: SaleDetail }) {
+export function SaleForm({ parties, today, stock = [], supplierStock = [], batches = [], sale }: { parties: Parties; today: string; stock?: LpoStockRow[]; supplierStock?: SupplierCollectionStock[]; batches?: OpenBatch[]; sale?: SaleDetail }) {
   const editing = Boolean(sale);
   const [state, action] = useActionState(editing ? updateSale : createSale, null);
   // One key per filled-in form: a double click or retry records one sale.
@@ -66,7 +67,7 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], sale 
     key: index + 1, category: item.category, description: item.description, unit: item.unit,
     quantity: item.quantity, unit_price: item.unit_price,
     source: item.supplier_collection_id ? 'collection' : item.lpo_line_id ? 'lpo' : item.supplier_id ? 'supplier' : item.supplier_name ? 'named' : 'own',
-    lpo_line_id: item.lpo_line_id ?? '', supplier_collection_id: item.supplier_collection_id ?? '',
+    lpo_line_id: item.lpo_line_id ?? '', supplier_collection_id: item.supplier_collection_id ?? '', supplier_batch_id: item.supplier_batch_id ?? '',
     supplier_id: item.supplier_id ?? '', supplier_name: item.supplier_name,
     unit_cost: item.unit_cost ?? '', cost_status: 'owed', cost_method: 'cash', cost_reference: '', cost_paid_on: sale.sold_on,
   })) : [blank(1)]);
@@ -110,7 +111,7 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], sale 
         unit: l.unit,
         quantity: clean(l.quantity),
         unit_price: clean(l.unit_price),
-        ...(l.source === 'supplier' ? { supplier_id: l.supplier_id || null, unit_cost: clean(l.unit_cost),
+        ...(l.source === 'supplier' ? { supplier_id: l.supplier_id || null, unit_cost: clean(l.unit_cost), supplier_batch_id: l.supplier_batch_id || null,
           ...(!editing && l.cost_status === 'paid' ? { cost_payment: { paid_on: l.cost_paid_on || soldOn, method: l.cost_method, reference: l.cost_reference } } : {}) } : {}),
         ...(l.source === 'named' ? { supplier_name: l.supplier_name, unit_cost: clean(l.unit_cost),
           ...(!editing && l.cost_status === 'paid' ? { cost_payment: { paid_on: l.cost_paid_on || soldOn, method: l.cost_method, reference: l.cost_reference } } : {}) } : {}),
@@ -298,7 +299,13 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], sale 
                   <div className="field">
                     <label htmlFor={`sup-${line.key}`}>Supplier</label>
                     <select id={`sup-${line.key}`} className="input" required value={line.supplier_id}
-                      onChange={(e) => update(line.key, { supplier_id: e.target.value })}>
+                      onChange={(e) => {
+                        // Their oldest open batch of this product is the usual source.
+                        const own = batches.filter((b) => b.supplier_id === e.target.value);
+                        const first = own.find((b) => b.category === line.category) ?? own[0];
+                        update(line.key, { supplier_id: e.target.value, supplier_batch_id: first?.id ?? '',
+                          ...(first?.asking_price_per_unit && !line.unit_cost ? { unit_cost: String(Number(first.asking_price_per_unit)) } : {}) });
+                      }}>
                       <option value="">Choose…</option>
                       {parties.suppliers.map((s) => (
                         <option key={s.id} value={s.id}>{s.name}{s.alias ? ` (${s.alias})` : ''} · {s.phone}</option>
@@ -306,6 +313,31 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], sale 
                     </select>
                   </div>
                 )}
+                {line.source === 'supplier' && line.supplier_id && (() => {
+                  const own = batches.filter((b) => b.supplier_id === line.supplier_id);
+                  const chosen = own.find((b) => b.id === line.supplier_batch_id);
+                  const qty = num(line.quantity) || 0;
+                  const short = chosen && !editing && qty > Number(chosen.remaining);
+                  return (
+                    <div className="field">
+                      <label htmlFor={`batch-${line.key}`}>From batch</label>
+                      <select id={`batch-${line.key}`} className="input" value={line.supplier_batch_id}
+                        onChange={(e) => update(line.key, { supplier_batch_id: e.target.value })}>
+                        {line.supplier_batch_id && !chosen && <option value={line.supplier_batch_id}>Batch used on this sale</option>}
+                        {own.map((b) => (
+                          <option key={b.id} value={b.id}>
+                            {b.category.replaceAll('_', ' ')}{b.subtype ? ` (${b.subtype})` : ''} · {Number(b.remaining)} of {Number(b.registered)} left · registered {b.created_at.slice(0, 10)}
+                          </option>
+                        ))}
+                        <option value="">Not from a registered batch</option>
+                      </select>
+                      <span className="meta" style={short ? { color: 'var(--error)' } : undefined}>
+                        {chosen ? (short ? `Only ${Number(chosen.remaining)} left in this batch.` : `This sale reduces the batch to ${Math.max(Number(chosen.remaining) - qty, 0)} left.`)
+                          : own.length ? 'The batch will not change.' : 'This supplier has no open batch registered.'}
+                      </span>
+                    </div>
+                  );
+                })()}
                 {line.source === 'named' && (
                   <div className="field">
                     <label htmlFor={`supname-${line.key}`}>Supplier name</label>

@@ -2815,7 +2815,7 @@ def ops_supplier(id: str, db=Depends(database)):
         'approved_by_actor': _actor(db, profile.approved_by_actor), 'approved_at': profile.approved_at,
         'suspended_by_actor': _actor(db, profile.suspended_by_actor), 'suspended_at': profile.suspended_at,
         'created_at': user.created_at,
-        'batches': [dm.batch_view(b, private=True) | {'collections': batch_collections[b.id]} for b in batches],
+        'batches': [dm.batch_view(b, private=True) | {'collections': batch_collections[b.id]} | batch_stock.batch_breakdown(db, b) for b in batches],
         'batch_verifications': [{'batch_id': v.batch_id, **{k: getattr(v, k) for k in (
             'verified_quantity', 'sampled_average_weight_kg', 'rejected_quantity',
             'readiness_confirmed', 'location_confirmed', 'notes', 'status', 'inspected_at')}} for v in verifications],

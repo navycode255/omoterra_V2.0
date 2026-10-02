@@ -2653,3 +2653,10 @@ textarea.join-input { min-height: 88px; resize: vertical; }
 @media (max-width: 720px) {
   .shell [data-phone-table] th, .shell [data-phone-table] td { width: auto !important; }
 }
+.batch-stock-metrics small { display: block; margin-top: 2px; color: #7a8899; font-size: 11.5px; line-height: 1.35; }
+.batch-progress { display: flex; height: 8px; margin: 4px 0 10px; overflow: hidden; border-radius: 4px; background: #e6ece9; }
+.batch-progress [data-part='taken'] { background: #12925a; }
+.batch-progress [data-part='elsewhere'] { background: #e9a23b; }
+.collection-history > div { display: flex; justify-content: space-between; padding: 10px 12px; border-radius: 10px; background: #fbf8f2; }
+.collection-history > div span { display: grid; gap: 2px; }
+.collection-history > div small { color: #7a8899; font-size: 12px; }

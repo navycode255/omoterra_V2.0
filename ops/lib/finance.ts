@@ -96,6 +96,13 @@ export interface SaleItem {
   cost_total: string | null;
   lpo_line_id: string | null;
   supplier_collection_id: string | null;
+  supplier_batch_id?: string | null;
+}
+
+// A supplier batch with birds still to take (GET /ops/supplier-batches/open).
+export interface OpenBatch {
+  id: string; supplier_id: string; category: string; subtype: string;
+  registered: string; remaining: string; created_at: string; asking_price_per_unit: string | null;
 }
 
 // Totals for the sales a list shows (GET /ops/sales -> summary).

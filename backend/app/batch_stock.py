@@ -22,6 +22,56 @@ def _result(value, status_code=200):
     return result(value, status_code)
 
 
+def refresh_batch_status(batch):
+    """A batch with nothing left to take is finished; one with stock is
+    open again (a cancelled sale can return birds)."""
+    left = batch.current_quantity - batch.sold_quantity - batch.externally_sold_quantity
+    if left <= 0:
+        batch.status = 'sold'
+    elif batch.status == 'sold':
+        batch.status = 'ready'
+
+
+def take_from_batch(db, batch_id, supplier_id, quantity):
+    """A direct sale line from this supplier's batch: count the birds as taken
+    by Omoterra (sold_quantity). Fails if the batch has fewer left."""
+    batch = db.scalar(select(m.SupplierBatch).where(m.SupplierBatch.id == batch_id).with_for_update())
+    if not batch:
+        fail('err.supplier_batch_not_found', 404)
+    if batch.supplier_id != supplier_id:
+        fail('err.batch_not_this_suppliers', 422)
+    if quantity > batch.available_to_commit:
+        fail('err.not_enough_left_in_batch', 422, available=s.quantity(max(batch.available_to_commit, ZERO)))
+    batch.sold_quantity += quantity
+    refresh_batch_status(batch)
+    return batch
+
+
+def return_to_batch(db, batch_id, quantity):
+    """Undo take_from_batch (a sale edited or cancelled)."""
+    batch = db.scalar(select(m.SupplierBatch).where(m.SupplierBatch.id == batch_id).with_for_update())
+    if batch:
+        batch.sold_quantity = max(ZERO, batch.sold_quantity - quantity)
+        refresh_batch_status(batch)
+
+
+def batch_breakdown(db, batch):
+    """Registered, taken by Omoterra (received on delivery notes and sold
+    straight from the batch), sold elsewhere by the supplier, and left."""
+    received = db.scalar(select(func.coalesce(func.sum(m.SupplierCollection.accepted_quantity), 0)).where(
+        m.SupplierCollection.batch_id == batch.id, m.SupplierCollection.cancelled_at.is_(None))) or ZERO
+    sold_direct = db.scalar(select(func.coalesce(func.sum(m.SaleItem.quantity), 0)).join(m.Sale, m.Sale.id == m.SaleItem.sale_id)
+        .where(m.SaleItem.supplier_batch_id == batch.id, m.Sale.status == 'active')) or ZERO
+    movements = db.scalars(select(m.SupplierBatchMovement).where(m.SupplierBatchMovement.batch_id == batch.id)
+        .order_by(m.SupplierBatchMovement.created_at.desc())).all()
+    return {'registered': batch.current_quantity, 'taken_by_omoterra': batch.sold_quantity,
+        'received_on_notes': received, 'sold_direct': sold_direct,
+        'sold_elsewhere': batch.externally_sold_quantity, 'reserved': batch.reserved_quantity,
+        'remaining': max(ZERO, batch.available_to_commit),
+        'elsewhere_history': [{'quantity': row.quantity, 'note': row.note, 'at': row.created_at,
+            'by_staff': row.recorded_by is not None} for row in movements if row.kind == 'external_sale']}
+
+
 def collection_stock(db, collection_id):
     sold = db.scalar(select(func.coalesce(func.sum(m.SaleItem.quantity), 0))
         .join(m.Sale, m.Sale.id == m.SaleItem.sale_id)
@@ -98,6 +148,48 @@ def create_ops_batch(supplier_id: str, data: c.SupplierBatchInput, idempotency_k
     return _result(batch_view(row, private=True), 201)
 
 
+def _sold_elsewhere(db, batch, quantity, note, key, operator):
+    batch.externally_sold_quantity += quantity
+    refresh_batch_status(batch)
+    db.add(m.SupplierBatchMovement(batch_id=batch.id, supplier_id=batch.supplier_id, kind='external_sale',
+        quantity=quantity, note=note, idempotency_key=key, recorded_by=operator.id))
+
+
+@router.post('/ops/batches/{batch_id}/sold-elsewhere')
+def record_sold_elsewhere(batch_id: str, data: c.BatchExternalSaleInput, idempotency_key: str = Header(),
+                          operator=Depends(auth.ops), db=Depends(database)):
+    """Birds the supplier sold to someone else: they leave the batch."""
+    key, fingerprint, prior = s.replay(db, operator.id, 'ops-batch-elsewhere', idempotency_key, {'id': batch_id, **data.model_dump()})
+    batch = db.scalar(select(m.SupplierBatch).where(m.SupplierBatch.id == batch_id).with_for_update())
+    if not batch:
+        fail('err.supplier_batch_not_found', 404)
+    if not prior:
+        if data.quantity > batch.available_to_commit:
+            fail('err.not_enough_left_in_batch', 422, available=s.quantity(max(batch.available_to_commit, ZERO)))
+        _sold_elsewhere(db, batch, data.quantity, data.notes, key, operator)
+        s.remember(db, key, fingerprint, batch.id)
+    from .demand import batch_view
+    return _result({**batch_view(batch, private=True), **batch_breakdown(db, batch)})
+
+
+@router.post('/ops/batches/{batch_id}/close')
+def close_batch(batch_id: str, data: c.BatchCloseInput, idempotency_key: str = Header(),
+                operator=Depends(auth.ops), db=Depends(database)):
+    """The supplier sold everything still left elsewhere: finish the batch."""
+    key, fingerprint, prior = s.replay(db, operator.id, 'ops-batch-close', idempotency_key, {'id': batch_id, **data.model_dump()})
+    batch = db.scalar(select(m.SupplierBatch).where(m.SupplierBatch.id == batch_id).with_for_update())
+    if not batch:
+        fail('err.supplier_batch_not_found', 404)
+    if not prior:
+        left = batch.available_to_commit
+        if left <= 0:
+            fail('err.batch_already_finished', 409)
+        _sold_elsewhere(db, batch, left, data.notes or 'Rest of the batch sold elsewhere', key, operator)
+        s.remember(db, key, fingerprint, batch.id)
+    from .demand import batch_view
+    return _result({**batch_view(batch, private=True), **batch_breakdown(db, batch)})
+
+
 @router.post('/ops/suppliers/{supplier_id}/collections', status_code=201)
 def receive_supplier_stock(supplier_id: str, data: c.SupplierCollectionInput, idempotency_key: str = Header(),
                            operator=Depends(auth.ops), db=Depends(database)):
@@ -153,6 +245,16 @@ def receive_supplier_stock(supplier_id: str, data: c.SupplierCollectionInput, id
     db.flush()
     s.remember(db, key, fingerprint, row.id)
     return _result(collection_view(db, row), 201)
+
+
+@router.get('/ops/supplier-batches/open')
+def open_batches(operator=Depends(auth.ops), db=Depends(database)):
+    """Batches that still have birds to take, for choosing on a sale line."""
+    rows = db.scalars(select(m.SupplierBatch).where(m.SupplierBatch.status != 'sold')
+        .order_by(m.SupplierBatch.created_at)).all()
+    return _result([{'id': row.id, 'supplier_id': row.supplier_id, 'category': row.category, 'subtype': row.subtype,
+        'registered': row.current_quantity, 'remaining': row.available_to_commit, 'created_at': row.created_at,
+        'asking_price_per_unit': row.asking_price_per_unit} for row in rows if row.available_to_commit > 0])
 
 
 @router.get('/ops/supplier-collections/stock')

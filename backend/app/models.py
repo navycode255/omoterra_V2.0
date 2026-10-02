@@ -361,6 +361,8 @@ class SupplierBatchMovement(Entity, Base):
     quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3))
     note: Mapped[str] = mapped_column(Text, default='')
     idempotency_key: Mapped[str] = mapped_column(unique=True)
+    # Set when Omoterra staff recorded it rather than the supplier.
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
 
 
 class SupplyOffer(Entity, Base):
@@ -777,6 +779,8 @@ class SaleItem(Entity, Base):
     lpo_line_id: Mapped[Optional[str]] = mapped_column(ForeignKey('lpo_lines.id', use_alter=True), index=True)
     # Stock physically accepted from a registered supplier batch.
     supplier_collection_id: Mapped[Optional[str]] = mapped_column(ForeignKey('supplier_collections.id', use_alter=True), index=True)
+    # Bought from a registered supplier's batch: selling reduces that batch.
+    supplier_batch_id: Mapped[Optional[str]] = mapped_column(ForeignKey('supplier_batches.id', use_alter=True), index=True)
     __table_args__ = (
         CheckConstraint('quantity > 0', name='sale_items_quantity_check'),
         CheckConstraint('unit_price > 0', name='sale_items_unit_price_check'),

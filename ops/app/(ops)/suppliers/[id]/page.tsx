@@ -7,7 +7,7 @@ import { ApprovalGuide, EditableCard, EditSupplierButton, SupplierTabs } from '@
 import { SupplierPhotosCard, SupplierVideoCard } from '@/components/supplier-media';
 import { ActionForm } from '@/components/form';
 import { Empty, Status } from '@/components/ui';
-import { receiveSupplierBatch, registerSupplierBatch } from '@/lib/batch-stock-actions';
+import { closeSupplierBatch, receiveSupplierBatch, recordSoldElsewhere, registerSupplierBatch } from '@/lib/batch-stock-actions';
 import { ApiError, get } from '@/lib/api';
 import { category, date, listingTone, phone, quantity, reference, titleCase, tzs } from '@/lib/format';
 import { approvalRequirements, missingProfileFields, type RequiredProfileField } from '@/lib/supplier';
@@ -153,11 +153,35 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
           const active = batch.collections.filter((row) => !row.cancelled_at);
           const collected = active.reduce((sum, row) => sum + Number(row.accepted_quantity), 0);
           const onHand = active.reduce((sum, row) => sum + Number(row.on_hand), 0);
-          const remaining = Math.max(Number(batch.current_quantity) - Number(batch.sold_quantity) - Number(batch.externally_sold_quantity), 0);
+          const remaining = Number(batch.remaining);
           return <article key={batch.id} className="batch-stock-card">
             <div className="batch-stock-head"><div><strong>{category(batch.category)}{batch.subtype ? ` · ${batch.subtype}` : ''}</strong><span>Batch {batch.id.slice(0, 8)} · ready {batch.expected_ready_date ? date(batch.expected_ready_date) : '—'}</span></div><Status tone={batch.approved_at ? 'positive' : 'warning'}>{batch.approved_at ? titleCase(batch.status) : 'Pending review'}</Status></div>
-            <dl className="batch-stock-metrics"><div><dt>Registered</dt><dd>{quantity(batch.current_quantity)}</dd></div><div><dt>Collected</dt><dd>{quantity(String(collected))}</dd></div><div><dt>Still with supplier</dt><dd>{quantity(String(remaining))}</dd></div><div><dt>Omoterra on hand</dt><dd>{quantity(String(onHand))}</dd></div></dl>
-            <details className="batch-receive-panel"><summary>Receive stock / create delivery note</summary>
+            <dl className="batch-stock-metrics">
+              <div><dt>Registered</dt><dd>{quantity(batch.registered)}</dd></div>
+              <div><dt>Taken by Omoterra</dt><dd>{quantity(batch.taken_by_omoterra)}</dd><small>{quantity(String(collected))} on delivery notes · {quantity(batch.sold_direct)} sold straight to buyers</small></div>
+              <div><dt>Sold elsewhere</dt><dd>{quantity(batch.sold_elsewhere)}</dd><small>by the supplier</small></div>
+              <div><dt>Left in the batch</dt><dd>{quantity(String(remaining))}</dd>{Number(batch.reserved) > 0 && <small>{quantity(batch.reserved)} reserved for buyers</small>}</div>
+            </dl>
+            {Number(batch.registered) > 0 && <div className="batch-progress" aria-hidden="true">
+              <span data-part="taken" style={{ width: `${Number(batch.taken_by_omoterra) / Number(batch.registered) * 100}%` }} />
+              <span data-part="elsewhere" style={{ width: `${Number(batch.sold_elsewhere) / Number(batch.registered) * 100}%` }} />
+            </div>}
+            {onHand > 0 && <p className="meta">{quantity(String(onHand))} received birds still in Omoterra stock.</p>}
+            {remaining > 0 && <details className="batch-receive-panel"><summary>Supplier sold some elsewhere</summary>
+              <div className="grid-2">
+                <ActionForm action={recordSoldElsewhere} label="Record sold elsewhere" hidden={{ supplier_id: supplier.id, batch_id: batch.id }}>
+                  <div className="field"><label htmlFor={`elsewhere-${batch.id}`}>How many did they sell to others?</label><input id={`elsewhere-${batch.id}`} name="quantity" type="number" min="1" max={remaining} step="1" className="input" required /></div>
+                  <div className="field"><label htmlFor={`elsewhere-note-${batch.id}`}>Note (optional)</label><input id={`elsewhere-note-${batch.id}`} name="notes" className="input" placeholder="e.g. Sold at the farm gate" /></div>
+                </ActionForm>
+                <ActionForm action={closeSupplierBatch} label={`Close batch (${quantity(String(remaining))} sold elsewhere)`} variant="danger"
+                  confirm={`Mark the remaining ${remaining} as sold elsewhere and close this batch?`} hidden={{ supplier_id: supplier.id, batch_id: batch.id }}>
+                  <p className="meta">Use this when the batch is finished: everything still left was sold by the supplier to other buyers.</p>
+                  <div className="field"><label htmlFor={`close-note-${batch.id}`}>Note (optional)</label><input id={`close-note-${batch.id}`} name="notes" className="input" placeholder="e.g. Rest sold to a trader" /></div>
+                </ActionForm>
+              </div>
+            </details>}
+            {batch.elsewhere_history.length > 0 && <div className="collection-history"><h3>Sold elsewhere</h3>{batch.elsewhere_history.map((row, index) => <div key={index}><span><strong>{quantity(row.quantity)} sold elsewhere</strong><small>{date(row.at)} · {row.by_staff ? 'recorded by Omoterra' : 'recorded by the supplier'}{row.note ? ` · ${row.note}` : ''}</small></span></div>)}</div>}
+            {remaining > 0 && <details className="batch-receive-panel"><summary>Receive stock / create delivery note</summary>
               <ActionForm action={receiveSupplierBatch} label="Record collection" hidden={{ supplier_id: supplier.id, batch_id: batch.id }}>
                 <div className="grid-3">
                   <div className="field"><label htmlFor={`received-${batch.id}`}>Collection date</label><input id={`received-${batch.id}`} name="received_on" type="date" max={today()} defaultValue={today()} className="input" required /></div>
@@ -169,7 +193,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
                 </div>
                 <div className="field"><label htmlFor={`collection-note-${batch.id}`}>Delivery note comments</label><textarea id={`collection-note-${batch.id}`} name="notes" className="input" placeholder="Condition, rejected stock, vehicle or collection details" /></div>
               </ActionForm>
-            </details>
+            </details>}
             {active.length > 0 && <div className="collection-history"><h3>Collection history</h3>{active.map((row) => <Link key={row.id} href={`/supplier-collections/${row.id}`}><span><strong>{row.collection_number}</strong><small>{date(row.received_on)} · accepted {quantity(row.accepted_quantity)} · rejected {quantity(row.rejected_quantity)}</small></span><span><b>{quantity(row.on_hand)} on hand</b><small>{quantity(row.sold)} sold</small></span></Link>)}</div>}
           </article>;
         })}</div>}
