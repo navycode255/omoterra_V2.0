@@ -7,6 +7,7 @@ import { Check, Field, Select, Text } from '@/components/register/wizard';
 import { PAYOUT_METHODS } from '@/lib/payout-methods';
 import { Fold, FoldTitle } from './fold';
 import { Icon, type IconName } from './icons';
+import { Busy } from '@/components/spinner';
 
 const contacts = [['phone', 'Phone call'], ['whatsapp', 'WhatsApp'], ['sms', 'Text message']] as const;
 
@@ -66,7 +67,7 @@ export function EditableCard({ id, icon, title, summary, kind, contact, children
           {error && !error.field && <p className="join-error" role="alert">{error.message}</p>}
           <div className="portal-form-actions">
             <button type="button" className="button button-outline" onClick={() => { setEditing(false); setError(null); }} disabled={busy}>Cancel</button>
-            <button type="submit" className="button button-primary" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>
+            <button type="submit" className="button button-primary" disabled={busy}>{busy ? <Busy>Saving…</Busy> : 'Save'}</button>
           </div>
         </form>
       ) : <>

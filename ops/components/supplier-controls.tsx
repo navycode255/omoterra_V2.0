@@ -4,6 +4,7 @@ import { useActionState, type ReactNode } from 'react';
 import { useFormStatus } from 'react-dom';
 import { Icons } from '@/components/icons';
 import { updateSupplierStatus, updateSupplierVerification, type ActionResult } from '@/lib/actions';
+import { Busy } from '@/components/spinner';
 
 const CHECKS = [
   ['phone_confirmed', 'Phone confirmed', true],
@@ -40,7 +41,7 @@ export function SupplierStatusControl({ id, status, canApprove, guide }: { id: s
 
 function VerificationSubmit() {
   const { pending } = useFormStatus();
-  return <button className="verification-save" type="submit" disabled={pending}>{pending ? 'Saving…' : 'Save checklist'}</button>;
+  return <button className="verification-save" type="submit" disabled={pending}>{pending ? <Busy>Saving…</Busy> : 'Save checklist'}</button>;
 }
 
 export function SupplierVerificationForm({ id, verification, notes }: { id: string; verification: Record<string, boolean>; notes: string }) {

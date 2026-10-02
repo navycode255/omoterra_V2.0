@@ -4,6 +4,7 @@ import { useRouter } from 'next/navigation';
 import { useState } from 'react';
 import { confirmPayout } from '@/lib/portal-actions';
 import { Icon } from './icons';
+import { Busy } from '@/components/spinner';
 
 // Asks the supplier whether a payout Omoterra recorded as sent reached them.
 // "Not received" can be followed later by "I have received it".
@@ -36,7 +37,7 @@ export function PayoutConfirm({ id, disputed }: { id: string; disputed: boolean 
         {error && <p className="join-error" role="alert">{error}</p>}
         <div className="portal-confirm-actions">
           <button type="button" className="button button-outline" disabled={busy} onClick={() => setReporting(false)}>Back</button>
-          <button type="button" className="button portal-button-danger" disabled={busy} onClick={() => answer(false)}>{busy ? 'Sending…' : 'Report not received'}</button>
+          <button type="button" className="button portal-button-danger" disabled={busy} onClick={() => answer(false)}>{busy ? <Busy>Sending…</Busy> : 'Report not received'}</button>
         </div>
       </div>
     );
@@ -46,7 +47,7 @@ export function PayoutConfirm({ id, disputed }: { id: string; disputed: boolean 
       {error && <p className="join-error" role="alert">{error}</p>}
       <div className="portal-confirm-actions">
         <button type="button" className="button button-primary" disabled={busy} onClick={() => answer(true)}>
-          <Icon name="check" />{busy ? 'Saving…' : disputed ? 'I have now received it' : 'Yes, I received it'}
+          {!busy && <Icon name="check" />}{busy ? <Busy>Saving…</Busy> : disputed ? 'I have now received it' : 'Yes, I received it'}
         </button>
         {!disputed && <button type="button" className="button button-outline" disabled={busy} onClick={() => setReporting(true)}>Not received</button>}
       </div>

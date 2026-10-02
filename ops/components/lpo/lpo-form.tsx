@@ -5,6 +5,7 @@ import { useFormStatus } from 'react-dom';
 import { saveLpo } from '@/lib/lpo-actions';
 import { PRODUCTS, UNITS } from '@/lib/finance';
 import type { DemandRow, LpoDetail, SupplierSuggestion } from '@/lib/lpo';
+import { Busy } from '@/components/spinner';
 
 type Line = {
   key: number; category: string; item: string; specification: string; unit: string; unit_price: string;
@@ -16,7 +17,7 @@ const label = (value: string) => PRODUCTS.find(([key]) => key === value)?.[1] ??
 
 function Submit({ editing }: { editing: boolean }) {
   const { pending } = useFormStatus();
-  return <button type="submit" className="button" disabled={pending}>{pending ? 'Saving…' : editing ? 'Save draft' : 'Create draft LPO'}</button>;
+  return <button type="submit" className="button" disabled={pending}>{pending ? <Busy>Saving…</Busy> : editing ? 'Save draft' : 'Create draft LPO'}</button>;
 }
 
 export function LpoForm({ suggested, others, today, demand, lpo }: {

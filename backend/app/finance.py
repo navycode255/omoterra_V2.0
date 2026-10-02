@@ -1014,11 +1014,16 @@ def expenses(params: Paging = Depends(), start: Optional[date] = None, end: Opti
     if sale_id:
         where.append(m.LedgerDebt.sale_id == sale_id)
     body = paging.page(db, DEBTS, params, debt_view, where=where)
-    rows = db.execute(select(m.LedgerDebt.expense_category, func.sum(m.LedgerDebt.amount), func.sum(m.LedgerDebt.paid_amount))
-        .where(*where, m.LedgerDebt.status != 'cancelled').group_by(m.LedgerDebt.expense_category)).all()
+    # Money over every row the list pages through (same dates, category, sale,
+    # search and status tab), not just this page. `total` stays the row count.
+    # Cancelled expenses are listed but never count as money spent.
+    matching = paging.filtered(DEBTS, params, where=where).where(m.LedgerDebt.status != 'cancelled')
+    rows = db.execute(matching.with_only_columns(m.LedgerDebt.expense_category, func.sum(m.LedgerDebt.amount),
+        func.sum(m.LedgerDebt.paid_amount)).group_by(m.LedgerDebt.expense_category)).all()
     body['by_category'] = sorted(({'category': k, 'amount': a, 'paid': p, 'owed': a - p} for k, a, p in rows),
         key=lambda r: -r['amount'])
-    body['total'] = sum((r['amount'] for r in body['by_category']), ZERO)
+    incurred, paid = (sum((r[key] for r in body['by_category']), ZERO) for key in ('amount', 'paid'))
+    body['summary'] = {'incurred': incurred, 'paid': paid, 'outstanding': incurred - paid}
     return _result(body)
 
 

@@ -71,3 +71,15 @@ def test_staff_record_sold_elsewhere_and_close_the_batch(client, sessions, seede
 def test_not_from_a_batch_is_saved_without_one(client, sessions, seeded):
     body = sale(client, items=[{**line(seeded, '', 5)}])
     assert body['items'][0]['supplier_batch_id'] is None
+
+
+def test_supplier_list_shows_batches_birds_and_money(client, sessions, seeded):
+    id = batch(sessions, seeded, 300)
+    sold = sale(client, items=[line(seeded, id, 60)])
+    payable = next(d for d in sold['debts'] if d['direction'] == 'payable')
+    assert post(client, f"/ledger/debts/{payable['id']}/payments", {'amount': '100000', 'paid_on': TODAY, 'method': 'cash'}).status_code == 201
+    row = next(r for r in client.get(API + '/suppliers', headers=OPS).json()['items'] if r['id'] == seeded['supplier'])
+    assert row['batches_total'] == 1 and row['batches_open'] == 1 and Decimal(row['birds_left']) == Decimal('240')
+    assert Decimal(row['birds_bought']) == Decimal('60')
+    assert Decimal(row['paid_total']) == Decimal('100000') and Decimal(row['owed_total']) == Decimal('290000')
+    assert row['last_activity'] == TODAY

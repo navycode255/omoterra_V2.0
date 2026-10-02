@@ -6,6 +6,7 @@ import { Icons } from '@/components/icons';
 import { createExpense } from '@/lib/finance-actions';
 import { EXPENSE_CATEGORIES, METHODS } from '@/lib/finance';
 import styles from './expenses.module.css';
+import { Busy } from '@/components/spinner';
 
 const OpenExpense = createContext<() => void>(() => {});
 export function RecordExpenseButton() {
@@ -58,7 +59,7 @@ export function ExpenseWorkspace({ children, now, saleId }: { children: ReactNod
           </section>
           {error && <div role="alert" className={styles.error}>{error}</div>}
         </div>
-        <footer className={styles.formFooter}><button type="button" className={styles.secondary} disabled={busy} onClick={close}>Cancel</button><button type="submit" className={styles.primary} disabled={busy}>{busy ? 'Saving…' : 'Save expense'}</button></footer>
+        <footer className={styles.formFooter}><button type="button" className={styles.secondary} disabled={busy} onClick={close}>Cancel</button><button type="submit" className={styles.primary} disabled={busy}>{busy ? <Busy>Saving…</Busy> : 'Save expense'}</button></footer>
       </form>
     </dialog>
   </div></OpenExpense.Provider>;

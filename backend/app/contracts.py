@@ -904,12 +904,55 @@ class SupplierPaymentInput(LedgerPaymentInput):
     send_receipt_sms: bool = False
     receipt_language: Literal['en', 'sw'] = 'en'
     include_thank_you: bool = True
+    # Supplier credit (money they already hold) applied to the invoices
+    # first; `amount` is the new money sent on top of it.
+    use_credit: Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=2)] = Decimal('0')
 
     @model_validator(mode='after')
     def has_evidence(self):
         if not (self.reference.strip() or self.sms_text.strip() or self.receipt_media_id):
             raise ValueError(M('err.add_supplier_payment_evidence'))
         return self
+
+
+class SupplierCreditInput(Input):
+    """Apply a supplier's unapplied credit to their own open invoices, oldest
+    first (or the ones picked). No money moves."""
+    amount: Money
+    debt_ids: list[str] = Field(default_factory=list, max_length=500)
+    transfer_id: Optional[str] = Field(default=None, max_length=36)
+    note: str = Field(default='', max_length=500)
+
+
+class TransferRefundInput(Input):
+    """Money a supplier actually sent back from their credit: a separate,
+    dated inflow with evidence. Partial refunds are separate entries."""
+    amount: Money
+    received_on: date
+    method: LedgerMethod
+    reference: str = Field(default='', max_length=150)
+    evidence: str = Field(default='', max_length=2000)
+    receipt_media_id: Optional[str] = Field(default=None, max_length=36)
+    note: str = Field(default='', max_length=500)
+
+    @field_validator('received_on')
+    @classmethod
+    def not_future(cls, value):
+        return _not_future(value)
+
+    @model_validator(mode='after')
+    def has_evidence(self):
+        if not (self.reference.strip() or self.evidence.strip() or self.receipt_media_id):
+            raise ValueError(M('err.add_refund_evidence'))
+        return self
+
+
+class TransferEntryErrorInput(Input):
+    """Part of a transfer that never left the account (typed too high):
+    taken off the transfer with a reason and evidence. Admin only."""
+    amount: Money
+    reason: str = Field(min_length=3, max_length=500)
+    evidence: str = Field(min_length=3, max_length=2000)
 
 
 class SaleItemInput(Input):

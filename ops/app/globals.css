@@ -2660,3 +2660,62 @@ textarea.join-input { min-height: 88px; resize: vertical; }
 .collection-history > div { display: flex; justify-content: space-between; padding: 10px 12px; border-radius: 10px; background: #fbf8f2; }
 .collection-history > div span { display: grid; gap: 2px; }
 .collection-history > div small { color: #7a8899; font-size: 12px; }
+.supplier-table td small { display: block; margin-top: 2px; color: #62758d; font-size: 12px; }
+.supplier-table td b { font-weight: 650; }
+.supplier-table td[data-owed] { color: #b4321f; }
+.supplier-table td.money { white-space: nowrap; }
+
+/* Loading: hoofprint trail ------------------------------------------------ */
+
+.hoof-spinner { display: block; flex: none; overflow: visible; }
+.hoof-step { opacity: .14; animation: hoof-step 1.2s linear infinite; }
+.hoof-step > g { transform-box: fill-box; transform-origin: center; animation: hoof-press 1.2s ease-out infinite; animation-delay: inherit; }
+
+@keyframes hoof-step {
+  0% { opacity: 1; }
+  70%, 100% { opacity: .14; }
+}
+
+@keyframes hoof-press {
+  0% { transform: scale(1.18); }
+  25%, 100% { transform: scale(1); }
+}
+
+.busy-label { display: inline-flex; align-items: center; gap: var(--s2); }
+
+.page-loader {
+  display: grid;
+  place-items: center;
+  align-content: center;
+  gap: var(--s4);
+  min-height: 60vh;
+  padding: var(--s8) var(--s4);
+  color: var(--forest);
+  animation: page-loader-in .3s ease-out .15s both;
+}
+
+.page-loader-mark {
+  display: grid;
+  place-items: center;
+  width: 96px;
+  height: 96px;
+  border-radius: 50%;
+  background: radial-gradient(circle, var(--white) 55%, var(--soft-green) 100%);
+  box-shadow: 0 0 0 1px var(--border), 0 12px 32px -18px rgba(18, 61, 45, .45);
+}
+
+.page-loader-text { color: var(--text-secondary); font-size: 14px; font-weight: 600; letter-spacing: .01em; }
+
+/* A brief delay keeps fast navigations from flashing the loader. */
+@keyframes page-loader-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .hoof-step { animation-duration: 2.4s; }
+  .hoof-step > g, .page-loader { animation: none; }
+}
+
+/* A working button stays readable instead of greying out like a disabled one. */
+button:disabled:has(.busy-label) { opacity: .85; cursor: progress; }

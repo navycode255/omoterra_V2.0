@@ -8,6 +8,7 @@ import { DEFAULT_UNIT, METHODS, PRODUCTS, UNITS, type OpenBatch, type Parties, t
 import type { LpoStockRow } from '@/lib/lpo';
 import { tanzanianMobile } from '@/lib/phone';
 import styles from './finance.module.css';
+import { Busy } from '@/components/spinner';
 
 type Line = {
   key: number;
@@ -45,7 +46,7 @@ const clean = (value: string) => value.replace(/,/g, '').trim();
 function Submit({ disabled, editing = false }: { disabled: boolean; editing?: boolean }) {
   const { pending } = useFormStatus();
   return <button type="submit" className={styles.saveButton} disabled={pending || disabled}>
-    <span aria-hidden="true">▣</span>{pending ? 'Saving…' : editing ? 'Save changes' : 'Save sale'}
+    {!pending && <span aria-hidden="true">▣</span>}{pending ? <Busy>Saving…</Busy> : editing ? 'Save changes' : 'Save sale'}
   </button>;
 }
 

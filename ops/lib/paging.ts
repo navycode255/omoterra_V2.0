@@ -7,7 +7,7 @@ export interface Page<T> {
   total: number;
   page: number;
   page_size: number;
-  /** How many of `total` need action; all of them are on page 1. */
+  /** How many of `total` need action. They come first, running over as many pages as they fill. */
   actionable: number;
   /** Rows per status tab under the same search, counted by the database. */
   counts?: Record<string, number>;
@@ -34,7 +34,7 @@ export function listPath(path: string, params: ListParams, keys: string[] = [], 
   return query.size ? `${path}?${query}` : path;
 }
 
-/** Pages of history behind the rows that need action. */
+/** Pages in the list: ceil(total / page_size), at least one. Actionable rows are counted in `total`. */
 export function pageCount(page: Page<unknown>) {
   return Math.max(1, Math.ceil(page.total / page.page_size));
 }

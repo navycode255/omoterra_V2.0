@@ -5,8 +5,9 @@ import { useFormStatus } from 'react-dom';
 import { requestMarketReservation } from '@/lib/market-portal-actions';
 import type { MarketSlot } from '@/lib/market';
 import { date, label, number, units } from './supplier-format';
+import { Busy } from '@/components/spinner';
 
-function Submit() { const { pending } = useFormStatus(); return <button className="button button-primary" disabled={pending} type="submit">{pending ? 'Sending…' : 'Request reservation'}</button>; }
+function Submit() { const { pending } = useFormStatus(); return <button className="button button-primary" disabled={pending} type="submit">{pending ? <Busy>Sending…</Busy> : 'Request reservation'}</button>; }
 export function MarketReserve({ slot }: { slot: MarketSlot }) {
   const [state, action] = useActionState(requestMarketReservation, null);
   const [choice, setChoice] = useState<'existing' | 'planned'>(slot.eligible_batches?.length ? 'existing' : 'planned');

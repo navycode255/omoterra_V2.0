@@ -2716,6 +2716,35 @@ async def ops_supplier_photo(file: UploadFile = File(), db=Depends(database)):
     return await run_in_threadpool(save_photo, db, None, raw)
 
 
+def _supplier_activity(db, supplier_id):
+    """What Omoterra does with a supplier outside app orders: their batches
+    and birds still left, birds bought (sold straight from them or received
+    on delivery notes), money paid, money still owed (including unpaid app
+    payouts) and the last day anything happened."""
+    zero = Decimal('0')
+    batches = db.scalars(select(m.SupplierBatch).where(m.SupplierBatch.supplier_id == supplier_id)).all()
+    open_batches = [b for b in batches if b.status != 'sold' and b.available_to_commit > 0]
+    direct = db.execute(select(func.coalesce(func.sum(m.SaleItem.quantity), 0), func.max(m.Sale.sold_on))
+        .join(m.Sale, m.Sale.id == m.SaleItem.sale_id)
+        .where(m.SaleItem.supplier_id == supplier_id, m.Sale.status == 'active',
+               m.SaleItem.supplier_collection_id.is_(None), m.SaleItem.lpo_line_id.is_(None))).one()
+    received = db.execute(select(func.coalesce(func.sum(m.SupplierCollection.accepted_quantity), 0), func.max(m.SupplierCollection.received_on))
+        .where(m.SupplierCollection.supplier_id == supplier_id, m.SupplierCollection.cancelled_at.is_(None))).one()
+    money = db.execute(select(func.coalesce(func.sum(m.LedgerDebt.paid_amount), 0),
+            func.coalesce(func.sum(m.LedgerDebt.amount - m.LedgerDebt.paid_amount), 0))
+        .where(m.LedgerDebt.supplier_id == supplier_id, m.LedgerDebt.direction == 'payable', m.LedgerDebt.status != 'cancelled')).one()
+    last_paid = db.scalar(select(func.max(m.LedgerPayment.paid_on)).join(m.LedgerDebt, m.LedgerDebt.id == m.LedgerPayment.debt_id)
+        .where(m.LedgerDebt.supplier_id == supplier_id, m.LedgerPayment.reversed_at.is_(None)))
+    settlements = db.scalar(select(func.coalesce(func.sum(m.Settlement.total_payable), 0)).where(
+        m.Settlement.supplier_id == supplier_id, m.Settlement.status == 'pending')) or zero
+    days = [d for d in (direct[1], received[1], last_paid) if d]
+    return {'batches_total': len(batches), 'batches_open': len(open_batches),
+        'birds_left': sum((b.available_to_commit for b in open_batches), zero),
+        'birds_bought': (direct[0] or zero) + (received[0] or zero),
+        'paid_total': money[0] or zero, 'owed_total': (money[1] or zero) + settlements,
+        'last_activity': max(days) if days else None}
+
+
 @app.get(prefix + '/ops/suppliers', dependencies=[Depends(auth.ops)])
 def ops_suppliers(params: Paging = Depends(), db=Depends(database)):
     def view(profile):
@@ -2730,7 +2759,8 @@ def ops_suppliers(params: Paging = Depends(), db=Depends(database)):
             'completed_supplies_count': profile.completed_supplies_count,
             'live_listings': sum(1 for r in listings if r.listing_status == 'live'),
             'pending_listings': sum(1 for r in listings if r.listing_status == 'pending_review'),
-            'pending_settlement_total': sum((r.total_payable for r in pending), Decimal('0'))}
+            'pending_settlement_total': sum((r.total_payable for r in pending), Decimal('0')),
+            **_supplier_activity(db, profile.user_id)}
     # Registrations waiting for review come first, longest waiting first.
     return result(paging.page(db, paging.SUPPLIERS, params, view))
 
@@ -2743,7 +2773,7 @@ def ops_create_supplier(data: c.OperatorSupplierInput, idempotency_key: str = He
     user, profile, batches = _operator_create_supplier(db, data)
     s.remember(db, key, fingerprint, user.id)
     return result({'id': user.id, 'status': profile.status, 'phone': user.phone,
-        'batches_created': len(batches)})
+        'batches_created': len(batches)}, 201)
 
 
 def _registered_user(db, phone, role, name, region):

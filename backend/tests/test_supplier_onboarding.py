@@ -1,4 +1,5 @@
 from datetime import date, timedelta
+from decimal import Decimal
 from sqlalchemy import select, func
 from app import models as m
 from test_commerce import headers
@@ -58,7 +59,7 @@ def test_staff_onboards_canonical_supplier_then_supplier_signin_reuses_phone(cli
         assert profile.production_profile['broilers']['capacity'] == '2000'
         assert profile.status == 'under_review'
         assert batch.initial_quantity == 1450 and batch.current_age == 24
-        assert batch.expected_min_weight_kg == 1.8 and batch.expected_max_weight_kg == 2.2
+        assert batch.expected_min_weight_kg == Decimal('1.8') and batch.expected_max_weight_kg == Decimal('2.2')
         assert batch.private_pickup_location == 'Private farm road'
         assert db.scalar(select(func.count()).select_from(m.SupplierBatch).where(
             m.SupplierBatch.supplier_id == supplier_id)) == 1
@@ -77,8 +78,13 @@ def test_staff_onboards_canonical_supplier_then_supplier_signin_reuses_phone(cli
 
 
 def test_supplier_self_onboards_as_additional_buyer_capability_and_can_skip_batch(client, sessions):
-    body = supplier_body(phone='+255712345678')
+    # Self-onboarding takes the phone from the signed-in account, and staff-only
+    # fields (internal_notes, verification) are not part of the supplier contract.
+    body = {k: v for k, v in supplier_body().items() if k not in ('phone', 'internal_notes', 'verification')}
     body.update({'name': 'Buyer Test', 'current_batch': None})
+    for staff_only in ({'internal_notes': 'x'}, {'verification': {'phone_confirmed': True}}):
+        rejected = client.post('/api/v1/supplier/onboarding', headers={**headers(), 'Idempotency-Key': 'self-onboarding-bad'}, json={**body, **staff_only})
+        assert rejected.status_code == 422, rejected.text
     submitted = client.post('/api/v1/supplier/onboarding', headers={**headers(), 'Idempotency-Key': 'self-onboarding-01'}, json=body)
     assert submitted.status_code == 200, submitted.text
     assert submitted.json()['user']['roles'] == ['buyer', 'supplier']
@@ -95,6 +101,9 @@ def test_operator_approval_is_distinct_and_private_supplier_fields_stay_private(
     with sessions.begin() as db:
         profile = db.get(m.SupplierProfile, seeded['supplier'])
         profile.status = 'under_review'
+        # Approval requires identity and pickup details (alias, legal name,
+        # private pickup address, region); the shared seed omits the region.
+        profile.region = 'Pwani'
     assert client.get('/api/v1/listings', headers=headers()).json() == []
     assert client.get(f"/api/v1/listings/{seeded['listing']}", headers=headers()).status_code == 404
     blocked = client.patch(f"/api/v1/ops/suppliers/{seeded['supplier']}/status", headers=OPS, json={'status': 'approved'})

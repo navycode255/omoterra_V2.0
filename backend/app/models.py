@@ -846,10 +846,22 @@ class LedgerDebt(Entity, Base):
 LEDGER_METHODS = ('cash', 'mpesa', 'airtel_money', 'mixx_by_yas', 'halopesa', 'bank_transfer', 'cheque', 'other')
 
 
+TRANSFER_ORIGINS = ('pay_supplier', 'single', 'legacy')
+
+
 class SupplierPayment(Entity, Base):
-    """One transfer to a supplier, allocated across one or more ledger debts."""
+    """One transfer to a supplier: the only record that money left an account
+    to them (build plan M1.2). Its allocations (ledger payments with this id)
+    spread it over invoices; `transfer_events` record what happens to money
+    taken off an invoice. `amount` is never changed: a refund is a separate
+    inflow and an entry error a separate correction (rule R3).
+
+    origin: 'pay_supplier' (proof required), 'single' (one invoice paid from
+    Record payment or with a sale) or 'legacy' (a payment from before
+    transfers existed, wrapped by app.classify_transfers or on reversal)."""
     __tablename__ = 'supplier_payments'
     supplier_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    origin: Mapped[str] = mapped_column(String(16), default='pay_supplier')
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     paid_on: Mapped[date] = mapped_column(Date, index=True)
     method: Mapped[str] = mapped_column(String(24))
@@ -868,7 +880,9 @@ class SupplierPayment(Entity, Base):
     __table_args__ = (
         CheckConstraint('amount > 0', name='supplier_payments_amount_check'),
         CheckConstraint(f"method IN ({', '.join(repr(v) for v in LEDGER_METHODS)})", name='supplier_payments_method_check'),
-        CheckConstraint("reference <> '' OR sms_text <> '' OR receipt_media_id IS NOT NULL", name='supplier_payment_has_evidence'),
+        CheckConstraint(f"origin IN ({', '.join(repr(v) for v in TRANSFER_ORIGINS)})", name='supplier_payments_origin_check'),
+        CheckConstraint("origin <> 'pay_supplier' OR reference <> '' OR sms_text <> '' OR receipt_media_id IS NOT NULL",
+            name='supplier_payment_has_evidence'),
         CheckConstraint("receipt_sms_status IN ('queued','sent','failed','skipped')", name='supplier_payment_receipt_sms_status_check'),
         CheckConstraint("receipt_sms_language IN ('en','sw')", name='supplier_payment_receipt_sms_language_check'),
         Index('ix_supplier_payments_receipt_sms_queued', 'receipt_sms_status',
@@ -896,6 +910,53 @@ class LedgerPayment(Entity, Base):
         CheckConstraint(f"method IN ({', '.join(repr(v) for v in LEDGER_METHODS)})", name='ledger_payments_method_check'),
         Index('uq_ledger_payment_reference', 'debt_id', 'method', 'reference', unique=True,
             postgresql_where=text("reference <> '' AND reversed_at IS NULL")),
+    )
+
+
+TRANSFER_EVENT_KINDS = ('credit', 'reallocation', 'refund', 'entry_error')
+
+
+class TransferEvent(Entity, Base):
+    """What happened to part of a transfer after it left its invoice.
+
+    - credit: an allocation was reversed; the money stays with the supplier
+      who received it as unapplied credit (rules R1, R4; decision D5).
+    - reallocation: credit applied to another open invoice of the same
+      supplier; `allocation_id` is the new allocation. No money moves.
+    - refund: money the supplier actually sent back, a separate dated inflow
+      with evidence (R3). Partial refunds are separate rows.
+    - entry_error: the transfer was recorded too high and no money moved for
+      this part. Admin only, with reason and evidence.
+
+    `source_payment_id` names the reversed allocation an event classifies;
+    a reversed allocation without such events is *unresolved* (R6). For
+    every transfer: active allocations + unapplied credit + refunded + entry
+    errors + unresolved = amount."""
+    __tablename__ = 'transfer_events'
+    supplier_payment_id: Mapped[str] = mapped_column(ForeignKey('supplier_payments.id'), index=True)
+    supplier_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    source_payment_id: Mapped[Optional[str]] = mapped_column(ForeignKey('ledger_payments.id'), index=True)
+    allocation_id: Mapped[Optional[str]] = mapped_column(ForeignKey('ledger_payments.id'))
+    occurred_on: Mapped[date] = mapped_column(Date, index=True)
+    method: Mapped[Optional[str]] = mapped_column(String(24))
+    reference: Mapped[str] = mapped_column(Text, default='')
+    evidence: Mapped[str] = mapped_column(Text, default='')
+    receipt_media_id: Mapped[Optional[str]] = mapped_column(ForeignKey('media_assets.id'))
+    reason: Mapped[str] = mapped_column(Text, default='')
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint(f"kind IN ({', '.join(repr(v) for v in TRANSFER_EVENT_KINDS)})", name='transfer_events_kind_check'),
+        CheckConstraint('amount > 0', name='transfer_events_amount_check'),
+        CheckConstraint(f"method IS NULL OR method IN ({', '.join(repr(v) for v in LEDGER_METHODS)})",
+            name='transfer_events_method_check'),
+        CheckConstraint("((kind = 'reallocation') = (allocation_id IS NOT NULL))"
+            " AND (kind <> 'reallocation' OR source_payment_id IS NULL)"
+            " AND (kind <> 'credit' OR source_payment_id IS NOT NULL)"
+            " AND (kind <> 'refund' OR (method IS NOT NULL AND (reference <> '' OR evidence <> '' OR receipt_media_id IS NOT NULL)))"
+            " AND (kind <> 'entry_error' OR (reason <> '' AND (reference <> '' OR evidence <> '' OR receipt_media_id IS NOT NULL)))",
+            name='transfer_event_shape'),
     )
 
 

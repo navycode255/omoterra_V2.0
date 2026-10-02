@@ -6,6 +6,7 @@ import { useFormStatus } from 'react-dom';
 import { Icons } from '@/components/icons';
 import { updateSupplierSection, type ActionResult } from '@/lib/actions';
 import type { ApprovalGroup, ApprovalItem } from '@/lib/supplier';
+import { Busy } from '@/components/spinner';
 
 // The header "Edit supplier" button and the tabs live outside the cards, so they
 // talk to them through this window event instead of shared state.
@@ -14,7 +15,7 @@ const EDIT_EVENT = 'supplier-edit';
 function SaveButton({ refreshing }: { refreshing: boolean }) {
   const { pending } = useFormStatus();
   const busy = pending || refreshing;
-  return <button className="button section-save" type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save'}</button>;
+  return <button className="button section-save" type="submit" disabled={busy}>{busy ? <Busy>Saving…</Busy> : 'Save'}</button>;
 }
 
 export function EditableCard({ id, section, icon, title, anchor, className = '', view, fields, extras }: {

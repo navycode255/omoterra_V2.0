@@ -3,6 +3,7 @@
 import Link from 'next/link';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { sendCode, setPin, verifyCode, type Role, type Verified } from '@/lib/registration';
+import { Busy } from '@/components/spinner';
 
 export type Errors = Record<string, string>;
 
@@ -85,7 +86,7 @@ export function Wizard({ steps, step, children, error, busy, onBack, onContinue,
         {error && <p className="join-error join-form-error" role="alert">{error}</p>}
         <div className="join-nav">
           {onBack ? <button type="button" className="button button-outline" onClick={onBack} disabled={busy}>Back</button> : <span />}
-          <button type="submit" className="button button-primary" disabled={busy}>{busy ? 'Please wait…' : continueLabel}</button>
+          <button type="submit" className="button button-primary" disabled={busy}>{busy ? <Busy>Please wait…</Busy> : continueLabel}</button>
         </div>
         {step === 0 && <p className="join-consent">By continuing you agree to Omoterra&rsquo;s <Link href="/terms" target="_blank">Terms of Use</Link> and <Link href="/privacy" target="_blank">Privacy Policy</Link>.</p>}
       </form>

@@ -205,6 +205,9 @@ export interface SupplierRow {
   completed_supplies_count: number;
   live_listings: number;
   pending_listings: number;
+  // Batches, birds and money outside app orders (backend main._supplier_activity).
+  batches_total: number; batches_open: number; birds_left: string; birds_bought: string;
+  paid_total: string; owed_total: string; last_activity: string | null;
   pending_settlement_total: string;
 }
 
@@ -214,7 +217,7 @@ export interface SupplierBatch { id: string; category: string; subtype: string; 
   registered: string; taken_by_omoterra: string; received_on_notes: string; sold_direct: string; sold_elsewhere: string; reserved: string; remaining: string;
   elsewhere_history: { quantity: string; note: string; at: string; by_staff: boolean }[]; }
 
-export interface SupplierDetail extends Omit<SupplierRow, 'live_listings' | 'pending_listings' | 'pending_settlement_total'> {
+export interface SupplierDetail extends Omit<SupplierRow, 'live_listings' | 'pending_listings' | 'pending_settlement_total' | 'batches_total' | 'batches_open' | 'birds_left' | 'birds_bought' | 'paid_total' | 'owed_total' | 'last_activity'> {
   alternate_phone: string;
   payout_methods?: string[];
   general_area: string;

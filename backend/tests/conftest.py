@@ -13,6 +13,42 @@ from app import models as m
 from app.config import settings
 from fastapi.testclient import TestClient
 
+# CI sets OMOTERRA_REQUIRE_DB=1: a missing database is then an error instead
+# of a quiet skip, and any skipped test fails the run. Locally, without a
+# database, the database tests still skip.
+REQUIRE_DB = os.environ.get('OMOTERRA_REQUIRE_DB', '').strip().lower() in ('1', 'true', 'yes')
+_skipped = []
+
+
+def pytest_configure(config):
+    if REQUIRE_DB and not os.environ.get('OMOTERRA_TEST_DATABASE_URL'):
+        raise pytest.UsageError('OMOTERRA_REQUIRE_DB is set but OMOTERRA_TEST_DATABASE_URL is not')
+
+
+def pytest_runtest_logreport(report):
+    if report.skipped:
+        _skipped.append(report.nodeid)
+
+
+# A whole module skipped while importing (pytest.importorskip) is reported
+# at collection, not as a test run.
+def pytest_collectreport(report):
+    if report.skipped:
+        _skipped.append(report.nodeid)
+
+
+def pytest_sessionfinish(session, exitstatus):
+    if REQUIRE_DB and _skipped and session.exitstatus == 0:
+        session.exitstatus = pytest.ExitCode.TESTS_FAILED
+
+
+def pytest_terminal_summary(terminalreporter, exitstatus, config):
+    if REQUIRE_DB and _skipped:
+        terminalreporter.section('OMOTERRA_REQUIRE_DB')
+        terminalreporter.write_line(f'{len(_skipped)} test(s) skipped; every test must run when OMOTERRA_REQUIRE_DB=1:', red=True)
+        for nodeid in _skipped[:50]:
+            terminalreporter.write_line(f'  {nodeid}')
+
 
 @pytest.fixture(scope='session')
 def engine():
@@ -37,9 +73,10 @@ def engine():
 
 @pytest.fixture
 def sessions(engine):
+    # One statement for every table: far faster than a TRUNCATE per table.
+    tables = ', '.join(f'"{table.name}"' for table in Base.metadata.sorted_tables)
     with engine.begin() as connection:
-        for table in reversed(Base.metadata.sorted_tables):
-            connection.execute(text(f'TRUNCATE "{table.name}" CASCADE'))
+        connection.execute(text(f'TRUNCATE {tables} CASCADE'))
     return sessionmaker(engine, expire_on_commit=False)
 
 

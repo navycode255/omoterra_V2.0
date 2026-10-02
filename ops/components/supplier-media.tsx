@@ -6,6 +6,7 @@ import { Icons } from '@/components/icons';
 import { addSupplierPhotos, deleteSupplierVideo, removeSupplierPhoto, saveSupplierVideo, type ActionResult } from '@/lib/actions';
 import { date } from '@/lib/format';
 import type { SupplierPhoto, SupplierVideo } from '@/lib/types';
+import { Busy } from '@/components/spinner';
 
 function mediaSource(url: string) {
   return `/media/${url.split('/').pop()}`;
@@ -39,7 +40,7 @@ function ConfirmDialog({ title, message, confirmLabel, busy, error, onConfirm, o
     {error && <p className="inline-error" role="alert">{error}</p>}
     <div className="confirm-actions">
       <button type="button" className="button" data-variant="secondary" onClick={onCancel} disabled={busy}>Cancel</button>
-      <button type="button" className="button danger-button" onClick={onConfirm} disabled={busy}>{busy ? 'Deleting…' : confirmLabel}</button>
+      <button type="button" className="button danger-button" onClick={onConfirm} disabled={busy}>{busy ? <Busy>Deleting…</Busy> : confirmLabel}</button>
     </div>
   </Modal>;
 }
@@ -107,7 +108,7 @@ export function SupplierPhotosCard({ id, photos, limit }: { id: string; photos: 
   return <section className="supplier-detail-card photo-card" id="photos">
     <header>
       <span className="section-title"><Icons.image size={23}/>Farm and supply photos</span>
-      {!full && <button type="button" className="add-photos-button" onClick={choose} disabled={uploading > 0}><Icons.camera size={18}/>{uploading ? 'Uploading…' : 'Add photos'}</button>}
+      {!full && <button type="button" className="add-photos-button" onClick={choose} disabled={uploading > 0}>{!uploading && <Icons.camera size={18}/>}{uploading ? <Busy>Uploading…</Busy> : 'Add photos'}</button>}
     </header>
     <form ref={form} action={action} hidden>
       <input type="hidden" name="id" value={id}/>
@@ -168,7 +169,7 @@ function VideoForm({ id, mode, video, uploadEnabled, onDone, onCancel }: { id: s
       {state && !state.ok && <p className="inline-error" role="alert">{state.error}</p>}
       <div className="confirm-actions">
         <button type="button" className="button" data-variant="secondary" onClick={onCancel} disabled={pending}>Cancel</button>
-        <button type="submit" className="button" disabled={pending}>{pending ? 'Saving…' : mode === 'add' ? 'Add video' : 'Replace video'}</button>
+        <button type="submit" className="button" disabled={pending}>{pending ? <Busy>Saving…</Busy> : mode === 'add' ? 'Add video' : 'Replace video'}</button>
       </div>
     </form>
   </Modal>;

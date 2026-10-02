@@ -4,6 +4,7 @@ import { useActionState } from 'react';
 import { useFormStatus } from 'react-dom';
 import type { ReactNode } from 'react';
 import type { ActionResult } from '@/lib/actions';
+import { Busy } from '@/components/spinner';
 
 function Submit({
   label,
@@ -25,7 +26,7 @@ function Submit({
         if (confirm && !window.confirm(confirm)) event.preventDefault();
       }}
     >
-      {pending ? 'Working…' : label}
+      {pending ? <Busy>Working…</Busy> : label}
     </button>
   );
 }

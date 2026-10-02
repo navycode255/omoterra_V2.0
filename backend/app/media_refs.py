@@ -28,6 +28,7 @@ REFERENCING = {
     m.DocumentMark: ('id', (('media_id', False),)),
     m.Lpo: ('id', (('signed_copy_media_id', False),)),
     m.SupplierPayment: ('id', (('receipt_media_id', False),)),
+    m.TransferEvent: ('id', (('receipt_media_id', False),)),
 }
 BARE_ID = re.compile(r'^[0-9a-f-]{36}$')
 

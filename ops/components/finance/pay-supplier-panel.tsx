@@ -7,12 +7,13 @@ import { recordSupplierBatchPayment } from '@/lib/finance-actions';
 import { METHODS } from '@/lib/finance';
 import { tzs } from '@/lib/format';
 import styles from './finance-list.module.css';
+import { Busy } from '@/components/spinner';
 
 export type PayableSupplier = { supplier_id: string; name: string; owed: string };
 
 function Submit() {
   const { pending } = useFormStatus();
-  return <button type="submit" className={styles.payButton} disabled={pending}>{pending ? 'Recording…' : 'Record payment'}</button>;
+  return <button type="submit" className={styles.payButton} disabled={pending}>{pending ? <Busy>Recording…</Busy> : 'Record payment'}</button>;
 }
 
 // "Pay supplier": one transfer to a registered supplier, spread over their

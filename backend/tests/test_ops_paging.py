@@ -155,3 +155,24 @@ def test_stock_awaiting_review_leads_the_supply_list(client, sessions, seeded):
     assert body['items'][1]['id'] == seeded['listing']
     assert body['counts']['needs_confirmation'] == 1 and body['counts']['live'] == 0
     assert body['counts']['sold_out'] == 120
+
+
+def test_actionable_rows_run_over_pages_and_every_row_shows_once(client, sessions):
+    """66 debts, 18 still open, 10 a page: seven pages, every debt exactly
+    once, open ones first. The open rows fill pages 1-2, not just page 1 (F13)."""
+    from datetime import date
+    with sessions.begin() as db:
+        for n in range(66):
+            db.add(m.LedgerDebt(direction='payable', party_kind='other', party_name=f'Party {n}', amount=1000,
+                paid_amount=0 if n % 11 < 3 else 1000, incurred_on=date(2026, 1, 1) + timedelta(days=n),
+                source='manual', status='open' if n % 11 < 3 else 'settled'))
+    seen = []
+    for page in range(1, 8):
+        body = ops(client, f'/ledger/debts?page_size=10&page={page}')
+        assert (body['total'], body['actionable']) == (66, 18)
+        assert -(-body['total'] // body['page_size']) == 7          # ops/lib/paging.ts pageCount
+        assert len(body['items']) == (6 if page == 7 else 10)
+        seen += body['items']
+    assert len({row['id'] for row in seen}) == 66
+    assert [row['status'] for row in seen] == ['open'] * 18 + ['settled'] * 48
+    assert ops(client, '/ledger/debts?page_size=10&page=8')['items'] == []

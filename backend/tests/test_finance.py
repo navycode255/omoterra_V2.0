@@ -594,7 +594,8 @@ def test_expenses_paid_or_owed_feed_cash_book_and_debts(client):
         paid_to='Juma transport', payment=None)
     assert owed['status'] == 'open' and Decimal(owed['balance']) == Decimal('25000.00')
     body = client.get(API + f'/expenses?start={TODAY}&end={TODAY}', headers=OPS).json()
-    assert Decimal(body['total']) == Decimal('55000.00')
+    assert body['total'] == 2 and Decimal(body['summary']['incurred']) == Decimal('55000.00')
+    assert Decimal(body['summary']['outstanding']) == Decimal('25000.00')
     assert {r['category']: Decimal(r['owed']) for r in body['by_category']} == {'labour': 0, 'transport': Decimal('25000.00')}
     book = client.get(API + '/ledger/payments?status=out', headers=OPS).json()
     assert [Decimal(p['amount']) for p in book['items']] == [Decimal('30000.00')]
@@ -604,7 +605,7 @@ def test_expenses_paid_or_owed_feed_cash_book_and_debts(client):
     assert future.status_code == 422
     # A wrongly entered expense is cancelled (once nothing is paid on it) and drops out.
     assert post(client, f"/ledger/debts/{owed['id']}/cancel", {'reason': 'Duplicate'}).status_code == 200
-    assert Decimal(client.get(API + '/expenses', headers=OPS).json()['total']) == Decimal('30000.00')
+    assert Decimal(client.get(API + '/expenses', headers=OPS).json()['summary']['incurred']) == Decimal('30000.00')
 
 
 def test_profit_is_sales_less_stock_cost_less_expenses(client, seeded, sessions):
@@ -626,8 +627,65 @@ def test_profit_is_sales_less_stock_cost_less_expenses(client, seeded, sessions)
     summary = client.get(API + '/finance/summary', headers=OPS).json()
     assert Decimal(summary['profit_today']['net_profit']) == Decimal('30000.00')
     for_sale = client.get(API + f"/expenses?sale_id={first['id']}", headers=OPS).json()
-    assert Decimal(for_sale['total']) == Decimal('30000.00')
+    assert for_sale['total'] == 1 and Decimal(for_sale['summary']['incurred']) == Decimal('30000.00')
     assert client.get(API + '/finance/profit?start=2026-01-02&end=2026-01-01', headers=OPS).status_code == 422
+
+
+def test_expense_totals_follow_the_list_filters_across_pages(client, sessions):
+    """`total` is the row count; `summary` and `by_category` add up every
+    matching row on every page, under the same dates, category, sale, search
+    and status tab, and leave cancelled expenses out of the money (F14)."""
+    from datetime import date, timedelta
+    sold = sale(client)
+    first = date(2026, 3, 1)
+    cats = ('labour', 'transport', 'fuel')
+    rows = []
+    with sessions.begin() as db:
+        for n in range(30):
+            amount = Decimal(1000 * (n + 1))
+            state = ('settled', 'open', 'open', 'cancelled', 'settled')[n % 5]
+            paid = amount if state == 'settled' else (amount / 2 if n % 10 == 2 else Decimal(0))
+            row = m.LedgerDebt(direction='payable', party_kind='other', party_name=f'Juma {n}' if n % 3 else f'Truck {n}',
+                description=f'Expense {n}', amount=amount, paid_amount=paid, incurred_on=first + timedelta(days=n),
+                due_on=first + timedelta(days=n + 7), source='expense', expense_category=cats[n % 3], status=state,
+                sale_id=sold['id'] if n % 4 == 0 else None)
+            db.add(row); db.flush()
+            rows.append(row)
+        # Not an expense, though it matches the search: never listed or summed.
+        db.add(m.LedgerDebt(direction='payable', party_kind='other', party_name='Truck owner', amount=99999,
+            incurred_on=first, source='manual'))
+    today = c.business_today()
+    cases = [
+        ('', lambda r: True),
+        ('start=2026-03-05&end=2026-03-24&category=transport', lambda r: date(2026, 3, 5) <= r.incurred_on
+            <= date(2026, 3, 24) and r.expense_category == 'transport'),
+        ('start=2026-03-02&end=2026-03-28&q=truck&status=i_owe', lambda r: date(2026, 3, 2) <= r.incurred_on
+            <= date(2026, 3, 28) and r.party_name.startswith('Truck') and r.status == 'open'),
+        ('category=labour&status=settled', lambda r: r.expense_category == 'labour' and r.status == 'settled'),
+        ('q=juma&status=cancelled', lambda r: r.party_name.startswith('Juma') and r.status == 'cancelled'),
+        (f"sale_id={sold['id']}&status=overdue", lambda r: r.sale_id == sold['id'] and r.status == 'open'
+            and r.due_on < today),
+    ]
+    for query, keep in cases:
+        expected = [r for r in rows if keep(r)]
+        assert expected, query
+        live = [r for r in expected if r.status != 'cancelled']
+        seen, page = [], 1
+        while True:
+            body = client.get(API + f'/expenses?page_size=4&page={page}&{query}', headers=OPS).json()
+            assert body['total'] == len(expected), query
+            # The money never depends on which page is open.
+            assert Decimal(body['summary']['incurred']) == sum((r.amount for r in live), Decimal(0)), query
+            assert Decimal(body['summary']['paid']) == sum((r.paid_amount for r in live), Decimal(0)), query
+            assert Decimal(body['summary']['outstanding']) == sum((r.amount - r.paid_amount for r in live), Decimal(0))
+            assert {b['category']: Decimal(b['amount']) for b in body['by_category']} == \
+                {k: sum(r.amount for r in live if r.expense_category == k) for k in {r.expense_category for r in live}}
+            seen += [item['id'] for item in body['items']]
+            pages = max(1, -(-body['total'] // 4))
+            if page >= pages:
+                break
+            page += 1
+        assert len(seen) == len(set(seen)) and set(seen) == {r.id for r in expected}, query
 
 
 def test_supplier_statement_shows_purchases_and_payments(client, seeded):

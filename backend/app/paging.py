@@ -13,7 +13,8 @@
   awaiting review...) come first, most urgent first, then the history behind
   them. Both are paged together, so a page never holds more than
   `page_size` rows; pages are ceil(total / page_size), at least one.
-  `actionable` says how many of `total` are such rows. A screen that must
+  `actionable` says how many of `total` are such rows; when there are more
+  than `page_size` they run on over the following pages. A screen that must
   act on all of them (a payout form) asks for that tab with a large
   `page_size` instead of relying on one page.
 - `counts` gives each tab's row count under the same search, from the
@@ -193,7 +194,7 @@ class Spec:
     search: Callable[[str], Any]
     tabs: dict = field(default_factory=dict)      # status tab -> condition
     column: Any = None                            # raw status column for other `status` values
-    urgent: Any = None                            # rows that need action; never paged
+    urgent: Any = None                            # rows that need action; listed first
     urgent_order: tuple = ()                      # most urgent first
     rows: bool = False                            # select columns, not an entity
 
@@ -276,21 +277,35 @@ def _fetch(db, spec, query):
     return db.execute(query).all() if spec.rows else db.scalars(query).all()
 
 
-def page(db, spec: Spec, params: Paging, view: Callable = lambda row: row, where=(), base=None):
-    """One page of a list under the contract in this module's docstring.
-    `where` adds a list's own filters; `base` replaces the plain select."""
+def _searched(spec, params, where, base):
     query = base if base is not None else select(spec.source)
     for condition in where:
         query = query.where(condition)
-    if params.q:
-        query = query.where(spec.search(params.q))
-    counts = {'all': _count(db, query), **{key: _count(db, query.where(condition)) for key, condition in spec.tabs.items()}} \
-        if spec.tabs else None
+    return query.where(spec.search(params.q)) if params.q else query
+
+
+def _status(spec, params, query):
     status = params.status if params.status != 'all' else ''
     if status in spec.tabs:
-        query = query.where(spec.tabs[status])
-    elif status and spec.column is not None:
-        query = query.where(spec.column == status)
+        return query.where(spec.tabs[status]), status
+    if status and spec.column is not None:
+        return query.where(spec.column == status), status
+    return query, status
+
+
+def filtered(spec: Spec, params: Paging, where=(), base=None):
+    """Every row the list would page through (filters, search and status
+    tab), unordered: for totals that must agree with the rows shown."""
+    return _status(spec, params, _searched(spec, params, where, base))[0]
+
+
+def page(db, spec: Spec, params: Paging, view: Callable = lambda row: row, where=(), base=None):
+    """One page of a list under the contract in this module's docstring.
+    `where` adds a list's own filters; `base` replaces the plain select."""
+    query = _searched(spec, params, where, base)
+    counts = {'all': _count(db, query), **{key: _count(db, query.where(condition)) for key, condition in spec.tabs.items()}} \
+        if spec.tabs else None
+    query, status = _status(spec, params, query)
     total = counts['all'] if counts is not None and not status else _count(db, query)
     if spec.urgent is None:
         rows = _fetch(db, spec, query.order_by(*spec.order).offset(params.offset).limit(params.page_size))

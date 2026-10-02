@@ -6,6 +6,7 @@ import { createDebt } from '@/lib/finance-actions';
 import type { Parties } from '@/lib/finance';
 import ui from './expenses.module.css';
 import styles from './finance-list.module.css';
+import { Busy } from '@/components/spinner';
 
 // The Debts page frame: heading with "Add debt", and the drawer that adds one.
 export function DebtWorkspace({ children, parties, now }: { children: ReactNode; parties: Parties; now: string }) {
@@ -72,7 +73,7 @@ export function DebtWorkspace({ children, parties, now }: { children: ReactNode;
           <label>Notes (optional)<textarea name="note" rows={3} maxLength={300} placeholder="Add a note…" /></label>
           {error && <div className={ui.error} role="alert">{error}</div>}
         </div>
-        <footer className={ui.formFooter}><button type="button" className={ui.secondary} onClick={close} disabled={busy}>Cancel</button><button className={ui.primary} type="submit" disabled={busy}>{busy ? 'Saving…' : 'Save debt'}</button></footer>
+        <footer className={ui.formFooter}><button type="button" className={ui.secondary} onClick={close} disabled={busy}>Cancel</button><button className={ui.primary} type="submit" disabled={busy}>{busy ? <Busy>Saving…</Busy> : 'Save debt'}</button></footer>
       </form>
     </dialog>
   </div>;
