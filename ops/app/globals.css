@@ -2665,56 +2665,58 @@ textarea.join-input { min-height: 88px; resize: vertical; }
 .supplier-table td[data-owed] { color: #b4321f; }
 .supplier-table td.money { white-space: nowrap; }
 
-/* Loading: hoofprint trail ------------------------------------------------ */
+/* Loading: Omoterra emblem with a soft green orbit ----------------------- */
 
-.hoof-spinner { display: block; flex: none; overflow: visible; }
-.hoof-step { opacity: .14; animation: hoof-step 1.2s linear infinite; }
-.hoof-step > g { transform-box: fill-box; transform-origin: center; animation: hoof-press 1.2s ease-out infinite; animation-delay: inherit; }
-
-@keyframes hoof-step {
-  0% { opacity: 1; }
-  70%, 100% { opacity: .14; }
-}
-
-@keyframes hoof-press {
-  0% { transform: scale(1.18); }
-  25%, 100% { transform: scale(1); }
-}
-
+.loading-ring { display: block; flex: none; animation: loading-orbit 1s linear infinite; }
 .busy-label { display: inline-flex; align-items: center; gap: var(--s2); }
 
 .page-loader {
   display: grid;
   place-items: center;
-  align-content: center;
-  gap: var(--s4);
-  min-height: 60vh;
-  padding: var(--s8) var(--s4);
-  color: var(--forest);
-  animation: page-loader-in .3s ease-out .15s both;
+  min-height: 60svh;
+  padding: 40px 20px;
+  background: #f7faf8;
 }
-
+.shell .main > .page-loader { flex: 1; min-height: calc(100svh - 72px); }
+.page-loader-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  transform: translateY(-24px);
+}
 .page-loader-mark {
+  position: relative;
   display: grid;
   place-items: center;
-  width: 96px;
-  height: 96px;
+  width: 160px;
+  height: 160px;
+  margin-bottom: 24px;
+}
+.page-loader-orbit { position: absolute; inset: 0; width: 100%; height: 100%; animation: loading-orbit 1.8s linear infinite; }
+.page-loader-disc {
+  display: grid;
+  place-items: center;
+  width: 108px;
+  height: 108px;
+  border: 1px solid #e0ece6;
   border-radius: 50%;
-  background: radial-gradient(circle, var(--white) 55%, var(--soft-green) 100%);
-  box-shadow: 0 0 0 1px var(--border), 0 12px 32px -18px rgba(18, 61, 45, .45);
+  background: #fff;
+  box-shadow: 0 14px 26px rgba(0, 104, 63, .14);
 }
+.page-loader-disc img { display: block; width: 64px; height: 64px; border-radius: 50%; }
+.page-loader-text { color: #151d1b; font-size: 20px; font-weight: 600; line-height: 1.5; }
+.page-loader-hint { margin-top: 3px; color: #78908a; font-size: 16px; line-height: 1.5; }
 
-.page-loader-text { color: var(--text-secondary); font-size: 14px; font-weight: 600; letter-spacing: .01em; }
+@keyframes loading-orbit { to { transform: rotate(360deg); } }
 
-/* A brief delay keeps fast navigations from flashing the loader. */
-@keyframes page-loader-in {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: none; }
+@media (max-width: 800px) {
+  .shell .main > .page-loader { min-height: calc(100svh - 128px); }
+  .page-loader-text { font-size: 18px; }
+  .page-loader-hint { font-size: 15px; }
 }
-
 @media (prefers-reduced-motion: reduce) {
-  .hoof-step { animation-duration: 2.4s; }
-  .hoof-step > g, .page-loader { animation: none; }
+  .loading-ring, .page-loader-orbit { animation: none; }
 }
 
 /* A working button stays readable instead of greying out like a disabled one. */

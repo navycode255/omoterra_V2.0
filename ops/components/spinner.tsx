@@ -1,42 +1,37 @@
-// Omoterra's loading mark: a trail of cloven hoofprints walking a circle. The
-// freshest print is darkest and older ones fade, so it reads as motion even at
-// button size. Colour follows `currentColor`, so it works on any surface.
+import Image from 'next/image';
 
-const STEPS = 8;
-
-// One cloven print, pointing up: two toes tapering to the front, round at the heel.
-const TOE = 'M-0.6 -4.4C-2.4 -3.6-3.8 -0.6-3.5 2C-3.3 4-1.5 4.5-0.6 3.3Z';
-
-function Hoofprint() {
-  return <g>
-    <path d={TOE}/>
-    <path d={TOE} transform="scale(-1 1)"/>
-  </g>;
-}
-
-export function HoofSpinner({ size = 18, label }: { size?: number; label?: string }) {
-  return <svg className="hoof-spinner" width={size} height={size} viewBox="-20 -20 40 40" fill="currentColor"
+/** A compact ring for pending form actions; inherits the button colour. */
+export function LoadingSpinner({ size = 18, label }: { size?: number; label?: string }) {
+  return <svg className="loading-ring" width={size} height={size} viewBox="0 0 24 24" fill="none"
     role={label ? 'img' : undefined} aria-label={label} aria-hidden={label ? undefined : true}>
-    {Array.from({ length: STEPS }, (_, step) => {
-      // Alternate left and right feet a little either side of the path.
-      const radius = step % 2 ? 12.5 : 15.5;
-      return <g key={step} className="hoof-step" style={{ animationDelay: `${(step - STEPS) * 0.15}s` }}
-        transform={`rotate(${step * (360 / STEPS)}) translate(0 ${-radius}) rotate(90) scale(.9)`}>
-        <Hoofprint/>
-      </g>;
-    })}
+    <circle cx="12" cy="12" r="9" stroke="currentColor" strokeWidth="2" opacity=".18"/>
+    <path d="M12 3a9 9 0 0 1 9 9" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
   </svg>;
 }
 
 /** Spinner and label shown inside a submit button while its form is pending. */
 export function Busy({ children }: { children: React.ReactNode }) {
-  return <span className="busy-label"><HoofSpinner size={16}/>{children}</span>;
+  return <span className="busy-label"><LoadingSpinner size={16}/>{children}</span>;
 }
 
-/** Full-area loader for route segments that have no skeleton. */
-export function PageLoader({ message = 'Loading…' }: { message?: string }) {
-  return <div className="page-loader" role="status" aria-live="polite">
-    <span className="page-loader-mark"><HoofSpinner size={56}/></span>
-    <span className="page-loader-text">{message}</span>
+/** Branded route fallback; the surrounding navigation remains interactive. */
+export function PageLoader({ message = 'Loading latest records...' }: { message?: string }) {
+  return <div className="page-loader" role="status" aria-live="polite" aria-atomic="true">
+    <div className="page-loader-content">
+      <span className="page-loader-mark" aria-hidden="true">
+        <svg className="page-loader-orbit" viewBox="0 0 160 160" fill="none">
+          <circle cx="80" cy="80" r="73" stroke="#eaf2ee" strokeWidth="6"/>
+          <circle cx="80" cy="80" r="73" stroke="#c4e1d5" strokeWidth="6" strokeLinecap="round"
+            strokeDasharray="58 401" transform="rotate(108 80 80)"/>
+          <circle cx="80" cy="80" r="73" stroke="#008747" strokeWidth="6" strokeLinecap="round"
+            strokeDasharray="58 401" transform="rotate(-70 80 80)"/>
+        </svg>
+        <span className="page-loader-disc">
+          <Image src="/icon.png" width={64} height={64} alt="" priority />
+        </span>
+      </span>
+      <span className="page-loader-text">{message}</span>
+      <span className="page-loader-hint">Please wait a moment</span>
+    </div>
   </div>;
 }
