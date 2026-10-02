@@ -1080,3 +1080,97 @@ def profit(start: Optional[date] = None, end: Optional[date] = None, operator=De
     if start > end or (end - start).days > 366:
         fail('err.choose_period_up_to_a_year', 422)
     return _result(profit_between(db, start, end))
+
+
+@router.get('/finance/reports')
+def financial_report(start: date, end: date,
+                     fixed: Optional[Decimal] = Query(None, ge=0, le=1000000000000),
+                     variable_pct: Optional[Decimal] = Query(None, ge=0, le=100),
+                     growth_pct: Decimal = Query(Decimal('0'), ge=-50, le=50),
+                     investment: Optional[Decimal] = Query(None, ge=0, le=1000000000000),
+                     reviewed: bool = False, operator=Depends(auth.ops)):
+    """A single consistent read snapshot. Read-only; no forecast changes books."""
+    from datetime import datetime, timezone
+    from sqlalchemy import text
+    from .db import Session, engine
+    from .report_analysis import project
+    today = c.business_today()
+    if start > end or end > today or (end - start).days > 365:
+        fail('err.choose_period_up_to_a_year', 422)
+    with Session(bind=engine.execution_options(isolation_level='REPEATABLE READ')) as db, db.begin():
+        db.execute(text('SET TRANSACTION READ ONLY'))
+        actual = profit_between(db, start, end)
+        previous_end = start - timedelta(days=1)
+        days = (end - start).days + 1
+        previous = profit_between(db, start - timedelta(days=days), previous_end)
+        where = (m.Sale.status == 'active', m.Sale.sold_on >= start, m.Sale.sold_on <= end)
+        rows = db.execute(select(m.SaleItem.category, func.sum(m.SaleItem.subtotal),
+            func.sum(m.SaleItem.cost_total), func.count().filter(m.SaleItem.cost_total.is_(None)),
+            func.count()).join(m.Sale, m.Sale.id == m.SaleItem.sale_id).where(*where)
+            .group_by(m.SaleItem.category)).all()
+        products = [{'category': category or 'other', 'revenue': revenue, 'known_cost': cost or ZERO,
+                     'unknown_lines': unknown, 'lines': count,
+                     'gross_margin': None if unknown else revenue - (cost or ZERO)}
+                    for category, revenue, cost, unknown, count in rows]
+        unknown = sum(r['unknown_lines'] for r in products)
+        active_days = sum(d['revenue'] > 0 for d in actual['days'])
+        issues = []
+        if unknown:
+            issues.append(f'{unknown} sale lines have no recorded buying cost. Complete their costs before forecasting.')
+        if days < 60 or active_days < 10:
+            issues.append('Use at least 60 calendar days with sales on at least 10 days. This is a minimum screening rule, not a confidence guarantee.')
+        if actual['revenue'] <= 0:
+            issues.append('No positive sales baseline is available for this period.')
+        if actual['marketplace_sales'] > 0:
+            issues.append('Marketplace revenue currently uses order creation dates after delivery. Forecasts are withheld until recognition dates are reconciled.')
+        if (today - end).days > 31:
+            issues.append('The report ends more than 31 days ago. Choose a recent period for a forward projection.')
+        if fixed is None or variable_pct is None or not reviewed:
+            issues.append('Enter monthly fixed costs and other variable costs, then confirm that you reviewed the assumptions and source records.')
+        notes = [
+            'Management report of recorded activity, not reconciled statutory accounts. Missing expenses, opening stock costs and historical corrections can change these results.',
+            'Revenue covers active direct sales and delivered/completed marketplace orders. Marketplace activity is grouped by order creation date under the existing reporting policy.',
+            'Expenses include recorded expense debts, whether paid or unpaid, plus recorded LPO stock losses. Collection losses, depreciation, tax and financing are not comprehensively captured.',
+            'Product analysis covers direct sales only. Unknown costs are never shown as a final product margin.',
+            'Forecasts are conditional operating scenarios, not cash forecasts. They assume constant selling prices, product mix and stock-cost ratios, with enough supply and delivery capacity.',
+            'Investment recovery means future cumulative operating earnings reach the entered unrecovered amount; it is not a cash payback or guaranteed date.',
+            'Lower/higher cases change sales by -20%/+20% at the same cost ratios and fixed overhead. These are sensitivity assumptions, not statistical confidence intervals.',
+        ]
+        forecast = None if issues else project(revenue=actual['revenue'],
+            stock_cost=actual['stock_cost'] + actual['marketplace_cost'], losses=actual['stock_lost'],
+            days=days, end=end, fixed=fixed, variable_pct=variable_pct,
+            growth_pct=growth_pct, investment=investment)
+        suggestions = []
+        if unknown:
+            suggestions.append({'title': 'Complete buying costs first', 'evidence': f'{unknown} direct-sale lines are uncosted.',
+                'action': 'Match these sales to supplier receipts. Do not use their apparent margin to justify expansion.', 'priority': 'Data quality'})
+        for row in sorted(products, key=lambda r: r['gross_margin'] if r['gross_margin'] is not None else ZERO)[:3]:
+            if row['gross_margin'] is not None and row['gross_margin'] < 0:
+                suggestions.append({'title': f'Review {row["category"].replace("_", " ")} pricing',
+                    'evidence': f'Recorded gross loss: TZS {-row["gross_margin"]:,.2f}, before overhead.',
+                    'action': 'Check buying price, selling price and unit quantities before purchasing more of this product.', 'priority': 'Protect margin'})
+        if actual['expenses_by_category']:
+            top = actual['expenses_by_category'][0]
+            suggestions.append({'title': f'Review {top["category"].replace("_", " ")} spending',
+                'evidence': f'Largest recorded expense category: TZS {top["amount"]:,.2f}.',
+                'action': 'Compare supplier quotes and cost per fulfilled order. A large expense is not automatically waste.', 'priority': 'Cost review'})
+        if actual['stock_lost'] > 0:
+            suggestions.append({'title': 'Investigate stock losses', 'evidence': f'Recorded loss cost: TZS {actual["stock_lost"]:,.2f}.',
+                'action': 'Identify causes before choosing handling, veterinary care or storage investment. Compare the proposed cost with avoidable losses.', 'priority': 'Protect stock'})
+        candidates = [p for p in products if p['gross_margin'] is not None and p['gross_margin'] > 0 and p['lines'] >= 5]
+        if candidates and not issues:
+            best = max(candidates, key=lambda p: p['gross_margin'])
+            suggestions.append({'title': f'Evaluate a small {best["category"].replace("_", " ")} growth trial',
+                'evidence': f'TZS {best["gross_margin"]:,.2f} recorded gross contribution across {best["lines"]} sale lines; shared overhead is not allocated.',
+                'action': 'Validate repeat demand, supplier capacity, collections and delivery costs. Set a capped trial budget only after cash reconciliation; gross contribution alone does not establish investment return.', 'priority': 'Growth candidate'})
+        else:
+            suggestions.append({'title': 'Validate growth before committing capital',
+                'evidence': 'The current evidence does not support a reliable investment allocation.',
+                'action': 'Complete costs and reconcile cash, then collect repeat-demand and capacity evidence. No investment amount is recommended from incomplete data.', 'priority': 'Growth readiness'})
+        return _result({'generated_at': datetime.now(timezone.utc), 'model_version': 'operating-scenarios-v1',
+            'actual': actual, 'previous': previous, 'products': products, 'unknown_cost_lines': unknown,
+            'active_sales_days': active_days, 'history_days': days, 'limitations': notes,
+            'forecast_blockers': issues, 'forecast': forecast, 'suggestions': suggestions,
+            'assumptions': {'fixed': fixed, 'variable_pct': variable_pct, 'growth_pct': growth_pct,
+                            'investment': investment, 'reviewed': reviewed},
+            'methodology_url': 'https://www.sba.gov/counseling/plan-your-business/'})

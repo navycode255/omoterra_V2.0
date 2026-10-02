@@ -74,7 +74,7 @@ export default async function Profit({ searchParams }: { searchParams: Promise<L
   const loss = Number(data.net_profit) < 0;
 
   return <div className={`${ui.workspace} ${styles.page}`}>
-    <div className={ui.heading}><h1>Profit</h1><Link href="/finance/expenses" className={ui.primary}>+ Expense</Link></div>
+    <div className={ui.heading}><h1>Profit</h1><Link href="/finance/reports" className={ui.primary}>Reports & forecasts</Link><Link href="/finance/expenses" className={ui.primary}>+ Expense</Link></div>
 
     <div className={styles.periodBar}>
       <nav className={styles.periodTabs} aria-label="Period">

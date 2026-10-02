@@ -20,6 +20,7 @@ const GROUPS = [
     { href: '/sales', label: 'Sales', icon: Icons.clipboard, key: null },
     { href: '/finance/expenses', label: 'Expenses', icon: Icons.card, key: null },
     { href: '/finance/profit', label: 'Profit', icon: Icons.chart, key: null },
+    { href: '/finance/reports', label: 'Financial reports', icon: Icons.file, key: null },
     { href: '/finance/debts', label: 'Debts', icon: Icons.alert, key: null },
     { href: '/finance/supplier-payments', label: 'Supplier payments', icon: Icons.card, key: null },
     { href: '/finance/cash-book', label: 'Cash book', icon: Icons.file, key: null },
