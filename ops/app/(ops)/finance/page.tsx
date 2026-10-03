@@ -1,4 +1,5 @@
 import Link from 'next/link';
+import type { CSSProperties } from 'react';
 import { Icons } from '@/components/icons';
 import { Empty, Notice, PageHeader, Status } from '@/components/ui';
 import { ApiError, get } from '@/lib/api';
@@ -12,8 +13,9 @@ export const metadata = { title: 'Finance · Omoterra Operations' };
 function PartyTable({ parties, empty }: { parties: Party[]; empty: string }) {
   if (parties.length === 0) return <Empty>{empty}</Empty>;
   return (
-    <div className={styles.tableWrap}>
-      <table data-phone-show="1 3">
+    <>
+    <div className={`${styles.tableWrap} ${styles.desktopParties}`}>
+      <table data-phone-native>
         <thead><tr><th>Who</th><th>Phone</th><th>Balance</th><th>Overdue</th><th>Since</th></tr></thead>
         <tbody>
           {parties.slice(0, 5).map((p) => {
@@ -31,7 +33,23 @@ function PartyTable({ parties, empty }: { parties: Party[]; empty: string }) {
         </tbody>
       </table>
     </div>
+    <div className={styles.mobileParties}>
+      <div className={styles.partyHead}><span>#</span><span>Who</span><span>Balance</span><span /></div>
+      {parties.slice(0, 5).map((p, index) => <details className={styles.partyRow} key={`${p.party_kind}:${p.buyer_profile_id ?? p.supplier_id ?? p.party_name}`}>
+        <summary><span>{index + 1}</span><span>{p.party_name}</span><Amount value={tzs(p.balance)}/><Icons.chevron size={16}/></summary>
+        <div className={styles.partyDetails}>
+          <dl><div><dt>Phone</dt><dd>{p.party_phone ? phone(p.party_phone) : '—'}</dd></div><div><dt>Overdue</dt><dd>{tzs(p.overdue)}</dd></div><div><dt>Since</dt><dd>{day(p.oldest)}</dd></div></dl>
+          <Link href={`/finance/debts?q=${encodeURIComponent(p.party_phone || p.party_name)}`}>View debts <Icons.chevron size={16}/></Link>
+        </div>
+      </details>)}
+    </div>
+    </>
   );
+}
+
+function Amount({ value, cash = false }: { value: string; cash?: boolean }) {
+  const sizing = { '--amount-length': value.length } as CSSProperties;
+  return cash ? <small style={sizing}>{value}</small> : <strong style={sizing}>{value}</strong>;
 }
 
 const PERIODS = [['month', 'This month'], ['today', 'Today']] as const;
@@ -49,7 +67,7 @@ export default async function Finance({ searchParams }: { searchParams: Promise<
   }
 
   return (
-    <div className={styles.financePage}>
+    <div className={styles.financePage} data-finance-overview>
       <div className={styles.financeHeader}>
         <div className={styles.titleRow}>
           <h1>Finance</h1>
@@ -59,9 +77,9 @@ export default async function Finance({ searchParams }: { searchParams: Promise<
           </details>
         </div>
         <div className={styles.headerActions}>
-          <Link href="/finance/expenses" className="button" data-variant="secondary">+ Expense</Link>
-          <Link href="/finance/debts" className="button" data-variant="secondary">+ Other debt</Link>
-          <Link href="/sales/new" className="button">+ New sale</Link>
+          <Link href="/finance/expenses" className="button" data-variant="secondary"><Icons.plus size={20}/><span>Expense</span></Link>
+          <Link href="/finance/debts" className="button" data-variant="secondary"><Icons.plus size={20}/><span>Other debt</span></Link>
+          <Link href="/sales/new" className="button"><Icons.plus size={20}/><span>New sale</span></Link>
         </div>
       </div>
 
@@ -69,24 +87,24 @@ export default async function Finance({ searchParams }: { searchParams: Promise<
         <section className={styles.summaryGrid} aria-label="Finance summary">
           <Link href="/finance/debts?status=owed_to_me" className={styles.summaryCard} aria-label="Money owed to me">
             <Icons.users className={styles.summaryIcon} size={34} />
-            <div><span>Owed to me</span><strong>{tzs(data.owed_to_me.total)}</strong></div>
+            <div><span>Owed to me</span><Amount value={tzs(data.owed_to_me.total)}/></div>
             <Sparkline className={styles.spark} values={data.trends.owed_to_me} />
           </Link>
           <Link href="/finance/debts?status=i_owe" className={styles.summaryCard} aria-label="Money I owe">
             <Icons.card className={`${styles.summaryIcon} ${styles.oweIcon}`} size={34} />
-            <div><span>I owe</span><strong>{tzs(data.i_owe.total)}</strong></div>
+            <div><span>I owe</span><Amount value={tzs(data.i_owe.total)}/></div>
             <Sparkline className={styles.spark} values={data.trends.i_owe} tone="red" />
           </Link>
           <Link href="/sales" className={styles.summaryCard} aria-label="Sales">
             <Icons.chart className={styles.summaryIcon} size={34} />
-            <div><span>{period === 'today' ? 'Sales today' : 'Sales this month'}</span><strong>{tzs(period === 'today' ? data.today.sales : data.month.sales)}</strong>
-              <small>Cash received: {tzs(period === 'today' ? data.today.money_in : data.month.money_in)}</small></div>
+            <div><span>{period === 'today' ? 'Sales today' : 'Sales this month'}</span><Amount value={tzs(period === 'today' ? data.today.sales : data.month.sales)}/>
+              <Amount cash value={`Cash received: ${tzs(period === 'today' ? data.today.money_in : data.month.money_in)}`}/></div>
             <Sparkline className={styles.spark} values={data.trends.revenue} />
           </Link>
           <Link href="/finance/profit" className={styles.summaryCard} aria-label="Profit">
             <Icons.trend className={styles.summaryIcon} size={34} />
-            <div><span>{period === 'today' ? 'Profit today' : 'Profit this month'}</span><strong>{signed(period === 'today' ? data.profit_today.net_profit : data.profit_month.net_profit)}</strong></div>
-            <Sparkline className={styles.spark} values={data.trends.net_profit} tone={Number(data.profit_month.net_profit) < 0 ? 'red' : 'green'} />
+            <div><span>{period === 'today' ? 'Profit today' : 'Profit this month'}</span><Amount value={signed(period === 'today' ? data.profit_today.net_profit : data.profit_month.net_profit)}/></div>
+            <Sparkline className={styles.spark} values={data.trends.net_profit} tone={Number(period === 'today' ? data.profit_today.net_profit : data.profit_month.net_profit) < 0 ? 'red' : 'green'} />
           </Link>
         </section>
 

@@ -50,7 +50,7 @@ const ADMIN_GROUP = { label: 'Team', modules: [
 export function Sidebar({ counts, admin }: { counts: Record<string, number>; admin: boolean }) {
   const pathname = usePathname();
   const groups = admin ? [...GROUPS, ADMIN_GROUP] : GROUPS;
-  return <aside className="sidebar">
+  return <aside className="sidebar" data-dashboard={pathname === "/manage"} data-finance={pathname === "/finance"} data-mobile-overview={pathname === "/manage" || pathname === "/finance"}>
     <nav className="nav" aria-label="Operations navigation">
       {groups.map((group) => <div className="nav-group" key={group.label}>
         <p className="nav-heading">{group.label}</p>
@@ -59,9 +59,16 @@ export function Sidebar({ counts, admin }: { counts: Record<string, number>; adm
           const active = module.href === '/manage' || module.href === '/finance'
             ? pathname === module.href : pathname.startsWith(module.href);
           const count = module.key ? counts[module.key] ?? 0 : 0;
+          const dashboardMobile = pathname === '/manage';
+          const financeMobile = pathname === '/finance';
           const ModuleIcon = module.icon;
+          const MobileIcon = module.href === '/manage' ? Icons.dashboard
+            : module.href === '/supply' ? Icons.truck
+            : module.href === '/batches' ? Icons.production
+            : financeMobile && module.href === '/finance' ? Icons.card
+            : financeMobile && module.href === '/sales' ? Icons.chart : module.icon;
           return <Link key={module.href} href={module.href} className="nav-item" data-active={active}>
-            <span className="nav-label"><ModuleIcon size={20}/>{module.label}</span>
+            <span className="nav-label"><ModuleIcon size={20} className="nav-desktop-icon"/>{(dashboardMobile || financeMobile) && <MobileIcon size={20} className="nav-mobile-icon"/>}<span className="nav-module-name">{module.label}</span>{module.href === '/batches' && dashboardMobile && <span className="nav-mobile-name">Production</span>}</span>
             {count > 0 && <span className="nav-count">{count}</span>}
           </Link>;
         })}

@@ -4,30 +4,54 @@ Plan date: 3 October 2026 (revision 3, after second review). Source: [financial 
 
 ## Progress
 
-Updated 3 October 2026. ✅ done · 🟡 done but waiting on you · 🔄 in progress · ⬜ not started. M0 and 1.1 are committed (`090d1ee`). The full backend suite passes locally (341 tests). **GitHub Actions is blocked:** the GitHub account is locked over billing, so CI jobs do not start until that is resolved.
+Updated 3 October 2026 (paused here). ✅ done · 🟡 done but waiting on you · 🔄 in progress · ⬜ not started. Everything through 1.5 is committed and pushed (`090d1ee`, `d579d24`). The full backend suite passes in strict mode (373 tests, 0 skipped), and Playwright passes 3/3. **Not yet deployed. GitHub Actions is blocked:** the GitHub account is locked over billing, so CI jobs do not start until that is resolved.
 
 | Item | Status | Evidence / what's left |
 |---|---|---|
-| 0.1 Automatic test runs | 🟡 | `.github/workflows/ci.yml` is committed. Locally: 341 passed and 0 skipped in strict mode. The 3 stale onboarding tests are fixed, a real 201-status bug is fixed, strict mode now also catches whole-module skips, and `moto` is added for the storage test. **Waiting on you: unlock GitHub billing** so the CI jobs can run. |
+| 0.1 Automatic test runs | 🟡 | `.github/workflows/ci.yml` is committed. Locally: 373 passed and 0 skipped in strict mode. The Playwright tests build with Turbopack, the same bundler Netlify uses. The 3 stale onboarding tests are fixed, a real 201-status bug is fixed, strict mode now also catches whole-module skips, and `moto` is added for the storage test. **Waiting on you: unlock GitHub billing** so the CI jobs can run. |
 | 0.2 Metric dictionary | 🟡 | [finance-metrics.md](finance-metrics.md): 21 metrics with current and target definitions and 18 ranked inconsistencies. Waiting on your sign-off and on D7. |
 | 0.3 Exception report | ✅ | `python -m app.finance_exceptions` (read-only, 9 tests). Production baseline: [finance-exceptions-baseline-2026-10-03.md](finance-exceptions-baseline-2026-10-03.md). |
 | 0.4 Pagination regression | ✅ | Backend test (66 rows, 18 actionable, 7 pages) and a Playwright click-through of Debts. Stale comments fixed. |
 | 0.5 Statement consistency harness | ✅ | Playwright: the staff supplier page, Supplier payments, the Suppliers list and the supplier portal show the same bought, paid and owed figures (`ops/e2e/`). |
 | 1.1 F14 Expense totals | ✅ | `total` is the row count again, with `summary` and `by_category` following the same filters. Expenses page uses the shared footer. 30-expense, six-filter test. |
-| 1.2 F04 Transfers vs allocations | 🟡 | Built and tested locally, not yet committed. Every supplier payment is a transfer. "Move to supplier credit" replaces Reverse, and money out is unchanged. Use credit, refunds (separate inflow, partial allowed) and admin-only entry-error corrections. Pay supplier uses credit first. `python -m app.classify_transfers` handles history item by item, with a dry run. 14 new tests; full suite 355 passed, Playwright 2/2. **Waiting on you:** commit and deploy, then classify Antonia's 19,500. |
+| 1.2 F04 Transfers vs allocations | 🟡 | Committed (`d579d24`), not deployed. Every supplier payment is a transfer. "Move to supplier credit" replaces Reverse, and money out is unchanged. Use credit, refunds (separate inflow, partial allowed) and admin-only entry-error corrections. Pay supplier uses credit first. `python -m app.classify_transfers` handles history item by item, with a dry run. 14 new tests. **Waiting on you:** deploy, then classify Antonia's 19,500. |
 | 1.3 F02 Cost states and opening stock | ⬜ | Needs D3 (cost of stock held before the system) |
-| 1.4 F06 Reasoned debt corrections | 🟡 | Built and tested locally, not committed. "Reconcile debt" is replaced by four admin-only, reasoned corrections (wrong supplier, duplicate liability, free stock, cost never existed), each writing a `financial_adjustments` row (migration 034). Paid money stays with whoever received it (credit or unresolved); receipt lines are never touched; a sale edit no longer moves a paid supplier debt. D4 uses the suggested default (admins, with a reason). **Waiting on you:** D4 sign-off, commit and deploy. |
-| 1.5 F03 Units on receipts | 🟡 | Built and tested locally, not committed. Delivery-note and LPO lines take the receipt's unit and category; a different one is refused (422); fractional birds and animals refused. |
+| 1.4 F06 Reasoned debt corrections | 🟡 | Committed (`d579d24`), not deployed. "Reconcile debt" is replaced by four admin-only, reasoned corrections (wrong supplier, duplicate liability, free stock, cost never existed), each writing a `financial_adjustments` row (migration 034). Paid money stays with whoever received it (credit or unresolved); receipt lines are never touched; a sale edit no longer moves a paid supplier debt. D4 uses the suggested default (admins, with a reason). **Waiting on you:** D4 sign-off, commit and deploy. |
+| 1.5 F03 Units on receipts | 🟡 | Committed (`d579d24`), not deployed. Waiting only on deploy. Delivery-note and LPO lines take the receipt's unit and category; a different one is refused (422); fractional birds and animals refused. |
 | 1.6 Batch sales become delivery notes | ⬜ | 11 unlinked supplier lines (1,040,000) in the baseline go through its dry run |
 | 1.7 F01 One reporting layer | ⬜ | Needs D7 |
 | M2 to M5 | ⬜ | |
+
+### Where we stopped, and how to resume
+
+**Your actions before the next build session:**
+1. **Deploy** the backend (cPanel) and the ops dashboard (Netlify) together. Migrations 032 to 034 apply automatically when the backend starts.
+2. **Classify Antonia's 19,500** on the server:
+   - `python -m app.classify_transfers --dry-run`
+   - then `--apply <id> --as credit --evidence "…" --by "Maternus Joshua"`
+   - then **Use credit** on her open invoice.
+   - The dry run also lists older single payments, which you can wrap into transfers one at a time with `--wrap`.
+3. **Unlock GitHub billing** so CI runs on every push.
+4. **Decide** D3 (cost of stock held before the system), D4 (confirm admins-only corrections, with a reason) and D7 (marketplace orders recognised on delivery?). Then sign off [finance-metrics.md](finance-metrics.md).
+
+**Known limits of what is built (handled by later items):**
+- A cleared cost shows as 0 margin, not "Provisional", until 1.3.
+- "Wrong supplier" corrects a whole debt, not individual lines.
+- A payment typed against the wrong supplier is fixed with Wrong supplier → unresolved → classify, then recording the real payment.
+
+**Next build items, in order:**
+- 1.6 batch sales become confirmed delivery notes. No decision needed; it includes the dry run for the 11 unlinked supplier lines.
+- 1.3 cost states and opening stock, after D3.
+- 1.7 one reporting layer, after D7.
+- Then the M1 exit check (the 500/100/20 scenario).
 
 | Decision | Status |
 |---|---|
 | D1 Finance owner | ✅ Maternus Joshua |
 | D2 Sale dates | ✅ Direct on sale date, marketplace on delivery date |
 | D5 Mistaken-allocation money | ✅ Supplier credit; refunds only with evidence |
-| D3, D4, D6, D7, D8, D9 | ⬜ Open |
+| D4 Who may correct supplier debts | 🟡 Built with the default (admins, with a reason); needs your confirmation |
+| D3, D6, D7, D8, D9 | ⬜ Open |
 
 ## How this plan is organised
 

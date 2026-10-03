@@ -21,7 +21,7 @@ export function MobileTables() {
       const query = new URLSearchParams(location.search);
       const page = Math.max(1, Number(query.get('page')) || 1);
       const perPage = Number(query.get('page_size')) || 10;
-      for (const table of document.querySelectorAll<HTMLTableElement>('.shell table')) {
+      for (const table of document.querySelectorAll<HTMLTableElement>('.shell table:not([data-phone-native])')) {
         const heads = [...table.querySelectorAll('thead th')].map((th) => th.textContent?.trim() ?? '');
         const body = table.tBodies[0];
         if (!body || heads.length < 3 || body.querySelector('input, select, textarea')) continue;

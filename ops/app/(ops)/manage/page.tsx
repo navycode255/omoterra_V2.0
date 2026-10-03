@@ -117,11 +117,15 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
 
   return <>
     {header(<DateRangePicker start={period.start} end={period.end} today={today}/>)}
-    <main className="dashboard">
+    <main className="dashboard" data-mobile-reference>
       <div className="kpi-row">
         {kpis.map((kpi) => <Link key={kpi.label} href={kpi.href} className="kpi-card">
           <span className="kpi-icon">{kpi.icon}</span>
           <span className="kpi-copy"><strong>{kpi.value}</strong><span>{kpi.label}</span><small>{kpi.note}</small></span>
+          <svg className="kpi-decoration" viewBox="0 0 240 90" aria-hidden="true" data-neutral={kpi.href === '/orders' || kpi.href === '/settlements'}>
+            <path d="M0 90C35 84 48 48 82 54S119 70 148 44S179 48 204 24S228 3 240 2V90Z" fill="currentColor"/>
+            <path d="M0 90C35 84 48 48 82 54S119 70 148 44S179 48 204 24S228 3 240 2" fill="none" stroke="currentColor" strokeWidth="2"/>
+          </svg>
           <Icons.chevron size={20}/>
         </Link>)}
       </div>

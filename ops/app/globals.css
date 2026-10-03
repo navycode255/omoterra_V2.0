@@ -2743,3 +2743,70 @@ button:disabled:has(.busy-label) { opacity: .85; cursor: progress; }
 .portal-price-next p { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--portal-ink); font-size: 13px; }
 .portal-price-next .portal-icon { width: 16px; height: 16px; color: var(--forest); }
 @media (max-width: 640px) { .portal-prices-grid { grid-template-columns: 1fr; } .portal-price-board { padding: 12px; } }
+
+/* Approved dashboard reference: proportional phone-only presentation. */
+.nav-mobile-name, .nav-mobile-icon, .kpi-decoration { display: none; }
+@media (max-width: 767px) {
+  .shell:has(.sidebar[data-mobile-overview='true']) { --dash-green: #0b6b47; --dash-inset: 4.25vw; display: block; padding-top: 0; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .ops-header { position: relative; height: 15.4vw; min-height: 64px; padding: 0 3.8vw 0 4.6vw; border-color: #eceef0; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .ops-header > img { width: 34vw; height: auto; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .ops-header-right { gap: 3.1vw; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .operator-profile > span:nth-child(2), .shell:has(.sidebar[data-mobile-overview='true']) .operator-profile > svg { display: none; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .operator-avatar, .shell:has(.sidebar[data-mobile-overview='true']) .ops-alerts-bell { width: 10vw; height: 10vw; min-width: 44px; min-height: 44px; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .operator-avatar { background: #e6f2eb; color: var(--dash-green); font-size: 3.3vw; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .ops-alerts-bell svg { width: 4.4vw; height: 4.4vw; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .ops-alerts-count { top: 1vw; right: .8vw; width: 1.8vw; min-width: 7px; height: 1.8vw; padding: 0; overflow: hidden; font-size: 0; border: 2px solid white; background: var(--dash-green); }
+  .sidebar[data-mobile-overview='true'] { padding: 2.2vw 2.65vw; overflow-x: auto; scrollbar-width: none; border-bottom: 1px solid #eceef0; }
+  .sidebar[data-mobile-overview='true']::-webkit-scrollbar { display: none; }
+  .sidebar[data-mobile-overview='true'] .nav { gap: 1.5vw; width: max-content; }
+  .sidebar[data-mobile-overview='true'] .nav-item { padding: 0 2.3vw; min-height: 44px; height: 8.7vw; border-radius: 2.2vw; font-size: 2.9vw; font-weight: 500; color: #485367; }
+  .sidebar[data-mobile-overview='true'] .nav-label { gap: 2.1vw; }
+  .sidebar[data-mobile-overview='true'] .nav-item svg { display: block; width: 4vw; height: 4vw; }
+  .sidebar[data-mobile-overview='true'] .nav-item .nav-desktop-icon { display: none; }
+  .sidebar[data-mobile-overview='true'] .nav-item[data-active='true'] { background: #e6f3eb; color: var(--dash-green); font-weight: 700; }
+  .sidebar[data-dashboard='true'] .nav-count, .sidebar[data-dashboard='true'] .nav-item[href='/batches'] .nav-module-name { display: none; }
+  .sidebar[data-dashboard='true'] .nav-mobile-name { display: inline; }
+  .sidebar[data-dashboard='true'] .nav-item:not([href='/manage']):not([href='/supply']):not([href='/orders']):not([href='/batches']) { display: none; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .main { position: relative; background: #fafbf9 url('/images/dashboard/waves.svg') right top / 100% auto no-repeat; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .dash-head { padding: 4.7vw var(--dash-inset) 0; gap: 3.4vw; flex-direction: column; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .dash-head h1 { font-size: 6.8vw; font-weight: 800; line-height: 1.2; color: #070e15; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .dash-head p { display: none; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .range-button { min-height: 44px; height: 8.9vw; padding: 0 3.3vw; gap: 2.8vw; border: 1px solid #e8ebed; border-radius: 2.3vw; font-size: 3.3vw; font-weight: 500; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .range-button svg { width: 4vw; height: 4vw; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .range-popover { right: auto; left: 0; max-width: calc(100vw - 2 * var(--dash-inset)); }
+  .dashboard[data-mobile-reference] { padding: 3.4vw var(--dash-inset) 7vw; gap: 3.5vw; }
+  .dashboard[data-mobile-reference] .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2.9vw 2.2vw; }
+  .dashboard[data-mobile-reference] .kpi-card { position: relative; isolation: isolate; height: 30.4vw; min-height: 0; padding: 2.9vw 3.4vw; display: flex; flex-direction: column; align-items: flex-start; gap: 1.8vw; overflow: hidden; border: 1px solid #edf0ee; border-radius: 2.8vw; box-shadow: 0 1vw 3vw rgba(23,32,27,.025); }
+  .dashboard[data-mobile-reference] .kpi-icon { width: 8.9vw; height: 8.9vw; display: grid; place-items: center; border-radius: 50%; background: #e6f3eb; color: var(--dash-green); }
+  .dashboard[data-mobile-reference] .kpi-icon svg { width: 4.7vw; height: 4.7vw; }
+  .dashboard[data-mobile-reference] .kpi-copy { display: flex; flex-direction: column; gap: 1.5vw; flex: none; width: 100%; }
+  .dashboard[data-mobile-reference] .kpi-copy > span { order: -1; min-height: 3.8vw; color: #566175; font-size: 2.9vw; line-height: 1.2; }
+  .dashboard[data-mobile-reference] .kpi-card[href='/batches'] .kpi-copy > span { max-width: 26vw; }
+  .dashboard[data-mobile-reference] .kpi-copy strong { font-size: 5.8vw; line-height: 1.1; font-weight: 800; color: #070e15; overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+  .dashboard[data-mobile-reference] .kpi-copy small, .dashboard[data-mobile-reference] .kpi-card > svg:last-child { display: none; }
+  .dashboard[data-mobile-reference] .kpi-decoration { display: block; position: absolute; z-index: -1; right: 1.9vw; bottom: 1.8vw; width: 26vw; height: 9.7vw; color: #c5e8d4; opacity: .65; mask-image: linear-gradient(to bottom, #000, transparent); }
+  .dashboard[data-mobile-reference] .kpi-decoration[data-neutral='true'] { color: #e1e3e6; }
+  .dashboard[data-mobile-reference] > .attention-strip, .dashboard[data-mobile-reference] > .dash-row-lists, .dashboard[data-mobile-reference] > .dash-row-metrics, .dashboard[data-mobile-reference] .dash-row-charts > :nth-child(2) { display: none; }
+  .dashboard[data-mobile-reference] .dash-row-charts { grid-template-columns: 1fr; }
+  .dashboard[data-mobile-reference] .dash-panel { padding: 3.2vw 3.8vw 4.3vw; border: 1px solid #edf0ee; border-radius: 2.8vw; box-shadow: 0 1vw 3vw rgba(23,32,27,.025); }
+  .dashboard[data-mobile-reference] .dash-panel-head { align-items: center; min-height: 44px; gap: 2.9vw; margin-bottom: 3.9vw; }
+  .dashboard[data-mobile-reference] .dash-panel-icon { margin: 0; }
+  .dashboard[data-mobile-reference] .dash-panel-icon svg { width: 5.6vw; height: 5.6vw; }
+  .dashboard[data-mobile-reference] .dash-panel-head h2 { font-size: 3.6vw; font-weight: 800; color: #070e15; white-space: nowrap; }
+  .dashboard[data-mobile-reference] .dash-panel-head p { display: none; }
+  .dashboard[data-mobile-reference] .year-select select { height: 44px; padding: 0 7vw 0 2.9vw; border-radius: 1.9vw; border-color: #e1e5e8; font-size: 2.9vw; }
+  .dashboard[data-mobile-reference] .year-select svg { right: 2.2vw; width: 2.8vw; height: 2.8vw; }
+  .dashboard[data-mobile-reference] .trend-chart { gap: 1.6vw; }
+  .dashboard[data-mobile-reference] .trend-plot { height: 24.4vw; grid-template-columns: 1.7vw minmax(0, 1fr); gap: 2.1vw; }
+  .dashboard[data-mobile-reference] .trend-ticks { font-size: 2vw; margin: -1.2vw 0; }
+  .dashboard[data-mobile-reference] .trend-months { margin-left: 3.8vw; font-size: 2vw; }
+  .dashboard[data-mobile-reference] .trend-bar { width: 60%; border-radius: .5vw .5vw 0 0; background: linear-gradient(to top, #89c5a8, #41a77a); }
+  .dashboard[data-mobile-reference] .trend-slot[data-future='true'] .trend-bar { background: #dce0e4; }
+}
+
+@media (max-width: 767px) {
+  .sidebar[data-finance='true'] .nav-item[href='/lpos'] { order: -4; }
+  .sidebar[data-finance='true'] .nav-item[href='/finance'] { order: -3; }
+  .sidebar[data-finance='true'] .nav-item[href='/sales'] { order: -2; }
+  .sidebar[data-finance='true'] .nav-item[href='/finance/expenses'] { order: -1; }
+}

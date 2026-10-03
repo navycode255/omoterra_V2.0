@@ -7,6 +7,8 @@ export function Icon({ size = 20, children, ...props }: IconProps) {
 }
 
 export const Icons = {
+  dashboard: (props: IconProps) => <Icon {...props} fill="currentColor" stroke="none">{[3, 13].flatMap((x) => [3, 13].map((y) => <rect key={`${x}-${y}`} x={x} y={y} width="8" height="8" rx="1.5"/>))}</Icon>,
+  production: (props: IconProps) => <Icon {...props}><path d="M3 21V12l6 3V8l6 3V3h3v12l3-2v8ZM7 18h1M12 18h1M17 18h1"/></Icon>,
   home: (props: IconProps) => <Icon {...props}><path d="m3 11 9-8 9 8"/><path d="M5 10v11h14V10M9 21v-7h6v7"/></Icon>,
   box: (props: IconProps) => <Icon {...props}><path d="m12 3 8 4.5v9L12 21l-8-4.5v-9Z"/><path d="m4.5 7.7 7.5 4.2 7.5-4.2M12 12v9"/></Icon>,
   file: (props: IconProps) => <Icon {...props}><path d="M6 2h8l4 4v16H6z"/><path d="M14 2v5h5M9 12h6M9 16h6"/></Icon>,

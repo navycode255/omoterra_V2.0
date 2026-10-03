@@ -49,10 +49,13 @@
 .columns { display: grid; grid-template-columns: 1.2fr 1fr; gap: 22px; }
 .scenarioName { font-weight: 650; }
 @media(max-width:1100px) { .metrics { grid-template-columns: repeat(2,minmax(0,1fr)); } .fields { grid-template-columns: repeat(2,minmax(0,1fr)); } .columns { grid-template-columns: 1fr; gap: 0; } }
+/* The print dialog is unreliable on phones, where Download PDF does the job. */
+.pdfError { flex-basis: 100%; margin: 0; color: var(--error); font-size: 13px; }
+@media(max-width:900px) { .actions .printButton { display: none; } }
 @media(max-width:600px) { .report { padding: 18px 12px; } .panel { padding: 18px 14px; } .fields,.insights { grid-template-columns: 1fr; } .metrics { gap: 8px; } .metrics article { padding: 14px 10px; } .actions { width: 100%; } .actions button { flex: 1; } .formFooter > button { width: 100%; } }
 /* Printing outputs only the A4 report document (report-document.tsx). */
 @media print {
   .report { padding: 0 !important; margin: 0; max-width: none; background: none; }
-  .report > :not([data-print-document]) { display: none !important; }
+  .report { display: none !important; }
   @page { size: A4 portrait; margin: 0; }
 }

@@ -24,6 +24,31 @@ export async function prepareReportDocument() {
   ]);
 }
 
+/** Draws each A4 page to an image and saves them as one PDF file. Unlike the
+ * print dialog this works on phones, where window.print() is missing or
+ * blocked once the tap is no longer the direct cause. */
+export async function downloadReportPdf(fileName: string, title: string) {
+  const root = document.querySelector<HTMLElement>('[data-print-document]');
+  if (!root) throw new Error('The report document is not on this page.');
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas-pro'), import('jspdf'), prepareReportDocument()]);
+  root.setAttribute('data-capturing', '');
+  try {
+    const pdf = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
+    const pages = [...root.querySelectorAll<HTMLElement>(':scope > section')];
+    for (const [index, page] of pages.entries()) {
+      // Twice the CSS size (about 190 dpi) keeps text sharp without huge files on phones.
+      const canvas = await html2canvas(page, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false });
+      if (index) pdf.addPage();
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.9), 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+      canvas.width = canvas.height = 0;
+    }
+    pdf.setProperties({ title, author: 'Omoterra Operations', creator: 'Omoterra Operations' });
+    pdf.save(fileName);
+  } finally {
+    root.removeAttribute('data-capturing');
+  }
+}
+
 const num = (value: string | number | null | undefined) => Number(value ?? 0);
 const tzs = (value: number) => `TZS ${Math.round(value).toLocaleString('en-US')}`;
 const compact = (value: number) => Math.abs(value) >= 1_000_000 ? `TZS ${(value / 1_000_000).toFixed(2)}M` : tzs(value);

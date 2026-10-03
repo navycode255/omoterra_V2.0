@@ -3,7 +3,8 @@ import { useState } from 'react';
 import type { FinancialReport } from '@/lib/reports';
 import { expenseLabel } from '@/lib/finance';
 import styles from './reports.module.css';
-import { prepareReportDocument, ReportDocument } from './report-document';
+import { Busy } from '@/components/spinner';
+import { downloadReportPdf, prepareReportDocument, ReportDocument } from './report-document';
 const amount = (value: string | number | null) => value === null ? 'Not available' : `TZS ${Number(value).toLocaleString('en-TZ', { maximumFractionDigits: 2 })}`;
 const month = (value: string | null) => value ? new Date(`${value}T00:00:00Z`).toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' }) : 'Not reached within 12 months';
 const label = (value: string) => value.replaceAll('_', ' ');
@@ -39,14 +40,29 @@ function downloadCsv(report: FinancialReport) {
   save(`omoterra-financial-report-${report.actual.start}-${report.actual.end}.csv`, '\uFEFF' + rows.map(r => r.map(csvCell).join(',')).join('\r\n'), 'text/csv;charset=utf-8');
 }
 
-// The browser's print dialog saves the A4 document as a PDF; the page title
-// becomes the suggested file name.
-async function downloadPdf(report: FinancialReport) {
-  await prepareReportDocument();
-  const previous = document.title;
-  document.title = `Omoterra-Financial-Report-${report.actual.start}-to-${report.actual.end}`;
-  window.addEventListener('afterprint', () => { document.title = previous; }, { once: true });
-  window.print();
+// Builds the A4 report as a PDF file in the browser, so it downloads the same
+// way on phones and computers. Print stays available on larger screens.
+function PdfButton({ report }: { report: FinancialReport }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const name = `Omoterra-Financial-Report-${report.actual.start}-to-${report.actual.end}`;
+  async function download() {
+    setBusy(true); setError('');
+    try { await downloadReportPdf(`${name}.pdf`, `Omoterra financial performance report ${report.actual.start} to ${report.actual.end}`); }
+    catch { setError('The PDF could not be created on this device. Please try again, or use Download CSV.'); }
+    finally { setBusy(false); }
+  }
+  function print() {
+    const previous = document.title;
+    document.title = name;
+    window.addEventListener('afterprint', () => { document.title = previous; }, { once: true });
+    window.print();
+  }
+  return <>
+    <button type="button" className={styles.printButton} onClick={print} onPointerEnter={() => void prepareReportDocument()}>Print</button>
+    <button type="button" className={styles.primary} onClick={download} disabled={busy} aria-busy={busy}>{busy ? <Busy>Preparing PDF…</Busy> : 'Download PDF'}</button>
+    {error && <p className={styles.pdfError} role="alert">{error}</p>}
+  </>;
 }
 
 export function FinancialReports({ report, today }: { report: FinancialReport; today: string }) {
@@ -54,9 +70,10 @@ export function FinancialReports({ report, today }: { report: FinancialReport; t
   const a = report.actual;
   const selected = report.forecast?.scenarios[scenario];
   const max = Math.max(1, ...(selected?.months.map(m => Math.abs(Number(m.operating_earnings))) ?? []));
-  return <div className={styles.report} data-financial-report>
+  // The A4 document sits beside the screen report, so the screen styles (.report h2, p…) never reach it.
+  return <><div className={styles.report} data-financial-report>
     <header className={styles.heading}><div><p className={styles.eyebrow}>OMOTERRA / BUSINESS PERFORMANCE</p><h1>Financial reports</h1><p>{a.start} — {a.end} · TZS · Generated {new Date(report.generated_at).toLocaleString('en-GB', { timeZone: 'Africa/Dar_es_Salaam' })} EAT</p></div>
-      <div className={styles.actions}><button onClick={() => downloadCsv(report)}>Download CSV</button><button onClick={() => save(`omoterra-report-${a.end}.json`, JSON.stringify(report, null, 2), 'application/json')}>Save snapshot</button><button className={styles.primary} onClick={() => downloadPdf(report)}>Download PDF</button></div>
+      <div className={styles.actions}><button onClick={() => downloadCsv(report)}>Download CSV</button><button onClick={() => save(`omoterra-report-${a.end}.json`, JSON.stringify(report, null, 2), 'application/json')}>Save snapshot</button><PdfButton report={report}/></div>
     </header>
     <form className={`${styles.panel} ${styles.controls}`} action="/finance/reports" method="get">
       <div className={styles.sectionHeading}><div><h2>Period & planning assumptions</h2><p>Historical results stay separate from your editable scenario.</p></div></div>
@@ -95,7 +112,8 @@ export function FinancialReports({ report, today }: { report: FinancialReport; t
     <section className={styles.panel}><h2>Where to improve & grow</h2><p>Recommendations are tied to recorded evidence. Growth candidates still require a cash and capacity review.</p><div className={styles.insights}>{report.suggestions.map(s => <article key={s.title}><span className={styles.eyebrow}>{s.priority}</span><h3>{s.title}</h3><p><strong>{s.evidence}</strong></p><p>{s.action}</p></article>)}</div></section>
     <div className={styles.columns}><section className={styles.panel}><h2>Product performance</h2><p>Direct sales only · margins before shared operating costs</p><div className={styles.tableWrap}><table><thead><tr><th>Product</th><th>Revenue</th><th>Gross margin</th></tr></thead><tbody>{report.products.map(p => <tr key={p.category}><th>{label(p.category)}<small>{p.lines} sale lines</small></th><td>{amount(p.revenue)}</td><td>{p.gross_margin === null ? `Unknown (${p.unknown_lines} uncosted)` : amount(p.gross_margin)}</td></tr>)}</tbody></table></div>{!report.products.length && <p>No direct sales in this period.</p>}</section>
       <section className={styles.panel}><h2>Recorded expenses</h2><div className={styles.tableWrap}><table><thead><tr><th>Category</th><th>Amount</th></tr></thead><tbody>{a.expenses_by_category.map(e => <tr key={e.category}><th>{expenseLabel(e.category)}</th><td>{amount(e.amount)}</td></tr>)}</tbody></table></div>{!a.expenses_by_category.length && <p>No expenses recorded. This does not establish zero operating costs.</p>}</section></div>
-    <section className={styles.panel}><h2>Report basis & assumptions</h2><p>Model: {report.model_version} · Prior comparison: {report.previous.start} — {report.previous.end}</p><p>Monthly fixed costs: {amount(report.assumptions.fixed)} · Other variable costs: {report.assumptions.variable_pct ?? 'Not supplied'}% · Monthly growth: {report.assumptions.growth_pct}% · Unrecovered investment: {amount(report.assumptions.investment)}</p><ul>{report.limitations.map(v => <li key={v}>{v}</li>)}</ul><p>Break-even sales = fixed costs ÷ contribution margin ratio. <a href={report.methodology_url} target="_blank" rel="noreferrer">SBA methodology</a>. Revenue baseline uses every calendar day in the selected period, including days without sales.</p><p>CSV contains every daily row and all three scenarios. Save snapshot preserves the exact data and assumptions used to generate this report. The PDF is the management summary report.</p></section>
+    <section className={styles.panel}><h2>Report basis & assumptions</h2><p>Model: {report.model_version} · Prior comparison: {report.previous.start} — {report.previous.end}</p><p>Monthly fixed costs: {amount(report.assumptions.fixed)} · Other variable costs: {report.assumptions.variable_pct ?? 'Not supplied'}% · Monthly growth: {report.assumptions.growth_pct}% · Unrecovered investment: {amount(report.assumptions.investment)}</p><ul>{report.limitations.map(v => <li key={v}>{v}</li>)}</ul><p>Break-even sales = fixed costs ÷ contribution margin ratio. <a href={report.methodology_url} target="_blank" rel="noreferrer">SBA methodology</a>. Revenue baseline uses every calendar day in the selected period, including days without sales.</p><p>CSV contains every daily row and all three scenarios. Save snapshot preserves the exact data and assumptions used to generate this report. Download PDF saves the seven-page management report as a file on any device.</p></section>
+  </div>
     <ReportDocument report={report}/>
-  </div>;
+  </>;
 }
