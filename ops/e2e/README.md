@@ -15,7 +15,7 @@ It starts everything itself and stops it afterwards:
    `uvicorn app.main:app` on port 18765. It refuses any database that is not
    local or whose name does not contain `e2e`, and pins SMS, push, payments
    and media storage to their offline settings.
-2. **Dashboard**: `next build --webpack` then `next start` on port 13765, with
+2. **Dashboard**: `next build` then `next start` on port 13765, with
    `OMOTERRA_API_URL` and `OMOTERRA_OPS_TOKEN` pointing at that backend (they
    override `.env.local`). Webpack is used because Turbopack fails on the
    symlinked `node_modules` here.
@@ -28,6 +28,7 @@ It starts everything itself and stops it afterwards:
 |---|---|
 | `debts-pagination.spec.ts` | M0.4 / F13: 66 debts, 18 open, 10 a page: 7 pages on Finance > Debts, every debt once, open ones first. |
 | `supplier-statement.spec.ts` | M0.5: a delivery note, a sale costed from the supplier's batch and a transfer; the staff supplier page ("Money with this supplier"), the Supplier payments row, the Suppliers list and the supplier's own portal (Payouts) show the same bought / paid / owed. |
+| `debt-corrections.spec.ts` | M1.4 / F06: a sale's supplier debt shows the four reasoned corrections; "Wrong supplier" on 100,000 with 40,000 paid leaves the correct supplier owed 100,000, the wrong one holding 40,000 credit, and the buying cost unchanged; both debts link to the correction. |
 
 Needs: a running Postgres the user can create databases on, the backend
 virtualenv (`backend/.venv`, or set `OMOTERRA_E2E_PYTHON`), and Chromium for

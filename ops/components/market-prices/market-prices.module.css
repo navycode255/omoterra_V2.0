@@ -1,0 +1,130 @@
+/* Market prices: the price ladder (ops and supplier portal) and the ops admin pages.
+   Colours come from the app tokens in globals.css. */
+
+/* Price ladder ------------------------------------------------------------------ */
+.ladder { display: grid; gap: 8px; margin: 0; padding: 0; list-style: none; }
+.rungWrap { display: grid; gap: 8px; }
+.rung {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 13px 16px 13px 20px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: var(--white);
+  overflow: hidden;
+}
+/* The accent bar grows with the price, so the ladder reads at a glance. */
+.rung::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 5px;
+  background: var(--forest);
+  opacity: calc(var(--level) * .9 + .1);
+}
+.weight, .price { display: grid; gap: 2px; min-width: 0; }
+.weight b { color: var(--text); font-size: 15px; font-weight: 700; letter-spacing: -.01em; }
+.weight small { justify-self: start; padding: 1px 8px; border-radius: 999px; background: var(--soft-green); color: var(--forest); font-size: 11.5px; font-weight: 650; }
+.price { justify-items: end; text-align: right; }
+.price b { color: var(--forest); font-size: 18px; font-weight: 800; letter-spacing: -.02em; white-space: nowrap; }
+.price small { color: var(--text-muted); font-size: 11.5px; }
+.price em { font-style: normal; font-size: 11.5px; font-weight: 700; white-space: nowrap; }
+.price em[data-direction='up'] { color: var(--positive); }
+.price em[data-direction='down'] { color: var(--warning); }
+.gap {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 16px;
+  border: 1px dashed #d8ded9;
+  border-radius: 12px;
+  color: var(--text-muted);
+  font-size: 12.5px;
+}
+.gap span { font-weight: 600; }
+.ladder[data-compact] .rung { padding: 10px 14px 10px 18px; }
+.ladder[data-compact] .price b { font-size: 16px; }
+.ladder[data-compact] .weight b { font-size: 14px; }
+
+/* Ops overview ---------------------------------------------------------------- */
+.boards { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(340px, 100%), 1fr)); gap: var(--s4); align-items: start; }
+.board { display: grid; gap: 14px; padding: 18px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--white); }
+.boardHead { display: flex; align-items: center; gap: 12px; }
+.boardHead img { width: 44px; height: 44px; border-radius: 12px; object-fit: cover; flex: none; }
+.boardHead div { display: grid; gap: 1px; min-width: 0; flex: 1; }
+.boardHead strong { font-size: 16px; font-weight: 750; }
+.boardHead small { color: var(--text-secondary); font-size: 12.5px; }
+.upcoming { display: grid; gap: 10px; padding: 14px; border-radius: 14px; background: var(--pale-green); }
+.upcomingHead { display: flex; justify-content: space-between; align-items: center; gap: 10px; font-size: 13px; }
+.upcomingHead b { color: var(--forest); }
+.meta { margin: 0; color: var(--text-secondary); font-size: 12.5px; line-height: 1.5; }
+.boardActions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: flex-end; padding-top: 4px; border-top: 1px solid var(--border); padding-top: 12px; }
+.boardActions .button { height: 38px; font-size: 13px; }
+.warning { padding: 9px 12px; border-radius: 10px; background: #fff7ea; color: #8a5a12; font-size: 12.5px; line-height: 1.45; }
+
+.missing { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 14px 16px; border: 1px dashed #d6ddd8; border-radius: var(--radius-card); background: var(--white); }
+.missing > span { margin-right: 4px; color: var(--text-secondary); font-size: 13px; }
+.chip { display: inline-flex; align-items: center; gap: 6px; padding: 6px 12px; border: 1px solid var(--border); border-radius: 999px; background: var(--pale-green); color: var(--text); font-size: 13px; font-weight: 600; }
+a.chip:hover { border-color: var(--forest); color: var(--forest); }
+
+.withdraw summary { list-style: none; cursor: pointer; }
+.withdraw summary::-webkit-details-marker { display: none; }
+.withdraw[open] { flex-basis: 100%; }
+.withdraw form { display: grid; gap: 10px; margin-top: 10px; padding: 12px; border-radius: 12px; background: #fdf5f5; }
+.withdraw p { margin: 0; color: var(--text-secondary); font-size: 12.5px; }
+
+.history table td small { display: block; color: var(--text-muted); font-size: 12px; }
+.empty { padding: 32px 16px; text-align: center; color: var(--text-secondary); }
+.empty b { display: block; margin-bottom: 6px; color: var(--text); font-size: 16px; }
+
+/* Editor ------------------------------------------------------------------------ */
+.editor { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(300px, 1fr); gap: var(--s5); align-items: start; }
+.panel { display: grid; gap: 16px; padding: 22px; border: 1px solid var(--border); border-radius: var(--radius-card); background: var(--white); }
+.panel h2 { font-size: 16px; }
+.panel > p { margin: -8px 0 0; color: var(--text-secondary); font-size: 13px; }
+.fields { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+.bandHead, .band { display: grid; grid-template-columns: minmax(90px, 1.1fr) repeat(2, minmax(72px, .8fr)) minmax(100px, 1fr) 38px; gap: 8px; align-items: center; }
+.bandHead { color: var(--text-secondary); font-size: 12px; font-weight: 650; }
+.band .input { height: 42px; padding: 0 10px; }
+.remove { width: 38px; height: 38px; display: grid; place-items: center; border: 1px solid var(--border); border-radius: 10px; background: var(--white); color: var(--text-secondary); cursor: pointer; }
+.remove:hover:not(:disabled) { border-color: var(--error); color: var(--error); }
+.remove:disabled { opacity: .35; cursor: not-allowed; }
+.add { justify-self: start; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border: 1px dashed var(--forest); border-radius: 10px; background: var(--pale-green); color: var(--forest); font-size: 13px; font-weight: 650; cursor: pointer; }
+.add:disabled { opacity: .45; cursor: not-allowed; }
+.hint { margin: 0; color: var(--text-muted); font-size: 12px; line-height: 1.5; }
+.problems { display: grid; gap: 4px; margin: 0; padding: 10px 12px 10px 28px; border-radius: 10px; background: #fdf3f3; color: var(--error); font-size: 12.5px; }
+.preview { position: sticky; top: 16px; }
+.previewCard { display: grid; gap: 12px; padding: 18px; border-radius: 18px; background: linear-gradient(160deg, #f3f8f5, #fff 55%); border: 1px solid #d5e6dc; }
+.previewCard header { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.previewCard header b { font-size: 15px; }
+.previewCard header small { color: var(--text-secondary); font-size: 12px; }
+.footer { display: flex; justify-content: flex-end; gap: 10px; }
+
+@media (max-width: 1000px) {
+  .editor { grid-template-columns: 1fr; }
+  .preview { position: static; }
+}
+@media (max-width: 720px) {
+  .boards { grid-template-columns: 1fr; }
+  .fields { grid-template-columns: 1fr; }
+  .bandHead { display: none; }
+  .band { grid-template-columns: 1fr 1fr; padding: 12px; border: 1px solid var(--border); border-radius: 12px; }
+  .band > :first-child { grid-column: 1 / -1; }
+  .band .remove { justify-self: end; grid-column: 2; }
+  .band label { display: grid; gap: 4px; color: var(--text-secondary); font-size: 12px; }
+  .rung { padding: 12px 12px 12px 16px; }
+  .price b { font-size: 16px; }
+}
+/* Labels only appear on phones, where the column headings are hidden. */
+.band label > span { display: none; }
+@media (max-width: 720px) { .band label > span { display: inline; } }
+
+/* Grid children may shrink below their content, so nothing pushes the page sideways on phones. */
+.editor > *, .panel > *, .band > *, .fields > * { min-width: 0; }
+.band .input, .fields .input { width: 100%; min-width: 0; }
+.board, .board > * { min-width: 0; }

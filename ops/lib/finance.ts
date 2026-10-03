@@ -17,11 +17,64 @@ export interface LedgerPayment {
   reversed_at: string | null;
   reversed_by: string | null;
   reverse_reason: string;
+  /** The supplier transfer this payment is part of (supplier invoices only). */
+  supplier_payment_id?: string | null;
+  /** Taken off its invoice; the money stayed with the supplier as credit. */
+  moved_to_credit?: boolean;
   // On cash book rows only.
   direction?: Direction;
   party_name?: string;
   description?: string;
   sale_id?: string | null;
+}
+
+/**
+ * One cash book row (GET /ops/ledger/payments): a real movement of money.
+ * A supplier transfer is one row however many invoices it pays; a refund is
+ * its own money-in row; reversed installments are kept for the history.
+ */
+export interface CashMovement {
+  id: string;
+  kind: 'payment' | 'allocation' | 'transfer' | 'refund';
+  flow: 'in' | 'out';
+  direction: Direction;
+  paid_on: string;
+  amount: string;
+  method: string;
+  reference: string;
+  note: string;
+  party_name: string;
+  description: string | null;
+  debt_id: string | null;
+  sale_id: string | null;
+  supplier_id: string | null;
+  transfer_id: string | null;
+  invoices: number;
+  created_at: string;
+  recorded_by: string | null;
+  reversed: boolean;
+  moved_to_credit: boolean;
+  reversed_by: string | null;
+  reverse_reason: string;
+}
+
+/** A supplier transfer with where its money is now (backend/app/transfers.py). */
+export interface TransferMoney {
+  amount: string;
+  allocated: string;
+  credit: string;
+  refunded: string;
+  entry_error: string;
+  unresolved: string;
+  transferred: string;
+  net_paid: string;
+}
+
+export interface SupplierCredit {
+  supplier_id: string;
+  credit: string;
+  unresolved: string;
+  transfers: (TransferMoney & { id: string; paid_on: string; method: string; reference: string; origin: string })[];
 }
 
 export interface Debt {
@@ -49,10 +102,38 @@ export interface Debt {
   cancel_reason: string;
 }
 
+/** One reasoned correction of a supplier debt (backend financial_adjustments, M1.4). */
+export interface FinancialAdjustment {
+  id: string;
+  kind: 'wrong_supplier' | 'duplicate_liability' | 'free_stock' | 'cost_never_existed';
+  entity_type: string;
+  /** The debt corrected. */
+  entity_id: string;
+  sale_id: string | null;
+  /** The corrected supplier's debt (wrong supplier) or the debt duplicated. */
+  related_debt_id: string | null;
+  reason: string;
+  before: Record<string, unknown>;
+  after: Record<string, unknown>;
+  linked_ids: Record<string, unknown>;
+  created_at: string;
+  recorded_by: string | null;
+}
+
+export const ADJUSTMENT_LABELS: Record<FinancialAdjustment['kind'], string> = {
+  wrong_supplier: 'Wrong supplier',
+  duplicate_liability: 'Duplicate liability',
+  free_stock: 'Free or gift stock',
+  cost_never_existed: 'Cost never existed',
+};
+
 export interface DebtDetail extends Debt {
   created_by: string | null;
   sale_number: string | null;
   payments: LedgerPayment[];
+  adjustments: FinancialAdjustment[];
+  /** Other open debts to the same supplier this one may duplicate. */
+  duplicate_candidates: Pick<Debt, 'id' | 'description' | 'amount' | 'paid_amount' | 'incurred_on' | 'source' | 'status'>[];
 }
 
 

@@ -1046,9 +1046,14 @@ def supplier_invoices(user=Depends(supplier), db=Depends(database)):
         'source': row.source, 'status': row.status, 'sale_id': row.sale_id, 'lpo_id': row.lpo_id,
         'payments': by_debt.get(row.id, []),
     } for row in debts]
+    from . import transfers
+    held = transfers.by_supplier(db, [user.id]).get(user.id, {})
     return result({
         'pending_total': sum((row.balance for row in debts if row.status == 'open'), Decimal('0')),
         'paid_total': sum((row.paid_amount for row in debts), Decimal('0')),
+        # Money already sent to them that is on no invoice yet: it goes on
+        # their next invoice unless they send it back.
+        'credit_total': held.get('credit', Decimal('0')),
         'invoices': invoices,
     })
 
@@ -2738,10 +2743,15 @@ def _supplier_activity(db, supplier_id):
     settlements = db.scalar(select(func.coalesce(func.sum(m.Settlement.total_payable), 0)).where(
         m.Settlement.supplier_id == supplier_id, m.Settlement.status == 'pending')) or zero
     days = [d for d in (direct[1], received[1], last_paid) if d]
+    from . import transfers
+    held = transfers.by_supplier(db, [supplier_id]).get(supplier_id, {})
     return {'batches_total': len(batches), 'batches_open': len(open_batches),
         'birds_left': sum((b.available_to_commit for b in open_batches), zero),
         'birds_bought': (direct[0] or zero) + (received[0] or zero),
         'paid_total': money[0] or zero, 'owed_total': (money[1] or zero) + settlements,
+        # Money they hold from payments taken off invoices (M1.2), beside
+        # what is owed, never netted against it; unresolved awaits a decision.
+        'credit_total': held.get('credit', zero), 'unresolved_total': held.get('unresolved', zero),
         'last_activity': max(days) if days else None}
 
 
@@ -3088,9 +3098,10 @@ def reverse_sale(id: str, data: c.SaleReversalInput, idempotency_key: str = Head
 
 
 # Sales, the debts ledger and promotions live in their own modules.
-from . import batch_stock, finance, market_schedule, promotions, purchasing  # noqa: E402
+from . import batch_stock, finance, market_prices, market_schedule, promotions, purchasing  # noqa: E402
 app.include_router(batch_stock.router)
 app.include_router(finance.router)
+app.include_router(market_prices.router)
 app.include_router(market_schedule.router)
 app.include_router(promotions.router)
 app.include_router(purchasing.router)

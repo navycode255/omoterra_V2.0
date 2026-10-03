@@ -14,6 +14,7 @@ import { approvalRequirements, missingProfileFields, type RequiredProfileField }
 import { today } from '@/lib/finance';
 import type { SupplierDetail } from '@/lib/types';
 import { SupplierStatementSection, type SupplierStatement } from '@/components/finance/supplier-statement';
+import { requireSession } from '@/lib/session';
 
 const CATEGORY_KEYS = ['broilers','local_chicken','layers','eggs','goats','cattle','chicken_meat','beef','goat_meat'];
 const MAX_PHOTOS = 30;
@@ -47,6 +48,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
   catch (error) { if (error instanceof ApiError && error.status === 404) notFound(); throw error; }
   // Direct purchases and payments; a failure here leaves the rest of the page.
   const statement = await get<SupplierStatement>(`/ops/ledger/suppliers/${id}/statement`).catch(() => null);
+  const operator = await requireSession();
   const approval = approvalRequirements(supplier);
   const canApprove = approval.every((group) => group.items.every((item) => item.done));
   const missing = missingProfileFields(supplier);
@@ -202,7 +204,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
         {supplier.listings.length === 0 ? <Empty>No stock submitted yet.</Empty> : <div className="table-wrap lower-table"><table><thead><tr><th>Reference</th><th>Category</th><th className="numeric">Total</th><th className="numeric">Available</th><th className="numeric">Asking</th><th className="numeric">Buyer price</th><th>Status</th></tr></thead><tbody>{supplier.listings.map((listing) => <tr key={listing.id}><td><Link href={`/supply/${listing.id}`} className="strong">{reference(listing.id, 'ST')}</Link></td><td>{category(listing.category)}</td><td className="numeric">{quantity(listing.quantity_total)}</td><td className="numeric">{quantity(listing.quantity_available)}</td><td className="numeric">{tzs(listing.farmer_asking_price_per_unit)}</td><td className="numeric">{tzs(listing.buyer_price_per_unit)}</td><td><Status tone={listingTone(listing.listing_status)}>{titleCase(listing.listing_status)}</Status></td></tr>)}</tbody></table></div>}
         <p>{supplier.completed_supplies_count ?? 0} completed supplies · {tzs(owed.toFixed(2))} pending settlements</p>
       </section>
-      <SupplierStatementSection statement={statement} />
+      <SupplierStatementSection statement={statement} supplierId={id} admin={operator.role === 'admin'} />
       <section className="supplier-lower-section"><h2>App order payouts</h2>
         {supplier.settlements.length === 0 ? <Empty>No settlements yet.</Empty> : <div className="table-wrap lower-table"><table><thead><tr><th>Order item</th><th className="numeric">Asking</th><th className="numeric">Commission</th><th className="numeric">Payout</th><th className="numeric">Qty</th><th className="numeric">Total</th><th>Status</th></tr></thead><tbody>{supplier.settlements.map((settlement) => <tr key={settlement.id}><td>{reference(settlement.order_item_id, 'IT')}</td><td className="numeric">{tzs(settlement.farmer_asking_price_per_unit)}</td><td className="numeric">{tzs(settlement.commission_amount_per_unit)}</td><td className="numeric">{tzs(settlement.supplier_payout_price_per_unit)}</td><td className="numeric">{quantity(settlement.quantity)}</td><td className="numeric money">{tzs(settlement.total_payable)}</td><td>{settlement.status === 'paid' ? <Status tone="positive">Paid</Status> : <Status tone="warning">Pending</Status>}</td></tr>)}</tbody></table></div>}
       </section>

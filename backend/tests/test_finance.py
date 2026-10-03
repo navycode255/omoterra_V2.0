@@ -164,12 +164,14 @@ def test_sale_can_be_edited_without_losing_payments(client, seeded):
     })
     assert too_small.status_code == 422
 
-def test_editing_sale_reassigns_paid_supplier_debt(client, seeded, sessions):
+def test_editing_sale_reassigns_unpaid_supplier_debt_but_never_a_paid_one(client, seeded, sessions):
+    """The wrong name picked: an unpaid debt follows the corrected supplier.
+    Once paid, the payment belongs to whoever received it (R1), so the edit is
+    refused and the debt is corrected with "Wrong supplier" instead."""
     original = sale(client, items=[
         {'category': 'broilers', 'unit': 'bird', 'quantity': '3', 'unit_price': '7000',
          'supplier_id': seeded['supplier'], 'unit_cost': '6500'}])
     old_debt = next(row for row in original['debts'] if row['direction'] == 'payable')
-    assert pay(client, old_debt['id'], '19500').status_code == 201
 
     with sessions.begin() as db:
         replacement = m.User(phone='+255712345681', roles=['supplier'], name='Replacement Supplier', region='Morogoro')
@@ -178,20 +180,27 @@ def test_editing_sale_reassigns_paid_supplier_debt(client, seeded, sessions):
             status='approved', categories=['broilers'], district='Morogoro', internal_pickup_address='New farm'))
         replacement_id = replacement.id
 
-    changed = client.put(API + f"/sales/{original['id']}", headers=OPS, json={
-        'buyer_profile_id': original['buyer_profile_id'], 'sold_on': TODAY,
-        'items': [{'category': 'broilers', 'unit': 'bird', 'quantity': '3', 'unit_price': '7000',
-                   'supplier_id': replacement_id, 'unit_cost': '6500'}],
-    })
+    def edit(supplier_id):
+        return client.put(API + f"/sales/{original['id']}", headers=OPS, json={
+            'buyer_profile_id': original['buyer_profile_id'], 'sold_on': TODAY,
+            'items': [{'category': 'broilers', 'unit': 'bird', 'quantity': '3', 'unit_price': '7000',
+                       'supplier_id': supplier_id, 'unit_cost': '6500'}]})
+
+    changed = edit(replacement_id)
     assert changed.status_code == 200, changed.text
     body = changed.json()
     assert body['items'][0]['supplier_id'] == replacement_id
     debt = next(row for row in body['debts'] if row['direction'] == 'payable' and row['status'] != 'cancelled')
     assert debt['id'] == old_debt['id']
-    assert debt['supplier_id'] == replacement_id
-    assert debt['party_name'] == 'New Supplier'
-    assert Decimal(debt['paid_amount']) == Decimal('19500')
-    assert debt['status'] == 'settled'
+    assert debt['supplier_id'] == replacement_id and debt['party_name'] == 'New Supplier'
+
+    assert pay(client, debt['id'], '19500').status_code == 201
+    refused = edit(seeded['supplier'])
+    assert refused.status_code == 422 and 'Wrong supplier' in refused.json()['detail']
+    after = client.get(API + f"/sales/{original['id']}", headers=OPS).json()
+    kept = next(row for row in after['debts'] if row['direction'] == 'payable')
+    assert kept['supplier_id'] == replacement_id and Decimal(kept['paid_amount']) == Decimal('19500')
+
 
 def test_editing_sale_keeps_a_supplier_transfer_with_that_supplier(client, seeded):
     """Money sent through "Pay supplier" reached that supplier: changing the
@@ -217,37 +226,40 @@ def test_editing_sale_keeps_a_supplier_transfer_with_that_supplier(client, seede
     assert first['id'] != extra['id']
 
 
-def test_sale_supplier_debt_can_be_reconciled_as_recording_error(client, seeded):
+def test_sale_supplier_debt_whose_cost_never_existed(client, seeded):
     original = sale(client, items=[
         {'category': 'broilers', 'unit': 'bird', 'quantity': '3', 'unit_price': '7000',
          'supplier_id': seeded['supplier'], 'unit_cost': '6500'}])
     debt = next(row for row in original['debts'] if row['direction'] == 'payable')
 
-    staff = post(client, f"/ledger/debts/{debt['id']}/cancel", {'reason': 'Wrong supplier cost'}, STAFF)
-    assert staff.status_code == 403
-    reconciled = post(client, f"/ledger/debts/{debt['id']}/cancel", {'reason': 'Wrong supplier cost'})
+    # The plain cancel no longer erases a sale's supplier cost (F06).
+    assert post(client, f"/ledger/debts/{debt['id']}/cancel", {'reason': 'Wrong supplier cost'}).status_code == 409
+    body = {'kind': 'cost_never_existed', 'reason': 'Our own birds, nobody to pay'}
+    assert post(client, f"/ledger/debts/{debt['id']}/corrections", body, STAFF).status_code == 403
+    reconciled = post(client, f"/ledger/debts/{debt['id']}/corrections", body)
     assert reconciled.status_code == 200, reconciled.text
     assert reconciled.json()['status'] == 'cancelled'
-    assert reconciled.json()['cancel_reason'] == 'Wrong supplier cost'
+    assert reconciled.json()['cancel_reason'] == 'Our own birds, nobody to pay'
+    assert reconciled.json()['adjustments'][0]['kind'] == 'cost_never_existed'
 
     refreshed = client.get(API + f"/sales/{original['id']}", headers=OPS).json()
     assert Decimal(refreshed['cost_amount']) == 0
-    assert Decimal(refreshed['margin']) == Decimal('21000')
     assert refreshed['items'][0]['supplier_id'] is None
-    assert refreshed['items'][0]['unit_cost'] is None
+    assert refreshed['items'][0]['unit_cost'] is None  # unknown, never zero
     assert Decimal(refreshed['supplier_balance']) == 0
 
 
-def test_paid_supplier_debt_must_be_reversed_before_reconciliation(client, seeded):
+def test_paid_supplier_debt_keeps_its_cost_until_the_payment_is_moved(client, seeded):
     original = sale(client, items=[
         {'category': 'broilers', 'unit': 'bird', 'quantity': '2', 'unit_price': '10000',
          'supplier_id': seeded['supplier'], 'unit_cost': '6000'}])
     debt = next(row for row in original['debts'] if row['direction'] == 'payable')
     payment = pay(client, debt['id'], '12000').json()['payments'][0]
-    blocked = post(client, f"/ledger/debts/{debt['id']}/cancel", {'reason': 'Wrong supplier cost'})
+    body = {'kind': 'cost_never_existed', 'reason': 'No cost after all'}
+    blocked = post(client, f"/ledger/debts/{debt['id']}/corrections", body)
     assert blocked.status_code == 409
     assert post(client, f"/ledger/payments/{payment['id']}/reverse", {'reason': 'Payment attached in error'}).status_code == 200
-    assert post(client, f"/ledger/debts/{debt['id']}/cancel", {'reason': 'Wrong supplier cost'}).status_code == 200
+    assert post(client, f"/ledger/debts/{debt['id']}/corrections", body).status_code == 200
 
 
 def test_staff_registers_batch_receives_delivery_notes_and_sales_use_only_received_stock(client, seeded):

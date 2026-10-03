@@ -11,7 +11,7 @@ const venvPython = path.join(__dirname, '..', 'backend', '.venv', 'bin', 'python
 export const python = process.env.OMOTERRA_E2E_PYTHON ?? (existsSync(venvPython) ? venvPython : 'python3');
 const apiUrl = `http://127.0.0.1:${apiPort}/api/v1`;
 // OMOTERRA_E2E_SKIP_BUILD=1 reuses the last `next build` (faster reruns).
-const build = process.env.OMOTERRA_E2E_SKIP_BUILD ? '' : 'npx next build --webpack && ';
+const build = process.env.OMOTERRA_E2E_SKIP_BUILD ? '' : 'npx next build && ';
 
 process.env.OMOTERRA_E2E_API_URL = apiUrl;
 process.env.OMOTERRA_E2E_OPS_TOKEN = opsToken;

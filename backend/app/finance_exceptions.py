@@ -20,7 +20,7 @@ from decimal import Decimal
 from sqlalchemy import and_, exists, func, or_, select, text
 from sqlalchemy.orm import Session
 
-from . import models as m
+from . import models as m, transfers
 
 ZERO = Decimal('0')
 STALE_BATCH_DAYS = 7
@@ -91,52 +91,69 @@ def supplier_lines_without_source(db):
         revenue=_money(sum((r['revenue'] for r in records), ZERO)))
 
 
-def _allocations_by_transfer(db):
-    rows = db.execute(select(m.LedgerPayment.supplier_payment_id,
-            func.coalesce(func.sum(m.LedgerPayment.amount).filter(m.LedgerPayment.reversed_at.is_(None)), 0),
-            func.coalesce(func.sum(m.LedgerPayment.amount).filter(m.LedgerPayment.reversed_at.is_not(None)), 0))
-        .where(m.LedgerPayment.supplier_payment_id.is_not(None))
-        .group_by(m.LedgerPayment.supplier_payment_id)).all()
-    return {r[0]: (_money(r[1]), _money(r[2])) for r in rows}
-
-
-def reversed_transfer_allocations(db):
-    rows = db.execute(select(m.LedgerPayment.id, m.LedgerPayment.debt_id, m.LedgerPayment.amount,
-            m.LedgerPayment.reversed_at, m.LedgerPayment.reverse_reason, m.SupplierPayment.id.label('transfer_id'),
-            m.SupplierPayment.supplier_id, m.SupplierPayment.amount.label('transfer_amount'),
-            m.SupplierPayment.paid_on, m.SupplierPayment.reference)
-        .join(m.SupplierPayment, m.SupplierPayment.id == m.LedgerPayment.supplier_payment_id)
-        .where(m.LedgerPayment.reversed_at.is_not(None))
-        .order_by(m.SupplierPayment.paid_on, m.LedgerPayment.reversed_at)).all()
-    totals = _allocations_by_transfer(db)
-    names = _supplier_names(db, [r.supplier_id for r in rows])
-    records = [{'ledger_payment_id': r.id, 'debt_id': r.debt_id, 'amount': _money(r.amount),
-                'reversed_at': r.reversed_at, 'reverse_reason': r.reverse_reason, 'transfer_id': r.transfer_id,
-                'supplier': names.get(r.supplier_id, r.supplier_id), 'transfer_paid_on': r.paid_on,
-                'transfer_reference': r.reference, 'transfer_amount': _money(r.transfer_amount),
-                'transfer_active_allocations': totals.get(r.transfer_id, (ZERO, ZERO))[0]}
-               for r in rows]
-    return _section('reversed_transfer_allocations', 'Reversed allocations of supplier transfers', records,
-        'reversed', sum((r['amount'] for r in records), ZERO),
-        'The money left the account; classify each as credit, refund or entry error with evidence (R3, R4, R6).',
+def unresolved_transfer_allocations(db):
+    """Reversed allocations of transfers whose money has no decision yet
+    (from before M1.2). The money left the account; the finance owner
+    classifies each as credit, refund or entry error with evidence via
+    `python -m app.classify_transfers` (R3, R4, R6)."""
+    items = transfers.unresolved_items(db)
+    held = transfers.buckets(db, {r['transfer_id'] for r in items})
+    names = _supplier_names(db, [r['supplier_id'] for r in items])
+    records = [{'ledger_payment_id': r['ledger_payment_id'], 'debt_id': r['debt_id'], 'amount': _money(r['amount']),
+                'reversed_at': r['reversed_at'], 'reverse_reason': r['reverse_reason'], 'transfer_id': r['transfer_id'],
+                'supplier': names.get(r['supplier_id'], r['supplier_id']), 'transfer_paid_on': r['transfer_paid_on'],
+                'transfer_reference': r['transfer_reference'], 'transfer_amount': _money(r['transfer_amount']),
+                'transfer_active_allocations': _money(held[r['transfer_id']]['allocated']),
+                'suggested': 'credit'}
+               for r in items]
+    return _section('unresolved_transfer_allocations', 'Unresolved allocations of supplier transfers', records,
+        'unresolved', sum((r['amount'] for r in records), ZERO),
+        'The money left the account; classify each as credit (D5 default), refund or entry error with evidence: '
+        'python -m app.classify_transfers --dry-run (R3, R4, R6).',
         transfers=len({r['transfer_id'] for r in records}))
 
 
-def transfer_allocation_mismatches(db):
-    totals = _allocations_by_transfer(db)
-    rows = db.execute(select(m.SupplierPayment).order_by(m.SupplierPayment.paid_on)).scalars().all()
+def transfer_invariant_breaks(db):
+    """Transfers whose money does not add up: allocated + credit + refunded +
+    entry errors + unresolved must equal the transfer, every bucket >= 0."""
+    rows = db.scalars(select(m.SupplierPayment).order_by(m.SupplierPayment.paid_on)).all()
+    held = transfers.buckets(db, [r.id for r in rows])
     names = _supplier_names(db, [r.supplier_id for r in rows])
     records = []
     for row in rows:
-        active = totals.get(row.id, (ZERO, ZERO))[0]
-        if _money(row.amount) != active:
+        b = held[row.id]
+        if not transfers.balanced(b):
+            accounted = sum((b[k] for k in transfers.BUCKETS), ZERO)
             records.append({'transfer_id': row.id, 'supplier': names.get(row.supplier_id, row.supplier_id),
                 'paid_on': row.paid_on, 'method': row.method, 'reference': row.reference,
-                'transfer_amount': _money(row.amount), 'active_allocations': active,
-                'unallocated': _money(row.amount) - active})
-    return _section('transfer_allocation_mismatches', 'Supplier transfers not fully allocated', records,
-        'unallocated', sum((r['unallocated'] for r in records), ZERO),
-        'Transfer amount differs from the sum of its active invoice allocations.')
+                'transfer_amount': _money(row.amount), **{k: _money(b[k]) for k in transfers.BUCKETS},
+                'difference': _money(row.amount - accounted)})
+    return _section('transfer_invariant_breaks', 'Supplier transfers whose money does not add up', records,
+        'difference', sum((abs(r['difference']) for r in records), ZERO),
+        'allocated + credit + refunded + entry error + unresolved must equal the transfer amount.')
+
+
+def unwrapped_supplier_payments(db):
+    rows = transfers.unwrapped_supplier_payments(db)
+    names = _supplier_names(db, [r['supplier_id'] for r in rows])
+    records = [{**r, 'amount': _money(r['amount']), 'supplier': names.get(r['supplier_id'], r['supplier_id'])}
+               for r in rows]
+    return _section('unwrapped_supplier_payments', 'Supplier payments recorded before transfers (no transfer yet)',
+        records, 'amount', sum((r['amount'] for r in records), ZERO),
+        'Every outflow to a supplier must be a transfer (R3). Wrap with python -m app.classify_transfers --wrap.',
+        reversed=sum(1 for r in records if r['reversed']))
+
+
+def supplier_credit(db):
+    rows = db.scalars(select(m.SupplierPayment).order_by(m.SupplierPayment.paid_on)).all()
+    held = transfers.buckets(db, [r.id for r in rows])
+    names = _supplier_names(db, [r.supplier_id for r in rows])
+    records = [{'transfer_id': r.id, 'supplier': names.get(r.supplier_id, r.supplier_id), 'paid_on': r.paid_on,
+                'reference': r.reference, 'transfer_amount': _money(r.amount), 'credit': _money(held[r.id]['credit'])}
+               for r in rows if held[r.id]['credit'] > 0]
+    return _section('supplier_credit', 'Unapplied supplier credit (context)', records,
+        'credit held', sum((r['credit'] for r in records), ZERO),
+        'Money suppliers hold from payments taken off invoices; it goes on their next invoice (D5). Not an exception.')
 
 
 def settlement_payout_problems(db):
@@ -221,7 +238,9 @@ def cancelled_sale_cost_debts(db):
     rows = db.execute(select(D, m.Sale.sale_number, m.Sale.status.label('sale_status'))
         .join(m.Sale, m.Sale.id == D.sale_id)
         .where(D.source == 'sale_cost', D.status == 'cancelled', D.cancel_reason != '',
-               m.Sale.status == 'active', ~costed_match)
+               m.Sale.status == 'active', ~costed_match,
+               # A reasoned correction (M1.4) records what changed and why.
+               ~exists().where(m.FinancialAdjustment.entity_id == D.id))
         .order_by(D.cancelled_at)).all()
     records = [{'debt_id': r.LedgerDebt.id, 'sale_number': r.sale_number, 'supplier': r.LedgerDebt.party_name,
                 'amount': _money(r.LedgerDebt.amount), 'cancelled_at': r.LedgerDebt.cancelled_at,
@@ -252,9 +271,12 @@ def ledger_payment_methods(db):
         reversed_count=reversed_row[0], reversed_amount=_money(reversed_row[1]))
 
 
-CHECKS = (unknown_cost_lines, supplier_lines_without_source, reversed_transfer_allocations,
-          transfer_allocation_mismatches, settlement_payout_problems, expenses_without_category,
-          batch_movement_problems, cancelled_sale_cost_debts, ledger_payment_methods)
+CHECKS = (unknown_cost_lines, supplier_lines_without_source, unresolved_transfer_allocations,
+          transfer_invariant_breaks, settlement_payout_problems, expenses_without_category,
+          batch_movement_problems, cancelled_sale_cost_debts, unwrapped_supplier_payments,
+          supplier_credit, ledger_payment_methods)
+# Sections that give context and are never counted as exceptions.
+CONTEXT = {'supplier_credit', 'ledger_payment_methods'}
 
 
 def collect(db):
@@ -293,13 +315,20 @@ def _line(section, r):
         return f"{r['sale_number']} line {r['line']} ({r['sold_on']}): {r['description']} {r['quantity']} {r['unit']}, revenue {_tzs(r['revenue'])}"
     if k == 'supplier_lines_without_source':
         return f"{r['sale_number']} line {r['line']}: {r['supplier']}, {r['description']}, cost {_tzs(r['cost'])}"
-    if k == 'reversed_transfer_allocations':
+    if k == 'unresolved_transfer_allocations':
         return (f"{r['supplier']} transfer {r['transfer_id']} ({r['transfer_paid_on']}, ref {r['transfer_reference'] or '-'}) "
                 f"{_tzs(r['transfer_amount'])}, active allocations {_tzs(r['transfer_active_allocations'])}; "
-                f"reversed {_tzs(r['amount'])} from debt {r['debt_id']}: {r['reverse_reason'] or '-'}")
-    if k == 'transfer_allocation_mismatches':
+                f"unresolved {_tzs(r['amount'])} from allocation {r['ledger_payment_id']} on debt {r['debt_id']}: "
+                f"{r['reverse_reason'] or '-'} (suggested: {r['suggested']})")
+    if k == 'transfer_invariant_breaks':
         return (f"{r['supplier']} transfer {r['transfer_id']} ({r['paid_on']}, {r['method']}, ref {r['reference'] or '-'}): "
-                f"{_tzs(r['transfer_amount'])} vs allocated {_tzs(r['active_allocations'])}, unallocated {_tzs(r['unallocated'])}")
+                f"{_tzs(r['transfer_amount'])} vs allocated {_tzs(r['allocated'])} + credit {_tzs(r['credit'])} + refunded "
+                f"{_tzs(r['refunded'])} + entry error {_tzs(r['entry_error'])} + unresolved {_tzs(r['unresolved'])}")
+    if k == 'unwrapped_supplier_payments':
+        return (f"{r['supplier']} payment {r['ledger_payment_id']} ({r['paid_on']}, {r['method']}, ref {r['reference'] or '-'}) "
+                f"{_tzs(r['amount'])} on {r['debt_description']}{' [reversed]' if r['reversed'] else ''}")
+    if k == 'supplier_credit':
+        return f"{r['supplier']} transfer {r['transfer_id']} ({r['paid_on']}) {_tzs(r['transfer_amount'])}: credit {_tzs(r['credit'])}"
     if k == 'settlement_payout_problems':
         return (f"{r['supplier']} settlement {r['settlement_id']}: {_tzs(r['total_payable'])}, "
                 f"{'; '.join(r['reasons'])}, refs {', '.join(r['payment_references']) or '-'}")
@@ -333,8 +362,8 @@ def to_text(report, limit=None):
         if len(shown) < len(section['records']):
             out.append(f"   ... {len(section['records']) - len(shown)} more (use --json or --limit 0)")
         out.append('')
-    flagged = [s for s in report['sections'] if s['key'] != 'ledger_payment_methods' and s['count']]
-    out.append(f"Sections with exceptions: {len(flagged)} of {len(report['sections']) - 1}")
+    flagged = [s for s in report['sections'] if s['key'] not in CONTEXT and s['count']]
+    out.append(f"Sections with exceptions: {len(flagged)} of {len(report['sections']) - len(CONTEXT)}")
     return '\n'.join(out)
 
 

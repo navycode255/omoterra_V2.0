@@ -11,6 +11,7 @@ const GROUPS = [
     { href: '/orders', label: 'Orders', icon: Icons.file, key: 'orders_in_progress' },
     { href: '/batches', label: 'Production Batches', icon: Icons.calendar, key: 'verification_overdue' },
     { href: '/market-schedule', label: 'Market Schedule', icon: Icons.sprout, key: null },
+    { href: '/market-prices', label: 'Market Prices', icon: Icons.coins, key: null },
   ] },
   { label: 'Purchasing', modules: [
     { href: '/lpos', label: 'LPOs', icon: Icons.clipboard, key: null },

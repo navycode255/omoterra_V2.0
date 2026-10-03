@@ -2721,3 +2721,25 @@ textarea.join-input { min-height: 88px; resize: vertical; }
 
 /* A working button stays readable instead of greying out like a disabled one. */
 button:disabled:has(.busy-label) { opacity: .85; cursor: progress; }
+
+/* Financial reports: printing shows only the A4 report document (components/finance/report-document.tsx). */
+@media print {
+  body:has([data-financial-report]) { background: white !important; margin: 0; }
+  body:has([data-financial-report]) .sidebar, body:has([data-financial-report]) .ops-header { display: none !important; }
+  body:has([data-financial-report]) .shell, body:has([data-financial-report]) .main { display: block !important; padding: 0 !important; margin: 0 !important; min-height: 0; }
+}
+
+/* Supplier portal: market prices ------------------------------------------------ */
+.portal-prices h2 { margin-bottom: 4px; }
+.portal-prices-lead { margin: 0 0 16px; color: var(--portal-muted); font-size: 14px; }
+.portal-prices-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(300px, 100%), 1fr)); gap: 16px; }
+.portal-price-board { display: grid; gap: 12px; align-content: start; padding: 16px; border: 1px solid var(--portal-line); border-radius: 18px; background: #f7faf8; }
+.portal-price-board header { display: flex; align-items: center; gap: 12px; }
+.portal-price-board header .portal-batch-photo { width: 44px; height: 44px; flex: none; }
+.portal-price-board header > span:nth-child(2) { display: grid; flex: 1; min-width: 0; }
+.portal-price-board header b { color: var(--portal-ink); font-size: 16px; }
+.portal-price-board header small { color: var(--portal-muted); font-size: 12.5px; }
+.portal-price-next { display: grid; gap: 10px; padding: 12px; border: 1px dashed #cfe3d7; border-radius: 14px; background: #fff; }
+.portal-price-next p { display: flex; align-items: center; gap: 8px; margin: 0; color: var(--portal-ink); font-size: 13px; }
+.portal-price-next .portal-icon { width: 16px; height: 16px; color: var(--forest); }
+@media (max-width: 640px) { .portal-prices-grid { grid-template-columns: 1fr; } .portal-price-board { padding: 12px; } }

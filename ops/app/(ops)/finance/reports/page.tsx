@@ -14,10 +14,16 @@ export default async function Reports({ searchParams }: { searchParams: Promise<
   for (const key of ['fixed', 'variable_pct', 'growth_pct', 'investment', 'reviewed']) {
     const value = param(params, key); if (value) query.set(key, value);
   }
+  // Fetch inside try; render outside it, so rendering errors reach the error boundary.
+  let report: FinancialReport | null = null;
+  let failure = '';
   try {
-    const report = await get<FinancialReport>(`/ops/finance/reports?${query}`);
-    return <FinancialReports key={query.toString()} report={report} today={end}/>;
+    report = await get<FinancialReport>(`/ops/finance/reports?${query}`);
   } catch (error) {
-    return <div className="workspace"><PageHeader title="Financial reports"/><Notice tone="error">{error instanceof ApiError ? error.message : 'The report could not be loaded. Please try again.'}</Notice><a className="button" href="/finance/reports">Reset report filters</a></div>;
+    failure = error instanceof ApiError ? error.message : 'The report could not be loaded. Please try again.';
   }
+  if (!report) {
+    return <div className="workspace"><PageHeader title="Financial reports"/><Notice tone="error">{failure}</Notice><a className="button" href="/finance/reports">Reset report filters</a></div>;
+  }
+  return <FinancialReports key={query.toString()} report={report} today={end}/>;
 }

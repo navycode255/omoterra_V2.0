@@ -784,7 +784,8 @@ class SaleItem(Entity, Base):
     __table_args__ = (
         CheckConstraint('quantity > 0', name='sale_items_quantity_check'),
         CheckConstraint('unit_price > 0', name='sale_items_unit_price_check'),
-        CheckConstraint('unit_cost > 0', name='sale_items_unit_cost_check'),
+        # 0 only for free or gift stock, set by a debt correction (M1.4).
+        CheckConstraint('unit_cost >= 0', name='sale_items_unit_cost_check'),
         CheckConstraint("(unit_cost IS NULL AND supplier_id IS NULL AND supplier_name = '')"
             " OR (unit_cost IS NOT NULL AND (supplier_id IS NOT NULL OR supplier_name <> ''))",
             name='sale_item_cost_has_supplier'),
@@ -1137,6 +1138,72 @@ class StockLoss(Entity, Base):
         CheckConstraint(f"reason IN ({', '.join(repr(v) for v in LOSS_REASONS)})", name='stock_losses_reason_check'),
     )
 
+
+
+ADJUSTMENT_KINDS = ('wrong_supplier', 'duplicate_liability', 'free_stock', 'cost_never_existed')
+
+
+class FinancialAdjustment(Entity, Base):
+    """One reasoned correction of a financial record (build plan M1.4): who,
+    why, what kind, the record corrected (`entity_type`, `entity_id`), its
+    state before and after, and the records it links. Never edited.
+
+    - wrong_supplier: the whole obligation moved to the correct supplier
+      (`related_debt_id`); payments stay with whoever received them (R1).
+    - duplicate_liability: cancelled as a copy of `related_debt_id`.
+    - free_stock: the stock cost nothing; its lines carry unit_cost 0.
+    - cost_never_existed: the lines' cost is unknown again (R5)."""
+    __tablename__ = 'financial_adjustments'
+    kind: Mapped[str] = mapped_column(String(32))
+    entity_type: Mapped[str] = mapped_column(String(32))
+    entity_id: Mapped[str] = mapped_column(String(36), index=True)
+    sale_id: Mapped[Optional[str]] = mapped_column(ForeignKey('sales.id'), index=True)
+    related_debt_id: Mapped[Optional[str]] = mapped_column(ForeignKey('ledger_debts.id'), index=True)
+    reason: Mapped[str] = mapped_column(Text)
+    before: Mapped[dict] = mapped_column(JSON)
+    after: Mapped[dict] = mapped_column(JSON)
+    linked_ids: Mapped[dict] = mapped_column(JSON, default=dict)
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint(f"kind IN ({', '.join(repr(v) for v in ADJUSTMENT_KINDS)})", name='financial_adjustments_kind_check'),
+        CheckConstraint('length(btrim(reason)) >= 3', name='financial_adjustments_reason_check'),
+    )
+
+
+class MarketPriceList(Entity, Base):
+    """Prices by weight band for one category, from `effective_from`. Never
+    edited: publishing again creates a new list (see market_prices.py)."""
+    __tablename__ = 'market_price_lists'
+    category: Mapped[str] = mapped_column(index=True)
+    unit_type: Mapped[str]
+    effective_from: Mapped[date] = mapped_column(Date, index=True)
+    note: Mapped[str] = mapped_column(Text, default='')
+    published_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    withdrawn_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    withdrawn_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    withdraw_reason: Mapped[str] = mapped_column(Text, default='')
+    __table_args__ = (
+        CheckConstraint("unit_type IN ('bird','animal','kg','tray')", name='market_price_list_unit_valid'),
+    )
+
+
+class MarketPriceBand(Entity, Base):
+    """One weight band: `min_weight_kg` <= weight < `max_weight_kg`; a missing
+    bound leaves that side open."""
+    __tablename__ = 'market_price_bands'
+    price_list_id: Mapped[str] = mapped_column(ForeignKey('market_price_lists.id'), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    label: Mapped[str] = mapped_column(default='')
+    min_weight_kg: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 3))
+    max_weight_kg: Mapped[Optional[Decimal]] = mapped_column(Numeric(8, 3))
+    price_per_unit: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    __table_args__ = (
+        CheckConstraint('price_per_unit > 0', name='market_price_band_price_positive'),
+        CheckConstraint('(min_weight_kg IS NULL OR min_weight_kg >= 0) AND (max_weight_kg IS NULL OR max_weight_kg > 0) '
+                        'AND (min_weight_kg IS NULL OR max_weight_kg IS NULL OR min_weight_kg < max_weight_kg)',
+                        name='market_price_band_weights'),
+        UniqueConstraint('price_list_id', 'position', name='uq_market_price_band_position'),
+    )
 
 # Registers the media_references hook wherever the models are loaded.
 from . import media_refs  # noqa: E402,F401

@@ -111,7 +111,7 @@ export default async function SaleWorkspace({ params, searchParams }: {
             <header className={styles.saleCardHeader}><span><Icons.card size={22} /></span><h2>I owe {debt.party_name}</h2><Status tone={debtTone(debt)}>{debtStatus(debt)}</Status></header>
             <p className={styles.saleDebtMeta}><PartyLink debt={debt} /> · {debt.description} · <Link href={`/finance/debts/${debt.id}`}>review / reconcile</Link></p>
             <DebtSummary debt={debt} />
-            <div className={styles.salePayments}><PaymentsTable payments={debt.payments} admin={admin} direction="payable" /></div>
+            <div className={styles.salePayments}><PaymentsTable payments={debt.payments} admin={admin} direction="payable" supplier={Boolean(debt.supplier_id)} /></div>
             {sale.status === 'active' && <PaymentForm debt={debt} today={today()} saleId={sale.id} />}
           </section>)}
         </div>

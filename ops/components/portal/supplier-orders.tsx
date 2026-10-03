@@ -24,7 +24,8 @@ export type SupplierInvoice = {
   id: string; description: string; amount: string; paid_amount: string; balance: string; incurred_on: string;
   due_on: string | null; source: string; status: 'open' | 'settled'; payments: InvoicePayment[];
 };
-export type SupplierInvoices = { pending_total: string; paid_total: string; invoices: SupplierInvoice[] };
+/** credit_total: money already sent to the supplier that is on no invoice yet; it goes on their next invoice. */
+export type SupplierInvoices = { pending_total: string; paid_total: string; credit_total?: string; invoices: SupplierInvoice[] };
 
 const STAGE: Record<string, [text: string, tone: 'progress' | 'review' | 'approved' | 'stopped']> = {
   reserved: ['Buyer is checking out', 'progress'],

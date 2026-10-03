@@ -44,7 +44,7 @@ export function SupplierTable({ suppliers }: { suppliers: SupplierRow[] }) {
           <td>{supplier.batches_total ? <><b>{supplier.batches_open} open</b><small>{quantity(supplier.birds_left)} birds left · {supplier.batches_total} total</small></> : <span className="muted">None</span>}</td>
           <td className="center">{quantity(supplier.birds_bought)}</td>
           <td className="money">{tzs(supplier.paid_total)}</td>
-          <td className="money" data-owed={Number(supplier.owed_total) > 0 || undefined}>{tzs(supplier.owed_total)}</td>
+          <td className="money" data-owed={Number(supplier.owed_total) > 0 || undefined}>{tzs(supplier.owed_total)}{Number(supplier.credit_total ?? 0) > 0 && <small>{tzs(supplier.credit_total!)} credit held</small>}</td>
           <td>{supplier.last_activity ? date(supplier.last_activity) : <span className="muted">—</span>}</td>
           <td className="center"><Link href={`/suppliers/${supplier.id}`} className="icon-button" aria-label={`View ${supplier.public_alias}`}><Icons.more size={22}/></Link></td>
         </tr>) : <tr><td colSpan={9} className="table-empty">No suppliers match this search.</td></tr>}</tbody>

@@ -6,12 +6,12 @@ import { ListFooter } from '@/components/finance/list-footer';
 import ui from '@/components/finance/expenses.module.css';
 import styles from '@/components/finance/finance-list.module.css';
 import { ApiError, get } from '@/lib/api';
-import { METHODS, day, methodLabel, thisMonth, type LedgerPayment } from '@/lib/finance';
+import { METHODS, day, methodLabel, thisMonth, type CashMovement } from '@/lib/finance';
 import { dateTime, tzs } from '@/lib/format';
 import { listPath, param, type ListParams, type Page } from '@/lib/paging';
 
 export const metadata = { title: 'Cash book · Omoterra Operations' };
-type CashBook = Page<LedgerPayment> & { summary: { money_in: string; money_out: string; net: string; cash_in_hand: string } };
+type CashBook = Page<CashMovement> & { summary: { money_in: string; money_out: string; net: string; cash_in_hand: string } };
 const tabs = [['', 'All'], ['in', 'Money in'], ['out', 'Money out'], ['reversed', 'Reversed']];
 const plain = (value: string) => Number(value).toLocaleString('en-US', { maximumFractionDigits: 2 });
 const signed = (value: string) => `${Number(value) < 0 ? '-' : ''}${tzs(String(Math.abs(Number(value))))}`;
@@ -92,23 +92,30 @@ export default async function CashBookPage({ searchParams }: { searchParams: Pro
       <table className={styles.table} data-phone-show="2 10">
         <thead><tr><th>Date</th><th>Who</th><th>For</th><th>In (TZS)</th><th>Out (TZS)</th><th>Method</th><th>Recorded by</th><th>Notes</th><th aria-label="More" /><th className={styles.phoneOnly}>Amount (TZS)</th></tr></thead>
         <tbody>{data.items.map((p) => {
-          const incoming = p.direction === 'receivable';
-          return <tr key={p.id} data-reversed={p.reversed || undefined}>
+          const incoming = p.flow === 'in';
+          // A supplier transfer is one row however many invoices it paid;
+          // a refund from a supplier is its own money-in row.
+          const who = p.debt_id && p.kind !== 'transfer' ? `/finance/debts/${p.debt_id}` : p.supplier_id ? `/suppliers/${p.supplier_id}#money` : null;
+          const what = p.kind === 'refund' ? 'Refund from supplier'
+            : p.kind === 'transfer' ? (p.invoices > 1 ? `Supplier transfer over ${p.invoices} invoices` : p.description ?? 'Supplier transfer')
+            : p.description ?? '';
+          return <tr key={`${p.kind}:${p.id}`} data-reversed={p.reversed || undefined}>
             <td data-label="Date" className={styles.money}>{day(p.paid_on)}</td>
-            <td data-label="Who"><Link className={styles.name} href={`/finance/debts/${p.debt_id}`}>{p.party_name}</Link></td>
-            <td data-label="For" className={styles.forCell}>{p.sale_id ? <Link href={`/sales/${p.sale_id}`}>{p.description}</Link> : p.description}</td>
+            <td data-label="Who">{who ? <Link className={styles.name} href={who}>{p.party_name}</Link> : p.party_name}</td>
+            <td data-label="For" className={styles.forCell}>{p.sale_id && p.kind !== 'refund' ? <Link href={`/sales/${p.sale_id}`}>{what}</Link> : what}</td>
             <td data-label="In" className={styles.inAmount}>{incoming ? plain(p.amount) : '–'}</td>
             <td data-label="Out" className={styles.outAmount}>{incoming ? '–' : plain(p.amount)}</td>
             <td data-label="Method">{methodLabel(p.method)}{p.reference && <small className={styles.block}>{p.reference}</small>}</td>
             <td data-label="Recorded by"><div>{p.recorded_by ?? '—'}<small>{dateTime(p.created_at)}</small></div></td>
-            <td data-label="Notes">{p.reversed ? <span className={styles.reversed}>Reversed: {p.reverse_reason}</span> : p.note || '–'}</td>
+            <td data-label="Notes">{p.reversed ? <span className={styles.reversed}>{p.moved_to_credit ? 'Moved to supplier credit (still money out on its transfer)' : 'Reversed'}: {p.reverse_reason}</span> : p.note || '–'}</td>
             <td className={styles.more}>
               <details className={styles.menu}>
                 <summary aria-label={`More for ${p.party_name}`}><Icons.more size={18} /></summary>
                 <div>
-                  <Link href={`/finance/debts/${p.debt_id}`}>Open the debt</Link>
+                  {p.debt_id && <Link href={`/finance/debts/${p.debt_id}`}>{p.kind === 'transfer' ? 'Open the first invoice' : 'Open the debt'}</Link>}
+                  {p.supplier_id && <Link href={`/suppliers/${p.supplier_id}#money`}>Supplier statement</Link>}
                   {p.sale_id && <Link href={`/sales/${p.sale_id}`}>Open sale</Link>}
-                  {!p.reversed && <Link href={`/finance/debts/${p.debt_id}`}>Reverse (on the debt)</Link>}
+                  {!p.reversed && p.kind === 'payment' && p.debt_id && <Link href={`/finance/debts/${p.debt_id}`}>Reverse (on the debt)</Link>}
                 </div>
               </details>
             </td>

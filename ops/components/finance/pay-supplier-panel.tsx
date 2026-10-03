@@ -9,7 +9,7 @@ import { tzs } from '@/lib/format';
 import styles from './finance-list.module.css';
 import { Busy } from '@/components/spinner';
 
-export type PayableSupplier = { supplier_id: string; name: string; owed: string };
+export type PayableSupplier = { supplier_id: string; name: string; owed: string; credit?: string };
 
 function Submit() {
   const { pending } = useFormStatus();
@@ -18,7 +18,9 @@ function Submit() {
 
 // "Pay supplier": one transfer to a registered supplier, spread over their
 // oldest open invoices (or the one invoice opened from Debts), with proof and
-// an optional receipt SMS.
+// an optional receipt SMS. Credit the supplier already holds (money taken off
+// another invoice) is offered first: it moves no money, and only the rest
+// is a new transfer.
 export function PaySupplierPanel({ suppliers, selected, debt, now, idempotencyKey }: {
   suppliers: PayableSupplier[]; selected?: string; debt?: { id: string; balance: string; description: string } | null;
   now: string; idempotencyKey: string;
@@ -26,8 +28,13 @@ export function PaySupplierPanel({ suppliers, selected, debt, now, idempotencyKe
   const [state, action] = useActionState(recordSupplierBatchPayment, null);
   const [supplier, setSupplier] = useState(selected ?? '');
   const owedBy = (id: string) => (debt ? debt.balance : suppliers.find((row) => row.supplier_id === id)?.owed ?? '');
+  const creditOf = (id: string) => Number(suppliers.find((row) => row.supplier_id === id)?.credit ?? 0);
   const owed = owedBy(supplier);
-  const [amount, setAmount] = useState(owed ? String(Number(owed)) : '');
+  const [useCredit, setUseCredit] = useState(true);
+  const usable = (id: string, on: boolean) => (on ? Math.min(creditOf(id), Number(owedBy(id) || 0)) : 0);
+  const credit = usable(supplier, useCredit);
+  const rest = (id: string, on: boolean) => { const left = Number(owedBy(id) || 0) - usable(id, on); return left > 0 ? String(left) : ''; };
+  const [amount, setAmount] = useState(owed ? rest(supplier, true) : '');
   const [file, setFile] = useState('');
   const [sms, setSms] = useState(true);
   const [thanks, setThanks] = useState(true);
@@ -42,15 +49,21 @@ export function PaySupplierPanel({ suppliers, selected, debt, now, idempotencyKe
       <select name="supplier_id" value={supplier} onChange={(event) => {
         // Choosing a supplier fills in what they are owed.
         const next = owedBy(event.target.value);
-        setSupplier(event.target.value); setAmount(next ? String(Number(next)) : '');
+        setSupplier(event.target.value); setAmount(next ? rest(event.target.value, useCredit) : '');
       }} required>
         <option value="" disabled>Choose the supplier…</option>
         {suppliers.map((row) => <option key={row.supplier_id} value={row.supplier_id}>{row.name} · {tzs(row.owed)}</option>)}
       </select>
     </label>
     {debt && <p className={styles.payHint}>Paying one invoice: {debt.description}</p>}
-    <label>Amount (TZS)
-      <input name="amount" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder="Enter amount" required />
+    {credit > 0 && <input type="hidden" name="use_credit" value={String(credit)} />}
+    {creditOf(supplier) > 0 && <label className={styles.switch}>
+      <input type="checkbox" checked={useCredit} onChange={(event) => { setUseCredit(event.target.checked); setAmount(rest(supplier, event.target.checked)); }} />
+      <span aria-hidden="true" />Use their credit first ({tzs(String(creditOf(supplier)))} held)
+    </label>}
+    {credit > 0 && <p className={styles.payHint}>{tzs(String(credit))} comes from credit they already hold: no money moves for it.{Number(amount || 0) > 0 ? ' Enter only the new money you are sending.' : ' Nothing new to send; no proof needed.'}</p>}
+    <label>{credit > 0 ? 'New money sent (TZS)' : 'Amount (TZS)'}
+      <input name="amount" inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} placeholder={credit > 0 ? '0' : 'Enter amount'} required={credit <= 0} />
       {owed && <small className={styles.payHint}>Owed {tzs(owed)}. A smaller amount is a part payment, oldest invoices first.</small>}
     </label>
     <label>Payment method

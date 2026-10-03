@@ -20,12 +20,12 @@ export const metadata = { title: 'Supplier payments · Omoterra Operations' };
 
 type Balance = {
   supplier_id: string; name: string; alias: string; phone: string; place: string; open_invoices: number;
-  owed: string; due_now: string; overdue: string; earliest_due: string | null;
+  owed: string; due_now: string; overdue: string; earliest_due: string | null; credit: string;
   state: 'overdue' | 'due_now' | 'due_soon' | 'on_track'; last_payment: { paid_on: string; amount: string } | null;
 };
 type Balances = Page<Balance> & { summary: {
   total_owed: string; suppliers: number; due_now: string; due_now_suppliers: number;
-  overdue: string; overdue_suppliers: number; total_suppliers: number;
+  overdue: string; overdue_suppliers: number; total_suppliers: number; credit: string; credit_suppliers: number;
 } };
 const STATES: [string, string][] = [['', 'All suppliers'], ['overdue', 'Overdue'], ['due_now', 'Due now'], ['due_soon', 'Due soon'], ['on_track', 'On track']];
 const STATE_VIEW: Record<Balance['state'], [string, string]> = {
@@ -88,7 +88,7 @@ export default async function SupplierPayments({ searchParams }: { searchParams:
 
     <section className={styles.stats} data-count="4" aria-label="Supplier payments summary">
       <article className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.coins size={26} /></span>
-        <div><span>Total owed</span><strong>{tzs(total.total_owed)}</strong><small>Across {suppliers(total.suppliers)}</small></div></article>
+        <div><span>Total owed</span><strong>{tzs(total.total_owed)}</strong><small>Across {suppliers(total.suppliers)}{Number(total.credit) > 0 ? ` · ${tzs(total.credit)} credit held by ${suppliers(total.credit_suppliers)}` : ''}</small></div></article>
       <Link href={href({ state: 'due_now', page: '' })} className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.clock size={26} /></span>
         <div><span>Due now</span><strong>{tzs(total.due_now)}</strong><small>{suppliers(total.due_now_suppliers)}</small></div></Link>
       <Link href={href({ state: 'overdue', page: '' })} className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.alert size={26} /></span>
@@ -115,7 +115,7 @@ export default async function SupplierPayments({ searchParams }: { searchParams:
               return <tr key={row.supplier_id}>
                 <td data-label="Supplier"><div><Link className={styles.name} href={`/suppliers/${row.supplier_id}#money`}>{row.name}</Link><small>{row.place || row.phone || '—'}</small></div></td>
                 <td data-label="Open invoices">{row.open_invoices}</td>
-                <td data-label="Amount owed" className={styles.money}>{plain(row.owed)}</td>
+                <td data-label="Amount owed" className={styles.money}>{plain(row.owed)}{Number(row.credit) > 0 && <small className={styles.block}>credit {plain(row.credit)}</small>}</td>
                 <td data-label="Due date"><div>{row.earliest_due ? day(row.earliest_due) : 'On receipt'}<span className={styles.dueState} data-tone={tone}>{tone === 'in' ? <Icons.checkCircle size={15} /> : tone === 'red' ? <Icons.alert size={15} /> : <Icons.clock size={15} />}{label}</span></div></td>
                 <td data-label="Last payment"><div>{row.last_payment ? day(row.last_payment.paid_on) : '—'}{row.last_payment && <small>TZS {plain(row.last_payment.amount)}</small>}</div></td>
                 <td data-label="Action">{due
@@ -130,7 +130,7 @@ export default async function SupplierPayments({ searchParams }: { searchParams:
       </section>
 
       <aside className={styles.panel}>
-        <PaySupplierPanel key={`${selected}:${payDebt?.id ?? ''}`} suppliers={everyone.items.map(({ supplier_id, name, owed }) => ({ supplier_id, name, owed }))}
+        <PaySupplierPanel key={`${selected}:${payDebt?.id ?? ''}`} suppliers={everyone.items.map(({ supplier_id, name, owed, credit }) => ({ supplier_id, name, owed, credit }))}
           selected={selected} debt={payDebt ? { id: payDebt.id, balance: payDebt.balance, description: payDebt.description } : null}
           now={today()} idempotencyKey={randomUUID()} />
       </aside>

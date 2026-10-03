@@ -4,20 +4,20 @@ Plan date: 3 October 2026 (revision 3, after second review). Source: [financial 
 
 ## Progress
 
-Updated 3 October 2026. ✅ done · 🟡 done but waiting on you · 🔄 in progress · ⬜ not started. "Done" means built and passing its tests locally; **nothing is committed or deployed yet**.
+Updated 3 October 2026. ✅ done · 🟡 done but waiting on you · 🔄 in progress · ⬜ not started. M0 and 1.1 are committed (`090d1ee`). The full backend suite passes locally (341 tests). **GitHub Actions is blocked:** the GitHub account is locked over billing, so CI jobs do not start until that is resolved.
 
 | Item | Status | Evidence / what's left |
 |---|---|---|
-| 0.1 Automatic test runs | 🟡 | `.github/workflows/ci.yml` (backend with PostgreSQL in strict mode where any skipped test fails the run; ops type-check, lint and Playwright). Faster per-test database cleanup and `backend/pytest.ini`. Locally 320 passed and 3 failed: older supplier-onboarding tests now running for the first time, being fixed. CI goes live once committed and pushed. |
+| 0.1 Automatic test runs | 🟡 | `.github/workflows/ci.yml` is committed. Locally: 341 passed and 0 skipped in strict mode. The 3 stale onboarding tests are fixed, a real 201-status bug is fixed, strict mode now also catches whole-module skips, and `moto` is added for the storage test. **Waiting on you: unlock GitHub billing** so the CI jobs can run. |
 | 0.2 Metric dictionary | 🟡 | [finance-metrics.md](finance-metrics.md): 21 metrics with current and target definitions and 18 ranked inconsistencies. Waiting on your sign-off and on D7. |
 | 0.3 Exception report | ✅ | `python -m app.finance_exceptions` (read-only, 9 tests). Production baseline: [finance-exceptions-baseline-2026-10-03.md](finance-exceptions-baseline-2026-10-03.md). |
 | 0.4 Pagination regression | ✅ | Backend test (66 rows, 18 actionable, 7 pages) and a Playwright click-through of Debts. Stale comments fixed. |
 | 0.5 Statement consistency harness | ✅ | Playwright: the staff supplier page, Supplier payments, the Suppliers list and the supplier portal show the same bought, paid and owed figures (`ops/e2e/`). |
 | 1.1 F14 Expense totals | ✅ | `total` is the row count again, with `summary` and `by_category` following the same filters. Expenses page uses the shared footer. 30-expense, six-filter test. |
-| 1.2 F04 Transfers vs allocations | 🔄 | In progress. D5 decided (credit). First case: Antonia's unallocated 19,500. |
+| 1.2 F04 Transfers vs allocations | 🟡 | Built and tested locally, not yet committed. Every supplier payment is a transfer. "Move to supplier credit" replaces Reverse, and money out is unchanged. Use credit, refunds (separate inflow, partial allowed) and admin-only entry-error corrections. Pay supplier uses credit first. `python -m app.classify_transfers` handles history item by item, with a dry run. 14 new tests; full suite 355 passed, Playwright 2/2. **Waiting on you:** commit and deploy, then classify Antonia's 19,500. |
 | 1.3 F02 Cost states and opening stock | ⬜ | Needs D3 (cost of stock held before the system) |
-| 1.4 F06 Reasoned debt corrections | ⬜ | After 1.2 |
-| 1.5 F03 Units on receipts | ⬜ | |
+| 1.4 F06 Reasoned debt corrections | 🟡 | Built and tested locally, not committed. "Reconcile debt" is replaced by four admin-only, reasoned corrections (wrong supplier, duplicate liability, free stock, cost never existed), each writing a `financial_adjustments` row (migration 034). Paid money stays with whoever received it (credit or unresolved); receipt lines are never touched; a sale edit no longer moves a paid supplier debt. D4 uses the suggested default (admins, with a reason). **Waiting on you:** D4 sign-off, commit and deploy. |
+| 1.5 F03 Units on receipts | 🟡 | Built and tested locally, not committed. Delivery-note and LPO lines take the receipt's unit and category; a different one is refused (422); fractional birds and animals refused. |
 | 1.6 Batch sales become delivery notes | ⬜ | 11 unlinked supplier lines (1,040,000) in the baseline go through its dry run |
 | 1.7 F01 One reporting layer | ⬜ | Needs D7 |
 | M2 to M5 | ⬜ | |

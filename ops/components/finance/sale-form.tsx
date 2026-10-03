@@ -107,9 +107,11 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
       sold_on: soldOn,
       notes,
       items: lines.map((l) => ({
-        category: l.category || null,
+        // Received stock (delivery note or LPO) is sold in the receipt's unit
+        // and category: the server fills them in and refuses a different one.
+        ...(l.source === 'collection' ? {} : { category: l.category || null }),
         description: l.description,
-        unit: l.unit,
+        ...(l.source === 'lpo' || l.source === 'collection' ? {} : { unit: l.unit }),
         quantity: clean(l.quantity),
         unit_price: clean(l.unit_price),
         ...(l.source === 'supplier' ? { supplier_id: l.supplier_id || null, unit_cost: clean(l.unit_cost), supplier_batch_id: l.supplier_batch_id || null,
@@ -199,6 +201,10 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
       <section className={styles.stepCard}>
         <div className={styles.stepHeader}><StepTitle number={2}>What was sold</StepTitle></div>
         {lines.map((line, index) => {
+          // Fixed by the receipt the stock was received on.
+          const receiptUnit = line.source === 'lpo' || line.source === 'collection';
+          const receiptCategory = line.source === 'collection'
+            || (line.source === 'lpo' && Boolean(stock.find((row) => row.lpo_line_id === line.lpo_line_id)?.category));
           return (
             <fieldset key={line.key} className={styles.saleLine}>
               <legend className={styles.srOnly}>Line {index + 1}</legend>
@@ -210,7 +216,7 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
               <div className={styles.lineGrid}>
                 <div className="field">
                   <label htmlFor={`cat-${line.key}`}>Product</label>
-                  <select id={`cat-${line.key}`} className="input" value={line.category}
+                  <select id={`cat-${line.key}`} className="input" value={line.category} disabled={receiptCategory}
                     onChange={(e) => update(line.key, { category: e.target.value, unit: DEFAULT_UNIT[e.target.value] ?? line.unit })}>
                     {PRODUCTS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
                     <option value="">Something else</option>
@@ -223,9 +229,11 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
                 </div>
                 <div className="field">
                   <label htmlFor={`unit-${line.key}`}>Unit</label>
-                  <select id={`unit-${line.key}`} className="input" value={line.unit} onChange={(e) => update(line.key, { unit: e.target.value })}>
+                  <select id={`unit-${line.key}`} className="input" value={line.unit} disabled={receiptUnit}
+                    onChange={(e) => update(line.key, { unit: e.target.value })}>
                     {UNITS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
                   </select>
+                  {receiptUnit && <span className="meta">As received on the receipt</span>}
                 </div>
                 <div className="field">
                   <label htmlFor={`qty-${line.key}`}>Quantity</label>

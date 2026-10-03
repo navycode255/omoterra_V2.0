@@ -9,6 +9,8 @@ import { CATEGORY, CONTACT, FORMS, categoryImage, date, label, media, number, un
 import { Icon, type IconName } from './icons';
 import { PortalImage } from './portal-image';
 import type { MarketReservation, MarketSlot } from '@/lib/market';
+import type { PriceBoard } from '@/lib/market-prices';
+import { MarketPricesCard } from './market-prices-card';
 
 export type SupplierProfile = {
   status: string; public_alias: string; legal_name: string; alternate_phone: string; preferred_contact_method: string;
@@ -104,9 +106,9 @@ function Stat({ icon, title, value, locked, note }: { icon: IconName; title: str
   );
 }
 
-export function SupplierPanel({ phone, profile, batches, listings, orders, payouts, invoices, markets, marketReservations, businessDate, supportPhone, view = 'dashboard' }: {
+export function SupplierPanel({ phone, profile, batches, listings, orders, payouts, invoices, markets, marketReservations, marketPrices = [], businessDate, supportPhone, view = 'dashboard' }: {
   phone: string; profile: SupplierProfile; batches: Batch[]; listings: Listing[]; orders: SupplierOrder[]; payouts: PayoutRow[];
-  invoices: SupplierInvoices; markets: MarketSlot[]; marketReservations: MarketReservation[]; businessDate: string; supportPhone: string; view?: string;
+  invoices: SupplierInvoices; markets: MarketSlot[]; marketReservations: MarketReservation[]; marketPrices?: PriceBoard[]; businessDate: string; supportPhone: string; view?: string;
 }) {
   const approved = profile.status === 'approved';
   const live = listings.filter((row) => row.listing_status === 'live').length;
@@ -150,6 +152,8 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
 
       {nextReserved ? <section className="portal-next-market"><div><p>Your next delivery</p><h2>{number.format(Number(nextReserved.quantity_approved))} {label(nextReserved.slot.category)}</h2><strong>{date.format(new Date(nextReserved.slot.delivery_date))}</strong><span className="market-state is-approved">Market reserved</span>{daysToDelivery > 0 && <small>{daysToDelivery} days remaining</small>}</div><Link className="button button-primary" href="/account/market-schedule">View schedule</Link></section>
         : nextMarket ? <section className="portal-next-market"><div><p>Plan your next batch</p><h2>{label(nextMarket.category)}</h2><strong>Next market: {date.format(new Date(nextMarket.delivery_date))}</strong><small>{number.format(Number(nextMarket.remaining_quantity))} {units(nextMarket.category, Number(nextMarket.remaining_quantity))} available</small></div><Link className="button button-primary" href="/account/market-schedule">View Market Schedule</Link></section> : null}
+
+      <MarketPricesCard boards={marketPrices} categories={profile.categories} />
 
       {toConfirm.length > 0 && (
         <section className="portal-attention" aria-labelledby="attention-title">
@@ -255,6 +259,7 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
       <Card id="payments" icon="coins" title="Supplier invoices"
         summary={`${invoices.invoices.filter((row) => row.status === 'open').length} pending · TZS ${number.format(Number(invoices.paid_total))} paid`}>
         <p className="portal-note">These are payments for batches and stock recorded directly by Omoterra. Each payment updates here automatically.</p>
+        {Number(invoices.credit_total ?? 0) > 0 && <p className="portal-note">You already hold TZS {number.format(Number(invoices.credit_total))} from Omoterra that is not on any invoice yet. It will be counted against your next invoice.</p>}
         <InvoiceList data={invoices} />
       </Card>
 

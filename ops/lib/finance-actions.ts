@@ -111,8 +111,9 @@ export async function recordSupplierBatchPayment(_: ActionResult | null, formDat
   const reference = text(formData, 'reference');
   const sms = text(formData, 'sms_text');
   if (!supplier) return { ok: false, error: 'Choose the supplier you paid.' };
+  const creditOnly = Number(text(formData, 'use_credit') || 0) > 0 && Number(text(formData, 'amount').replace(/,/g, '') || 0) <= 0;
   // No invoices picked: the backend pays the supplier's oldest invoices first.
-  if (!reference && !sms && (!(receipt instanceof File) || receipt.size === 0)) {
+  if (!creditOnly && !reference && !sms && (!(receipt instanceof File) || receipt.size === 0)) {
     return { ok: false, error: 'Add a receipt number, payment SMS, or receipt image.' };
   }
   if (receipt instanceof File && receipt.size > 10 * 1024 * 1024) {
@@ -124,13 +125,23 @@ export async function recordSupplierBatchPayment(_: ActionResult | null, formDat
       const saved = await postFile<{ id: string }>('/ops/ledger/supplier-payment-receipts', receipt, randomUUID());
       receiptMediaId = saved.id;
     }
-    await post<SupplierPaymentResult>(`/ops/ledger/suppliers/${encodeURIComponent(supplier)}/payments`, {
-      ...paymentBody(formData),
-      debt_ids: formData.getAll('debt_ids').map(String),
-      sms_text: sms,
-      receipt_media_id: receiptMediaId,
-      ...supplierReceiptSmsBody(formData),
-    }, key(formData));
+    const credit = Number(text(formData, 'use_credit') || 0);
+    const amount = Number(text(formData, 'amount').replace(/,/g, '') || 0);
+    if (credit > 0 && amount <= 0) {
+      // The supplier's credit covers it: no new money, so no transfer.
+      await post(`/ops/ledger/suppliers/${encodeURIComponent(supplier)}/credit/apply`, {
+        amount: String(credit), debt_ids: formData.getAll('debt_ids').map(String), note: text(formData, 'note'),
+      }, key(formData));
+    } else {
+      await post<SupplierPaymentResult>(`/ops/ledger/suppliers/${encodeURIComponent(supplier)}/payments`, {
+        ...paymentBody(formData),
+        debt_ids: formData.getAll('debt_ids').map(String),
+        sms_text: sms,
+        receipt_media_id: receiptMediaId,
+        use_credit: credit > 0 ? String(credit) : '0',
+        ...supplierReceiptSmsBody(formData),
+      }, key(formData));
+    }
   } catch (error) {
     if (error instanceof ApiError) return { ok: false, error: error.message };
     throw error;
@@ -186,7 +197,34 @@ export async function recordUnlistedSupplierPayment(_: ActionResult | null, form
 export async function reverseLedgerPayment(_: ActionResult | null, formData: FormData) {
   const id = text(formData, 'payment_id');
   return run(() => post(`/ops/ledger/payments/${id}/reverse`, { reason: text(formData, 'reason') }, key(formData)),
-    [...FINANCE]);
+    [...FINANCE, '/suppliers', '/account']);
+}
+
+/** Put a supplier's credit (money they already hold) on their open invoices. No money moves. */
+export async function applySupplierCredit(_: ActionResult | null, formData: FormData) {
+  const supplier = text(formData, 'supplier_id');
+  const debts = formData.getAll('debt_ids').map(String).filter(Boolean);
+  return run(() => post(`/ops/ledger/suppliers/${encodeURIComponent(supplier)}/credit/apply`, {
+    amount: text(formData, 'amount').replace(/,/g, ''), debt_ids: debts, note: text(formData, 'note'),
+  }, key(formData)), [...FINANCE, '/suppliers', '/account']);
+}
+
+/** Money a supplier actually sent back from their credit (admin, with evidence). */
+export async function recordTransferRefund(_: ActionResult | null, formData: FormData) {
+  const id = text(formData, 'transfer_id');
+  return run(() => post(`/ops/ledger/transfers/${encodeURIComponent(id)}/refunds`, {
+    amount: text(formData, 'amount').replace(/,/g, ''), received_on: text(formData, 'received_on'),
+    method: text(formData, 'method'), reference: text(formData, 'reference'), evidence: text(formData, 'evidence'),
+    note: text(formData, 'note'),
+  }, key(formData)), [...FINANCE, '/suppliers', '/account']);
+}
+
+/** Part of a transfer that never left the account (admin, with reason and evidence). */
+export async function correctTransferEntry(_: ActionResult | null, formData: FormData) {
+  const id = text(formData, 'transfer_id');
+  return run(() => post(`/ops/ledger/transfers/${encodeURIComponent(id)}/entry-error`, {
+    amount: text(formData, 'amount').replace(/,/g, ''), reason: text(formData, 'reason'), evidence: text(formData, 'evidence'),
+  }, key(formData)), [...FINANCE, '/suppliers', '/account']);
 }
 
 export async function cancelSale(_: ActionResult | null, formData: FormData) {
@@ -200,6 +238,27 @@ export async function cancelDebt(_: ActionResult | null, formData: FormData) {
   const sale = text(formData, 'sale_id');
   return run(() => post(`/ops/ledger/debts/${id}/cancel`, { reason: text(formData, 'reason') }, key(formData)),
     [...FINANCE, '/finance/supplier-payments', '/account', `/finance/debts/${id}`, ...(sale ? [`/sales/${sale}`] : [])]);
+}
+
+/**
+ * Correct a supplier debt opened by a sale, for one of four reasons
+ * (POST /ops/ledger/debts/{id}/corrections, admins only). Money already paid
+ * stays with the supplier who received it, as credit or unresolved.
+ */
+export async function correctDebt(_: ActionResult | null, formData: FormData) {
+  const id = text(formData, 'debt_id');
+  const sale = text(formData, 'sale_id');
+  const kind = text(formData, 'kind');
+  const supplier = text(formData, 'supplier_id');
+  const body = {
+    kind,
+    reason: text(formData, 'reason'),
+    ...(kind === 'wrong_supplier' ? supplier ? { supplier_id: supplier } : { supplier_name: text(formData, 'supplier_name') } : {}),
+    ...(kind === 'duplicate_liability' ? { duplicate_of: text(formData, 'duplicate_of') } : {}),
+    ...(text(formData, 'payments') ? { payments: text(formData, 'payments') } : {}),
+  };
+  return run(() => post(`/ops/ledger/debts/${id}/corrections`, body, key(formData)),
+    [...FINANCE, '/finance/supplier-payments', '/suppliers', '/account', `/finance/debts/${id}`, ...(sale ? [`/sales/${sale}`] : [])]);
 }
 
 export async function createDebt(_: ActionResult | null, formData: FormData) {

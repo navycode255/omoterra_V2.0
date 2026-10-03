@@ -84,7 +84,7 @@ def _settlement(db, seeded, key, **kw):
 def test_empty_database_reports_nothing(sessions, engine):
     report = fx.build_report(engine)
     assert all(s['count'] == 0 for s in report['sections'])
-    assert 'Sections with exceptions: 0 of 8' in fx.to_text(report)
+    assert 'Sections with exceptions: 0 of 9' in fx.to_text(report)
 
 
 def test_unknown_cost_and_unsourced_supplier_lines(sessions, seeded, engine):
@@ -127,14 +127,30 @@ def test_reversed_allocations_and_unallocated_transfers(sessions, seeded, engine
         first.paid_amount, first.status = 60000, 'settled'
         ids = {'transfer': transfer.id, 'second': second.id}
     sections = by_key(fx.build_report(engine))
-    reversed_ = sections['reversed_transfer_allocations']
-    assert reversed_['count'] == 1 and reversed_['amount'] == Decimal('40000.00')
-    record = reversed_['records'][0]
+    # Reversed before M1.2: no event, so the 40,000 is unresolved (R6).
+    unresolved = sections['unresolved_transfer_allocations']
+    assert unresolved['count'] == 1 and unresolved['amount'] == Decimal('40000.00')
+    record = unresolved['records'][0]
     assert record['debt_id'] == ids['second'] and record['transfer_amount'] == Decimal('100000.00')
-    assert record['transfer_active_allocations'] == Decimal('60000.00')
-    mismatch = sections['transfer_allocation_mismatches']
-    assert mismatch['count'] == 1 and mismatch['records'][0]['transfer_id'] == ids['transfer']
-    assert mismatch['amount'] == Decimal('40000.00')
+    assert record['transfer_active_allocations'] == Decimal('60000.00') and record['suggested'] == 'credit'
+    # Every transfer still adds up: 60,000 allocated + 40,000 unresolved.
+    assert sections['transfer_invariant_breaks']['count'] == 0
+    # The standalone reversed supplier payment has no transfer yet.
+    unwrapped = sections['unwrapped_supplier_payments']
+    assert unwrapped['count'] == 1 and unwrapped['reversed'] == 1
+    assert sections['supplier_credit']['count'] == 0
+    # Classified as credit, the money is context, not an exception.
+    with sessions.begin() as db:
+        db.add(m.TransferEvent(supplier_payment_id=ids['transfer'], supplier_id=supplier, kind='credit', amount=40000,
+            source_payment_id=record['ledger_payment_id'], occurred_on=TODAY, evidence='Supplier confirmed'))
+    after = by_key(fx.build_report(engine))
+    assert after['unresolved_transfer_allocations']['count'] == 0
+    assert after['supplier_credit']['amount'] == Decimal('40000.00')
+    # A transfer whose buckets do not add up is an exception.
+    with sessions.begin() as db:
+        db.add(m.SupplierPayment(supplier_id=supplier, amount=7000, paid_on=TODAY, method='cash', reference='LOST'))
+    broken = by_key(fx.build_report(engine))['transfer_invariant_breaks']
+    assert broken['count'] == 1 and broken['amount'] == Decimal('7000.00')
     methods = {r['method']: r for r in sections['ledger_payment_methods']['records']}
     assert methods['mpesa']['paid_out'] == Decimal('60000.00') and methods['cash']['paid_out'] == Decimal('10000.00')
     assert sections['ledger_payment_methods']['reversed_count'] == 2

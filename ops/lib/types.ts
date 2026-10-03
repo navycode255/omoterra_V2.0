@@ -208,6 +208,8 @@ export interface SupplierRow {
   // Batches, birds and money outside app orders (backend main._supplier_activity).
   batches_total: number; batches_open: number; birds_left: string; birds_bought: string;
   paid_total: string; owed_total: string; last_activity: string | null;
+  /** Money they hold from payments taken off invoices (M1.2); shown beside owed, never netted. */
+  credit_total?: string; unresolved_total?: string;
   pending_settlement_total: string;
 }
 

@@ -1,9 +1,9 @@
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { Card, Definition, Notice, PageHeader, Status } from '@/components/ui';
-import { CancelDebtForm, DebtSummary, PartyLink, PaymentForm, PaymentsTable, debtStatus, debtTone } from '@/components/finance/ledger';
+import { AdjustmentsList, CancelDebtForm, DebtCorrections, DebtSummary, PartyLink, PaymentForm, PaymentsTable, UseCreditForm, debtStatus, debtTone } from '@/components/finance/ledger';
 import { ApiError, get } from '@/lib/api';
-import { day, expenseLabel, today, type DebtDetail } from '@/lib/finance';
+import { day, expenseLabel, today, type DebtDetail, type Parties, type SupplierCredit } from '@/lib/finance';
 import { dateTime, phone } from '@/lib/format';
 import { requireSession } from '@/lib/session';
 
@@ -21,6 +21,12 @@ export default async function DebtWorkspace({ params }: { params: Promise<{ id: 
     throw error;
   }
   const incoming = debt.direction === 'receivable';
+  const supplierDebt = !incoming && debt.supplier_id ? debt.supplier_id : null;
+  const credit = supplierDebt && debt.status === 'open'
+    ? await get<SupplierCredit>(`/ops/ledger/suppliers/${supplierDebt}/credit`).catch(() => null) : null;
+  // A sale's supplier debt is corrected for a reason (wrong supplier, ...), never just cancelled.
+  const correctable = admin && debt.source === 'sale_cost' && debt.direction === 'payable' && debt.status !== 'cancelled';
+  const suppliers = correctable ? (await get<Parties>('/ops/finance/parties').catch(() => null))?.suppliers ?? [] : [];
   return (
     <>
       <div className="topbar">
@@ -45,20 +51,35 @@ export default async function DebtWorkspace({ params }: { params: Promise<{ id: 
               ]} />
             </Card>
             <Card title={incoming ? 'Money received' : 'Payments made'}>
-              <PaymentsTable payments={debt.payments} admin={admin} direction={debt.direction} />
+              <PaymentsTable payments={debt.payments} admin={admin} direction={debt.direction} supplier={Boolean(supplierDebt)} />
             </Card>
           </div>
           <div className="stack">
+            {supplierDebt && credit && Number(credit.credit) > 0 && (
+              <Card title="Use supplier credit">
+                <UseCreditForm supplierId={supplierDebt} credit={credit.credit} owed={debt.balance} debtId={debt.id} />
+              </Card>
+            )}
             {debt.status === 'open' && (
               <div id="pay" style={{ scrollMarginTop: 96 }}><Card title={incoming ? 'Record money received' : 'Record a payment'}>
                 <PaymentForm debt={debt} today={today()} saleId={debt.sale_id ?? undefined} />
               </Card></div>
             )}
-            {admin && ['manual', 'expense', 'sale_cost'].includes(debt.source) && debt.status !== 'cancelled' && (
-              <Card title={debt.source === 'sale_cost' ? 'Reconcile recording error' : 'Cancel'}>
+            {correctable && (
+              <Card title="Correct this supplier debt">
+                <DebtCorrections debt={debt} suppliers={suppliers} />
+              </Card>
+            )}
+            {admin && ['manual', 'expense'].includes(debt.source) && debt.status !== 'cancelled' && (
+              <Card title="Cancel">
                 {Number(debt.paid_amount) > 0
-                  ? <p className="small muted">Reverse the payments recorded on it first.</p>
+                  ? <p className="small muted">{supplierDebt ? 'Move the payments on it to supplier credit first.' : 'Reverse the payments recorded on it first.'}</p>
                   : <CancelDebtForm debt={debt} />}
+              </Card>
+            )}
+            {debt.adjustments.length > 0 && (
+              <Card title="Corrections">
+                <AdjustmentsList debt={debt} />
               </Card>
             )}
           </div>

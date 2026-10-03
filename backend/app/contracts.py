@@ -958,13 +958,17 @@ class TransferEntryErrorInput(Input):
 class SaleItemInput(Input):
     category: Optional[Category] = None
     description: str = Field(default='', max_length=200)
-    unit: Literal['bird', 'animal', 'kg', 'tray', 'piece']
+    # Required, except on received stock (LPO or delivery note): the
+    # receipt's unit and category are authoritative there (M1.5), so a line
+    # may leave them out and the server fills them in.
+    unit: Optional[Literal['bird', 'animal', 'kg', 'tray', 'piece']] = None
     quantity: Quantity
     unit_price: Money
     # Who Omoterra owes for this stock: a registered supplier or a name.
     supplier_id: Optional[str] = Field(default=None, max_length=36)
     supplier_name: str = Field(default='', max_length=150)
-    unit_cost: Optional[Money] = None
+    # 0 only keeps free stock an admin recorded on the debt (M1.4).
+    unit_cost: Optional[Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=2)]] = None
     cost_payment: Optional[StockCostPaymentInput] = None
     # Stock received on an LPO: its cost and supplier come from the LPO.
     lpo_line_id: Optional[str] = Field(default=None, max_length=36)
@@ -978,14 +982,16 @@ class SaleItemInput(Input):
         self.supplier_batch_id = self.supplier_batch_id or None
         if self.supplier_batch_id and not self.supplier_id:
             raise ValueError(M('err.batch_needs_registered_supplier'))
-        if not self.category and len(self.description) < 2:
-            raise ValueError(M('err.describe_what_was_sold'))
         if self.lpo_line_id and self.supplier_collection_id:
             raise ValueError(M('err.choose_one_received_stock_source'))
         if self.lpo_line_id or self.supplier_collection_id:
             if self.supplier_id or self.supplier_name or self.unit_cost is not None or self.cost_payment:
                 raise ValueError(M('err.received_stock_cost_comes_from_receipt'))
             return self
+        if self.unit is None:
+            raise ValueError(M('err.choose_unit_sold'))
+        if not self.category and len(self.description) < 2:
+            raise ValueError(M('err.describe_what_was_sold'))
         has_supplier = bool(self.supplier_id or self.supplier_name)
         if has_supplier != (self.unit_cost is not None):
             raise ValueError(M('err.supplier_and_cost_go_together'))
@@ -1050,6 +1056,41 @@ class LedgerDebtInput(Input):
 
 class ReasonInput(Input):
     reason: str = Field(min_length=3, max_length=500)
+
+
+class DebtCorrectionInput(Input):
+    """Why a supplier debt opened by a sale is wrong (build plan M1.4).
+    Admin only, always with a reason.
+
+    - wrong_supplier: the whole debt moves to `supplier_id` (registered) or
+      `supplier_name`; the buying cost stays.
+    - duplicate_liability: the same goods are already owed on `duplicate_of`;
+      the buying cost stays.
+    - free_stock: the supplier gave the stock free; its cost becomes 0.
+    - cost_never_existed: nobody was owed; the cost becomes unknown.
+
+    `payments` says what money already paid on the debt is, when there is
+    some (wrong supplier, duplicate): 'credit' when the supplier really has
+    it, 'unresolved' when that is not yet known (rules R1, R6)."""
+    kind: Literal['wrong_supplier', 'duplicate_liability', 'free_stock', 'cost_never_existed']
+    reason: str = Field(min_length=3, max_length=500)
+    supplier_id: Optional[str] = Field(default=None, max_length=36)
+    supplier_name: str = Field(default='', max_length=150)
+    duplicate_of: Optional[str] = Field(default=None, max_length=36)
+    payments: Optional[Literal['credit', 'unresolved']] = None
+
+    @model_validator(mode='after')
+    def complete(self):
+        self.supplier_id = self.supplier_id or None
+        self.duplicate_of = self.duplicate_of or None
+        if self.kind == 'wrong_supplier':
+            if bool(self.supplier_id) == bool(self.supplier_name):
+                raise ValueError(M('err.choose_correct_supplier'))
+        elif self.supplier_id or self.supplier_name:
+            raise ValueError(M('err.choose_correct_supplier'))
+        if (self.kind == 'duplicate_liability') != bool(self.duplicate_of):
+            raise ValueError(M('err.choose_duplicated_debt'))
+        return self
 
 
 class PromotionInput(Input):
@@ -1199,3 +1240,48 @@ class StockLossInput(Input):
 class LpoExtendInput(Input):
     delivery_end: date
     reason: str = Field(min_length=3, max_length=500)
+
+
+# Market prices -----------------------------------------------------------------
+PriceWeight = Annotated[Decimal, Field(ge=0, le=2000, max_digits=8, decimal_places=3)]
+
+
+class MarketPriceBandInput(Input):
+    """min_weight_kg <= weight < max_weight_kg. A missing bound is open:
+    no minimum means "below max", no maximum means "max and above"."""
+    label: str = Field(default='', max_length=40)
+    min_weight_kg: Optional[PriceWeight] = None
+    max_weight_kg: Optional[PriceWeight] = None
+    price_per_unit: Money
+
+
+def _band_floor(band):
+    return band.min_weight_kg if band.min_weight_kg is not None else Decimal('-1')
+
+
+class MarketPriceListInput(Input):
+    category: Category
+    effective_from: date
+    note: str = Field(default='', max_length=500)
+    bands: list[MarketPriceBandInput] = Field(min_length=1, max_length=12)
+
+    @model_validator(mode='after')
+    def valid_ladder(self):
+        for band in self.bands:
+            if band.min_weight_kg is not None and band.max_weight_kg is not None and band.min_weight_kg >= band.max_weight_kg:
+                raise ValueError(M('err.price_band_range'))
+            if band.max_weight_kg == 0:
+                raise ValueError(M('err.price_band_range'))
+        if len(self.bands) > 1 and any(b.min_weight_kg is None and b.max_weight_kg is None for b in self.bands):
+            raise ValueError(M('err.price_band_needs_weight'))
+        ordered = sorted(self.bands, key=_band_floor)
+        for lower, upper in zip(ordered, ordered[1:]):
+            # Each band must end at or below where the next one starts.
+            if lower.max_weight_kg is None or upper.min_weight_kg is None or lower.max_weight_kg > upper.min_weight_kg:
+                raise ValueError(M('err.price_bands_overlap'))
+        self.bands = ordered
+        return self
+
+
+class MarketPriceWithdrawInput(Input):
+    reason: str = Field(min_length=3, max_length=300)

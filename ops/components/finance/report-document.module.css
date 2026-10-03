@@ -1,0 +1,186 @@
+/* A4 report pages. Every position is in millimetres, measured from the
+   approved Omoterra editorial report so the printed PDF matches it. */
+.document {
+  --ink: #141915;
+  --muted: #6e746f;
+  --faint: #8d938e;
+  --green: #0d6b47;
+  --forest: #063c2b;
+  --sage: #4f8a6c;
+  --line: #e2e3df;
+  --track: #ecedea;
+  display: none;
+  font-family: var(--font-report), 'Inter', system-ui, sans-serif;
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  print-color-adjust: exact;
+  -webkit-print-color-adjust: exact;
+}
+
+.page {
+  position: relative;
+  width: 210mm;
+  height: 297mm;
+  overflow: hidden;
+  background: #f6f5f1;
+  break-after: page;
+}
+.page:last-child { break-after: auto; }
+.page > * { position: absolute; margin: 0; }
+.page h3 { margin: 0; font-size: 10.2pt; font-weight: 700; letter-spacing: -.01em; }
+.page ul, .page ol { margin: 0; padding: 0; list-style: none; }
+
+/* Cover --------------------------------------------------------------------- */
+.cover { background: #f7faf8; }
+.coverArt { inset: 0; width: 100%; height: 100%; }
+.coverLogo { left: 10.4mm; top: 9.4mm; height: 15.6mm; }
+.coverMeta { right: 11.4mm; top: 12.2mm; display: grid; justify-items: end; gap: 1.6mm; text-transform: uppercase; }
+.coverMeta b { color: var(--green); font-size: 8.4pt; font-weight: 700; letter-spacing: .01em; }
+.coverMeta span { color: var(--muted); font-size: 6pt; letter-spacing: .03em; }
+.coverHeading { left: 11.4mm; top: 50.4mm; font-size: 18.6pt; font-weight: 900; letter-spacing: -.012em; text-transform: uppercase; line-height: 1; }
+.coverDates { left: 11.4mm; top: 60.6mm; color: var(--muted); font-size: 8.1pt; font-weight: 500; letter-spacing: .02em; text-transform: uppercase; }
+.coverTitle { left: 14mm; top: 129.6mm; color: #fff; font-size: 38.2pt; font-weight: 900; line-height: .99; letter-spacing: -.005em; text-transform: uppercase; }
+.coverRule { left: 14.1mm; top: 175.4mm; width: 26.2mm; height: 1.35mm; border-radius: 1mm; background: #f0b323; }
+.coverLead { left: 14.1mm; top: 182.6mm; width: 92mm; color: rgba(255, 255, 255, .86); font-size: 9.6pt; line-height: 1.45; }
+.coverYear { right: 16.2mm; top: 212.2mm; color: #2b6d52; font-size: 47pt; font-weight: 900; line-height: 1; letter-spacing: -.01em; }
+.coverKind { right: 16.2mm; top: 237.2mm; color: rgba(255, 255, 255, .72); font-size: 7.4pt; font-weight: 700; letter-spacing: .02em; text-transform: uppercase; }
+.coverFacts { left: 11.4mm; right: 11.4mm; top: 260.6mm; display: flex; justify-content: space-between; margin: 0; }
+.coverFacts div:nth-child(2) { text-align: center; }
+.coverFacts div:last-child { text-align: right; }
+.coverFacts dt { color: var(--muted); font-size: 6.4pt; }
+.coverFacts dd { margin: 1.6mm 0 0; font-size: 9.4pt; font-weight: 700; }
+.coverTagline { left: 11.4mm; top: 286.2mm; color: var(--green); font-size: 7pt; font-weight: 500; }
+.coverSite { right: 11.4mm; top: 286.2mm; color: var(--muted); font-size: 7pt; }
+
+/* Inner page frame -------------------------------------------------------- */
+.header { left: 11mm; right: 11mm; top: 0; height: 22.9mm; display: flex; justify-content: space-between; align-items: center; border-bottom: .3mm solid var(--line); }
+.headerLogo { height: 10.4mm; margin-left: -1.2mm; }
+.headerMeta { display: grid; justify-items: end; gap: 1.6mm; text-transform: uppercase; }
+.headerMeta span { color: var(--green); font-size: 6.6pt; font-weight: 500; letter-spacing: .01em; }
+.headerMeta b { font-size: 6.6pt; font-weight: 800; }
+.title { left: 12.7mm; top: 32.2mm; font-size: 29.6pt; font-weight: 900; letter-spacing: -.025em; line-height: 1; }
+.subtitle { left: 12.7mm; top: 44.9mm; color: var(--muted); font-size: 7.8pt; }
+.footer { left: 11mm; right: 11mm; top: 282.2mm; padding-top: 4.4mm; display: flex; justify-content: space-between; border-top: .3mm solid var(--line); color: var(--muted); font-size: 5.6pt; text-transform: uppercase; letter-spacing: .01em; }
+.footer b { color: var(--ink); font-weight: 800; }
+
+/* Shared blocks ------------------------------------------------------------ */
+.hero { left: 12.7mm; width: 82mm; display: grid; }
+.hero strong { color: var(--green); font-size: 36.4pt; font-weight: 900; letter-spacing: -.02em; line-height: 1; }
+.hero .heroSmaller { font-size: 30.6pt; }
+.hero span, .subHero span { margin-top: 1.4mm; color: var(--muted); font-size: 6.4pt; text-transform: uppercase; letter-spacing: .02em; }
+.hero p { margin: 5.4mm 0 0; font-size: 8pt; line-height: 1.6; }
+.note { left: 12.7mm; width: 165mm; padding-top: 5mm; }
+.note::before { content: ''; position: absolute; left: 0; top: 0; width: 28mm; height: .7mm; background: var(--green); }
+.noteLabel { display: block; color: var(--green); font-size: 7.4pt; font-weight: 700; }
+.note p { margin: 2.2mm 0 0; font-size: 8pt; line-height: 1.6; }
+.rule { display: block; width: 28mm; height: .7mm; background: var(--green); margin-bottom: 5.2mm; }
+.statLabel, .stats span { color: var(--muted); font-size: 6.2pt; }
+.stats { left: 12.7mm; right: 12.7mm; display: grid; grid-template-columns: 99mm 1fr; }
+.stats div { display: grid; gap: 1.7mm; align-content: start; }
+.stats b { font-size: 14.4pt; font-weight: 900; letter-spacing: -.015em; line-height: 1.1; }
+.stats small { color: var(--muted); font-size: 6.2pt; }
+.stats[data-size='small'] { grid-template-columns: 80.3mm 1fr; }
+.stats[data-size='small'] b { font-size: 13.4pt; }
+
+/* Page 2: snapshot ----------------------------------------------------------- */
+.figures { left: 115.9mm; right: 12.7mm; top: 64.6mm; display: grid; gap: 7mm; }
+.figures div { display: grid; gap: 1mm; padding-bottom: 2.6mm; border-bottom: .3mm solid var(--line); }
+.figures span { color: var(--muted); font-size: 5.6pt; text-transform: uppercase; letter-spacing: .02em; }
+.figures b { font-size: 13.8pt; font-weight: 900; letter-spacing: -.01em; line-height: 1.25; }
+.figures small { color: var(--faint); font-size: 5.6pt; }
+.split { left: 12.7mm; width: 177.6mm; }
+.split > p { margin: 1.8mm 0 0; color: var(--faint); font-size: 6pt; }
+.stack { display: flex; height: 7.7mm; margin-top: 6.2mm; border-radius: 4mm; overflow: hidden; background: var(--track); }
+.stack i { display: block; height: 100%; }
+.stack i:first-child { background: var(--forest); border-radius: 4mm; }
+.stack i:nth-child(2) { background: var(--sage); }
+.legend { display: grid; grid-template-columns: 59mm 52.5mm 1fr; margin-top: 4.2mm; }
+.legend span { display: grid; grid-template-columns: 29.6mm auto; font-size: 6.6pt; }
+.legend span:nth-child(2) { grid-template-columns: 22.8mm auto; }
+.legend span:nth-child(3) { grid-template-columns: 19.5mm auto; }
+.legend b { font-weight: 700; }
+.legend em { color: var(--green); font-style: normal; font-weight: 700; }
+
+/* Page 3: cost structure ----------------------------------------------------- */
+.share { left: 12.7mm; top: 99.8mm; display: grid; }
+.share strong { font-size: 33pt; font-weight: 900; letter-spacing: -.02em; line-height: 1; }
+.share b { margin-top: .4mm; font-size: 7.4pt; font-weight: 700; }
+.share span { margin-top: 1.6mm; color: var(--muted); font-size: 7.8pt; }
+.bars { left: 88.8mm; right: 12.7mm; top: 66.2mm; display: grid; gap: 13.4mm; }
+.bars div { display: grid; gap: 2.8mm; }
+.bars div > span { display: flex; justify-content: space-between; align-items: baseline; }
+.bars b { font-size: 8pt; font-weight: 700; }
+.bars small { color: var(--muted); font-size: 7.4pt; }
+.bars i { display: block; width: 101.6mm; height: 3mm; border-radius: 2mm; background: var(--track); }
+.bars em { display: block; height: 100%; min-width: 3mm; border-radius: 2mm; background: var(--sage); }
+.bars em[data-lead] { background: var(--green); }
+.empty { color: var(--muted); font-size: 8pt; }
+
+/* Page 4: sales economics ---------------------------------------------------- */
+.subHero { left: 12.7mm; top: 92.6mm; display: grid; }
+.subHero strong { font-size: 22.6pt; font-weight: 900; letter-spacing: -.015em; line-height: 1; }
+.subHero span { text-transform: none; font-size: 7pt; letter-spacing: 0; }
+.chart { left: 82mm; top: 66.6mm; width: 104.3mm; }
+.chartArea { position: relative; display: flex; align-items: flex-end; gap: 17mm; height: 70.6mm; padding-left: 10.2mm; border-bottom: .3mm solid var(--line); }
+.column { position: relative; display: flex; flex-direction: column; align-items: center; width: 28mm; }
+.column b { margin-bottom: 2.6mm; color: var(--green); font-size: 7.8pt; font-weight: 700; }
+.column[data-tone='cost'] b { color: var(--forest); }
+.column i { display: block; width: 100%; border-radius: 1.8mm; background: #0b6b45; }
+.column[data-tone='cost'] i { background: var(--forest); }
+.column span { position: absolute; top: 100%; margin-top: 5mm; color: var(--muted); font-size: 6.8pt; white-space: nowrap; }
+.margin { left: 12.7mm; top: 180.6mm; width: 170mm; display: grid; justify-items: start; }
+.margin b { margin-top: 3.4mm; font-size: 14.8pt; font-weight: 900; letter-spacing: -.015em; }
+.margin em { margin-top: 1.6mm; color: var(--green); font-size: 6.9pt; font-style: normal; font-weight: 700; }
+.margin p { margin: 3mm 0 0; font-size: 8pt; line-height: 1.6; }
+
+/* Page 5: forecast readiness ------------------------------------------------- */
+.circleDark, .circleLight { border-radius: 50%; display: grid; align-content: start; }
+.circleDark { left: 14.4mm; top: 69.6mm; width: 92.2mm; height: 92.2mm; padding: 25.2mm 0 0 18.6mm; background: #242725; color: #fff; }
+.circleLight { left: 87.3mm; top: 98.4mm; width: 96.4mm; height: 96.4mm; padding: 25.6mm 0 0 21mm; background: #f0f0ee; border: .3mm solid #dededb; }
+.circleDark h3, .circleLight h3 { font-size: 10pt; line-height: 1.5; }
+.circleDark ul, .circleLight ul { margin-top: 6.2mm; display: grid; gap: 1.5mm; font-size: 7.4pt; }
+.circleDark li { color: rgba(255, 255, 255, .84); }
+.circleLight ul { margin-top: 5.6mm; }
+.circleLight li { color: var(--muted); }
+.checks { left: 12.7mm; right: 12.7mm; top: 213.2mm; display: grid; gap: 7.4mm; }
+.checks h3 { margin-bottom: .6mm; }
+.checks div { display: grid; grid-template-columns: 38.9mm 27mm 101.8mm; align-items: center; }
+.checks span { color: var(--muted); font-size: 6.8pt; }
+.checks b { font-size: 8pt; font-weight: 700; }
+.checks i { position: relative; display: block; height: 2.5mm; border-radius: 2mm; background: var(--track); }
+.checks em { display: block; height: 100%; border-radius: 2mm; background: var(--sage); }
+.checks em[data-met] { background: var(--green); }
+.checks small { position: absolute; right: 0; top: 50%; transform: translateY(-50%); color: var(--faint); font-size: 5.4pt; line-height: 1; }
+
+/* Page 6: actions ------------------------------------------------------------ */
+.actions { left: 12.7mm; right: 12.7mm; top: 61.4mm; display: grid; }
+.actions li { display: grid; grid-template-columns: 20.3mm 1fr; height: 34.8mm; align-items: center; border-bottom: .3mm solid var(--line); }
+.actions strong { color: var(--green); font-size: 21pt; font-weight: 900; letter-spacing: -.01em; }
+.actions div { display: grid; gap: 2.6mm; }
+.actions b { font-size: 10.4pt; font-weight: 700; }
+.actions span { color: var(--muted); font-size: 7.6pt; }
+.sequence { left: 12.7mm; right: 12.7mm; top: 184.6mm; }
+.sequence ol { position: relative; display: grid; grid-template-columns: repeat(4, 46.6mm); margin: 12.3mm 0 0 2.3mm; }
+.sequence ol::before { content: ''; position: absolute; left: 0; right: 0; top: 1.6mm; height: .5mm; background: #dfe0dc; width: 166mm; }
+.sequence li { position: relative; display: grid; justify-items: start; width: 20mm; text-align: center; }
+.sequence li { justify-items: center; }
+.sequence i { width: 3.6mm; height: 3.6mm; border-radius: 50%; background: var(--green); }
+.sequence b { margin-top: 5mm; color: var(--green); font-size: 6pt; font-weight: 700; text-transform: uppercase; }
+.sequence span { margin-top: 1.2mm; font-size: 7.2pt; }
+
+/* Page 7: basis ------------------------------------------------------------------ */
+.basis { left: 12.7mm; top: 69.6mm; display: grid; grid-template-columns: 79.5mm 79.5mm; column-gap: 17.1mm; row-gap: 20.6mm; }
+.basis div { height: 38.6mm; border-bottom: .3mm solid var(--line); }
+.basis b { color: var(--green); font-size: 6.6pt; font-weight: 700; text-transform: uppercase; }
+.basis p { margin: 4.2mm 0 0; font-size: 7.8pt; line-height: 1.6; }
+.model { left: 12.7mm; right: 12.7mm; top: 197mm; }
+.model dl { display: grid; grid-template-columns: 96.6mm 1fr; row-gap: 6.6mm; margin: 7.4mm 0 0; }
+.model dt { color: var(--muted); font-size: 6pt; }
+.model dd { margin: 1.8mm 0 0; font-size: 7.6pt; font-weight: 700; }
+.model p { margin: 0; color: var(--muted); font-size: 6pt; }
+.model dl + p { margin-top: 15.6mm; }
+.model p + p { margin-top: 2.4mm; }
+
+@media print {
+  .document { display: block; }
+}
