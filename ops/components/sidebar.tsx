@@ -4,7 +4,7 @@ import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Icons } from '@/components/icons';
 
-const GROUPS = [
+export const GROUPS = [
   { label: 'Main', modules: [{ href: '/manage', label: 'Dashboard', icon: Icons.home, key: null }] },
   { label: 'Operations', modules: [
     { href: '/supply', label: 'Supply', icon: Icons.box, key: 'listings_pending_review' },
@@ -42,10 +42,15 @@ const GROUPS = [
 ] as const;
 
 // Only admins manage staff and read the activity log.
-const ADMIN_GROUP = { label: 'Team', modules: [
+export const ADMIN_GROUP = { label: 'Team', modules: [
   { href: '/staff', label: 'Staff', icon: Icons.users, key: null },
   { href: '/activity', label: 'Activity', icon: Icons.clock, key: null },
 ] } as const;
+
+// Pages with sub-pages of their own in the menu light up only on an exact match.
+export function isActive(href: string, pathname: string) {
+  return href === '/manage' || href === '/finance' ? pathname === href : pathname.startsWith(href);
+}
 
 export function Sidebar({ counts, admin }: { counts: Record<string, number>; admin: boolean }) {
   const pathname = usePathname();
@@ -55,9 +60,7 @@ export function Sidebar({ counts, admin }: { counts: Record<string, number>; adm
       {groups.map((group) => <div className="nav-group" key={group.label}>
         <p className="nav-heading">{group.label}</p>
         {group.modules.map((module) => {
-          // Pages with sub-pages of their own in the menu light up only on an exact match.
-          const active = module.href === '/manage' || module.href === '/finance'
-            ? pathname === module.href : pathname.startsWith(module.href);
+          const active = isActive(module.href, pathname);
           const count = module.key ? counts[module.key] ?? 0 : 0;
           const dashboardMobile = pathname === '/manage';
           const financeMobile = pathname === '/finance';
