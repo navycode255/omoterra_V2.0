@@ -1,4 +1,4 @@
-// The downloadable financial report: seven A4 pages laid out to match the
+// The downloadable financial report: nine A4 pages laid out to match the
 // Omoterra editorial report design. Hidden on screen; it is the only thing
 // printed from /finance/reports, so "Save as PDF" produces this document.
 /* eslint-disable @next/next/no-img-element -- print needs plain, eagerly loaded images */
@@ -15,6 +15,7 @@ const LOGO = '/images/marketing/logo.png';
 const MIN_HISTORY_DAYS = 60;
 const MIN_SELLING_DAYS = 10;
 const MAX_EXPENSE_ROWS = 6;
+const EXPENSE_COLORS = ['#063c2b', '#0d6b47', '#4f8a6c', '#82ad96', '#adcbbb', '#d0e1d6'];
 
 /** Fonts and images are only fetched once the document is shown, which is too late for print. */
 export async function prepareReportDocument() {
@@ -24,10 +25,10 @@ export async function prepareReportDocument() {
   ]);
 }
 
-/** Draws each A4 page to an image and saves them as one PDF file. Unlike the
+/** Draws each A4 page to an image and returns one PDF file. Unlike the
  * print dialog this works on phones, where window.print() is missing or
  * blocked once the tap is no longer the direct cause. */
-export async function downloadReportPdf(fileName: string, title: string) {
+export async function createReportPdf(title: string): Promise<Blob> {
   const root = document.querySelector<HTMLElement>('[data-print-document]');
   if (!root) throw new Error('The report document is not on this page.');
   const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas-pro'), import('jspdf'), prepareReportDocument()]);
@@ -35,15 +36,20 @@ export async function downloadReportPdf(fileName: string, title: string) {
   try {
     const pdf = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
     const pages = [...root.querySelectorAll<HTMLElement>(':scope > section')];
+    if (!pages.length) throw new Error('The report has no pages.');
     for (const [index, page] of pages.entries()) {
-      // Twice the CSS size (about 190 dpi) keeps text sharp without huge files on phones.
-      const canvas = await html2canvas(page, { scale: 2, useCORS: true, backgroundColor: '#ffffff', logging: false });
+      // Use a smaller canvas on phones to keep peak memory and file size manageable.
+      const canvas = await html2canvas(page, {
+        scale: window.matchMedia('(max-width: 600px)').matches ? 1.5 : 2,
+        windowWidth: Math.max(page.scrollWidth, 800), windowHeight: Math.max(page.scrollHeight, 1123),
+        scrollX: 0, scrollY: 0, useCORS: true, backgroundColor: '#ffffff', logging: false,
+      });
       if (index) pdf.addPage();
       pdf.addImage(canvas.toDataURL('image/jpeg', 0.9), 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
       canvas.width = canvas.height = 0;
     }
     pdf.setProperties({ title, author: 'Omoterra Operations', creator: 'Omoterra Operations' });
-    pdf.save(fileName);
+    return pdf.output('blob');
   } finally {
     root.removeAttribute('data-capturing');
   }
@@ -175,6 +181,20 @@ export function ReportDocument({ report }: { report: FinancialReport }) {
     : 'Activity depth is sufficient. Complete the remaining inputs to unlock a forecast.';
   const base = report.forecast?.scenarios[1] ?? report.forecast?.scenarios[0];
 
+  const recordedGross = num(a.gross_profit);
+  const transport = num(a.expenses_by_category.find((row) => row.category === 'transport')?.amount);
+  const transportGap = recordedGross - transport;
+  const transportText = unknown ? 'Buying costs are incomplete, so this comparison remains provisional. Complete the missing costs before relying on the gap.'
+    : revenue <= 0 ? 'No revenue was recorded. Transport remains a recorded expense and is included in the operating result.'
+    : recordedGross < 0 ? 'Stock cost already exceeded revenue before transport. Review buying costs and selling prices alongside delivery costs.'
+    : transportGap < 0 ? 'Transport exceeded recorded gross profit. Transport alone would have made the period negative, before other expenses.'
+    : transport === 0 ? 'No transport expense was recorded. Check that delivery costs have been captured before treating this as zero transport cost.'
+    : 'Recorded gross profit covered transport. The remaining gap must still cover other expenses and recorded losses.';
+  const allocationBase = Math.max(revenue, stock + expenses, 1);
+  const overrun = Math.max(0, stock + expenses - revenue);
+  const positiveResult = Math.max(0, result);
+  let donutOffset = 0;
+
   const count = ['No', 'One', 'Two', 'Three'][d.actions.length];
   const takeaway = unknown ? 'Do not invest from incomplete margin data. Cleaner source data, tighter cost discipline and more repeat sales are the priority.'
     : result < 0 ? 'The business is running at a recorded loss. Fix pricing and cost discipline before committing new capital.'
@@ -239,7 +259,63 @@ export function ReportDocument({ report }: { report: FinancialReport }) {
       <Note label="What to review" top="203.5mm">{reviewText}</Note>
     </Page>
 
-    <Page section="Sales economics" number={4} heading="Sales Economics" subtitle={`Direct sales only${report.products.length ? ` • ${report.products.map((p) => product(p.category)).join(', ')}` : ''}`}>
+    <Page section="Financial overview" number={4} heading="Financial Overview" subtitle="Revenue, costs and recorded operating result">
+      <div className={styles.overviewRevenue}><span>Recorded revenue</span><strong>{compact(revenue)}</strong><p>Total sales recorded in the selected period.</p></div>
+      <div className={styles.overviewFigures}>
+        <div><span>Stock cost</span><b>{compact(stock)}</b><small>{pct(stock, revenue)} of revenue</small></div>
+        <div><span>Expenses &amp; losses</span><b>{compact(expenses)}</b><small>{pct(expenses, revenue)} of revenue</small></div>
+        <div><span>Operating result</span><b>{compact(result)}</b><small>Margin {pct(result, revenue)}</small></div>
+      </div>
+      <div className={styles.allocation}>
+        <h3>Where revenue went</h3>
+        <p>{revenue > 0 ? 'Cost shares are measured against recorded revenue.' : 'No revenue recorded; revenue shares are unavailable.'}</p>
+        <div className={styles.allocationTrack}>
+          <i style={{ width: `${stock / allocationBase * 100}%`, background: 'var(--forest)' }}/>
+          <i style={{ width: `${expenses / allocationBase * 100}%`, background: 'var(--sage)' }}/>
+          {positiveResult > 0 && <i style={{ width: `${positiveResult / allocationBase * 100}%`, background: '#adcbbb' }}/>}
+          {overrun > 0 && <span className={styles.overrun} style={{ left: `${Math.max(0, revenue) / allocationBase * 100}%` }}/>}
+        </div>
+        <div className={styles.allocationLegend}>
+          <div><span>Stock cost</span><b>{pct(stock, revenue)}</b></div>
+          <div><span>Expenses &amp; losses</span><b>{pct(expenses, revenue)}</b></div>
+          <div><span>{overrun > 0 ? 'Overrun / loss' : 'Operating result'}</span><b>{pct(overrun > 0 ? overrun : result, revenue)}</b><small>{overrun > 0 ? 'Beyond recorded revenue' : 'After recorded costs'}</small></div>
+        </div>
+      </div>
+      <Note label="Management view" top="205mm">{viewText}</Note>
+      <div className={styles.stats} style={{ top: '250mm' }}>
+        <div><span>Status</span><b>{unknown ? 'Provisional' : 'Fully costed'}</b><small>{unknown ? plural(unknown, 'uncosted sale line') : 'Not yet reconciled to cash'}</small></div>
+        <div><span>Activity window</span><b>{plural(report.history_days, 'day')}</b><small>{plural(report.active_sales_days, 'selling day')}</small></div>
+      </div>
+    </Page>
+
+    <Page section="Expense breakdown" number={5} heading="Expense Breakdown" subtitle="Recorded operating expenses and losses">
+      <div className={styles.donut}>
+        <svg viewBox="0 0 120 120" aria-label="Expense shares">
+          <circle cx="60" cy="60" r="47" fill="none" stroke="#e2e3df" strokeWidth="20"/>
+          {expenses > 0 && d.expenseRows.map((row, index) => {
+            const share = Math.max(0, row.amount) / expenses * 100;
+            const offset = donutOffset; donutOffset += share;
+            return <circle key={row.key} cx="60" cy="60" r="47" fill="none" stroke={EXPENSE_COLORS[index]} strokeWidth="20" pathLength="100" strokeDasharray={`${share} ${100 - share}`} strokeDashoffset={-offset} transform="rotate(-90 60 60)"/>;
+          })}
+        </svg>
+        <div><span>TZS</span><b>{Math.round(expenses).toLocaleString('en-US')}</b><small>Expenses &amp; losses</small></div>
+      </div>
+      <div className={styles.expenseLegend}>
+        {d.expenseRows.map((row, index) => <div key={row.key}><i style={{ background: EXPENSE_COLORS[index] }}/><span><b>{row.label}</b><small>{tzs(row.amount)}</small></span><strong>{pct(row.amount, expenses)}</strong></div>)}
+        {!d.expenseRows.length && <p className={styles.empty}>No expenses recorded.</p>}
+      </div>
+      <div className={styles.transportComparison}>
+        <h3>Transport vs gross profit</h3>
+        <div>
+          <span><small>{unknown ? 'Gross profit (provisional)' : 'Recorded gross profit'}</small><b>{tzs(recordedGross)}</b></span>
+          <span><small>Transport</small><b>{tzs(transport)}</b></span>
+          <span><small>{unknown ? 'Gap (provisional)' : 'Remaining after transport'}</small><b>{tzs(transportGap)}</b></span>
+        </div>
+      </div>
+      <Note label="Management view" top="220mm">{transportText}</Note>
+    </Page>
+
+    <Page section="Sales economics" number={6} heading="Sales Economics" subtitle={`Direct sales only${report.products.length ? ` • ${report.products.map((p) => product(p.category)).join(', ')}` : ''}`}>
       <div className={styles.hero} style={{ top: '68mm' }}><strong>{productLines}</strong><span>Sale lines</span></div>
       <div className={styles.subHero}><strong>{compact(productRevenue)}</strong><span>recorded revenue</span></div>
       <div className={styles.chart}>
@@ -271,7 +347,7 @@ export function ReportDocument({ report }: { report: FinancialReport }) {
       </div>
     </Page>
 
-    <Page section="Forecast readiness" number={5} heading="Forecast Readiness" subtitle="Is there enough evidence to rely on a forecast?">
+    <Page section="Forecast readiness" number={7} heading="Forecast Readiness" subtitle="Is there enough evidence to rely on a forecast?">
       <div className={styles.circleDark}>
         {report.forecast ? <><h3>What supports<br/>the forecast</h3><ul>
           <li>{plural(report.history_days, 'day')} of history</li><li>{plural(report.active_sales_days, 'selling day')}</li>
@@ -293,7 +369,7 @@ export function ReportDocument({ report }: { report: FinancialReport }) {
       <Note label="Conclusion" top="255.5mm">{conclusion}</Note>
     </Page>
 
-    <Page section="Management actions" number={6} heading="What To Do Next" subtitle={`${count} action${d.actions.length === 1 ? '' : 's'} will make the next report materially more reliable.`}>
+    <Page section="Management actions" number={8} heading="What To Do Next" subtitle={`${count} action${d.actions.length === 1 ? '' : 's'} will make the next report materially more reliable.`}>
       <ol className={styles.actions}>
         {d.actions.map((action, index) => <li key={action.title}><strong>{String(index + 1).padStart(2, '0')}</strong><div><b>{action.title}</b><span>{action.detail}</span></div></li>)}
       </ol>
@@ -304,7 +380,7 @@ export function ReportDocument({ report }: { report: FinancialReport }) {
       <Note label="Management takeaway" top="239mm">{takeaway}</Note>
     </Page>
 
-    <Page section="Report basis" number={7} heading="Report Basis" subtitle="How the numbers in this report should be interpreted.">
+    <Page section="Report basis" number={9} heading="Report Basis" subtitle="How the numbers in this report should be interpreted.">
       <div className={styles.basis}>
         <div><b>Revenue</b><p>Active direct sales and delivered/completed marketplace orders under the existing reporting policy.</p></div>
         <div><b>Expenses</b><p>Recorded expense debts and LPO stock losses. Depreciation, tax, financing and some collection losses are not comprehensively captured.</p></div>

@@ -9,6 +9,9 @@
 .actions,.tabs { display: flex; flex-wrap: wrap; gap: 8px; }
 .report button { padding: 11px 16px; border-radius: 9px; border: 1px solid #d6e4dd; background: #fff; color: #154e39; font: inherit; font-size: 13px; font-weight: 700; cursor: pointer; min-height: 44px; }
 .report button:hover { background: #edf6f0; }
+.actions a { display: inline-flex; align-items: center; justify-content: center; padding: 11px 16px; border-radius: 9px; border: 1px solid #d6e4dd; background: #fff; color: #154e39; font-size: 13px; font-weight: 700; min-height: 44px; text-decoration: none; }
+.actions a:focus-visible { outline: 3px solid #87c9a7; outline-offset: 3px; }
+.report .pdfStatus { flex-basis: 100%; font-size: 12px; margin: 0; }
 .report button:focus-visible,.report input:focus-visible { outline: 3px solid #87c9a7; outline-offset: 3px; }
 .report .primary { background: #086344; color: #fff; border-color: #086344; }
 .report .primary:hover { background: #084d36; }

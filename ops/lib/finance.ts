@@ -339,6 +339,9 @@ interface Period { sales: string; direct_sales: string; marketplace_sales: strin
 interface Balance { ledger: string; marketplace: string; total: string; count: number; overdue: string; overdue_count: number }
 
 export interface FinanceSummary {
+  selected: Period & { start: string; end: string };
+  profit_selected: ProfitTotals;
+  selected_trends: { revenue: string[]; net_profit: string[] };
   today: Period & { date: string };
   month: Period & { start: string };
   all_time: Period;

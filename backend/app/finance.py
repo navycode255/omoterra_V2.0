@@ -1486,12 +1486,17 @@ def _balance(summary, *keys):
 
 
 @router.get('/finance/summary')
-def finance_summary(operator=Depends(auth.ops), db=Depends(database)):
+def finance_summary(start: Optional[date] = None, end: Optional[date] = None,
+                    operator=Depends(auth.ops), db=Depends(database)):
     """The Finance overview, every figure from the reporting layer: balances
     now (owed either way, app commitments beside them), sales and money moved
-    today and this month, profit, and the last 30 days for the small charts."""
+    today, this month and the selected dates, profit, and balance trends."""
     today = c.business_today()
     month = today.replace(day=1)
+    end = end or today
+    start = start or month
+    if start > end or end > today or (end - start).days > 366:
+        fail('err.choose_period_up_to_a_year', 422)
     owed, owe = rp.receivables(db), rp.payables(db)
     pending = rp.commitments(db)
     def period(start=None, end=None):
@@ -1504,7 +1509,13 @@ def finance_summary(operator=Depends(auth.ops), db=Depends(database)):
     window = rp.profit(db, today - timedelta(days=29), today)
     days = sorted(window['days'], key=lambda row: row['date'])
     without_days = lambda report: {k: v for k, v in report.items() if k != 'days'}
+    selected_profit = rp.profit(db, start, end)
+    selected_days = sorted(selected_profit['days'], key=lambda row: row['date'])
     return _result({
+        'selected': {'start': start, 'end': end, **period(start, end)},
+        'profit_selected': without_days(selected_profit),
+        'selected_trends': {'revenue': [row['revenue'] for row in selected_days],
+                            'net_profit': [row['net_profit'] for row in selected_days]},
         'today': {'date': today, **period(today, today)},
         'month': {'start': month, **period(month, today)},
         'all_time': {**period(), 'by_source': everything['by_source']},

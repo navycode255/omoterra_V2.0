@@ -217,6 +217,9 @@
 .period > div { position: absolute; left: 0; top: 48px; z-index: 6; display: grid; min-width: 160px; padding: 6px; border: 1px solid #dce7e1; border-radius: 11px; background: #fff; box-shadow: 0 12px 28px #103c2b1f; }
 .period > div a { padding: 9px 12px; border-radius: 8px; color: #24364a; font-size: 14px; }
 .period > div a:hover, .period > div a[data-active='true'] { background: #f1f7f3; color: #00603f; }
+.customPeriod { display: grid; gap: 12px; padding: 12px; border-top: 1px solid #dce7e1; min-width: 240px; }
+.customPeriod label { display: grid; gap: 6px; font-size: 14px; }
+.customPeriod input { width: 100%; min-width: 0; min-height: 44px; padding: 8px; border: 1px solid #dfe6ea; border-radius: 8px; font: inherit; }
 /* Cards link to their page; a real 30-day trend sits at the right. */
 a.summaryCard { color: inherit; transition: border-color .15s, box-shadow .15s; }
 a.summaryCard:hover { border-color: #c9dccf; box-shadow: 0 10px 26px rgba(31, 83, 57, .09); }

@@ -5,6 +5,7 @@ import { ActionForm } from '@/components/form';
 import { Icons } from '@/components/icons';
 import { Notice, PageHeader, Status } from '@/components/ui';
 import { DebtSummary, PartyLink, PaymentForm, PaymentsTable, debtStatus, debtTone } from '@/components/finance/ledger';
+import { ExpenseWorkspace } from '@/components/finance/expense-workspace';
 import { categoryImage } from '@/components/portal/supplier-format';
 import { ApiError, get } from '@/lib/api';
 import { cancelSale } from '@/lib/finance-actions';
@@ -31,6 +32,7 @@ export default async function SaleWorkspace({ params, searchParams }: {
   }
   const receivable = sale.debts.find((debt) => debt.direction === 'receivable');
   const payables = sale.debts.filter((debt) => debt.direction === 'payable' && debt.status !== 'cancelled');
+  const expenseTotal = payables.filter((debt) => debt.source === 'expense').reduce((total, debt) => total + Number(debt.amount), 0);
   const anyPaid = sale.debts.some((debt) => Number(debt.paid_amount) > 0);
   // Received goods (delivery note or LPO): cancelling asks what happened to them (rule R2).
   const received = sale.items.filter((item) => item.supplier_collection_id || item.lpo_line_id);
@@ -97,8 +99,11 @@ export default async function SaleWorkspace({ params, searchParams }: {
               <div><dt>Sale total</dt><dd>{tzs(sale.total_amount)}</dd></div>
               <div><dt>Stock buying cost</dt><dd>{tzs(sale.cost_amount)}</dd></div>
               <div><dt>Margin before expenses</dt><dd>{tzs(sale.margin)}</dd></div>
+              <div><dt>Sale expenses (paid or owed)</dt><dd>{tzs(String(expenseTotal))}</dd></div>
+              <div><dt>Margin after sale expenses</dt><dd>{tzs(String(Number(sale.margin) - expenseTotal))}</dd></div>
             </dl>
-            {sale.status === 'active' && <Link className={styles.expenseLink} href={`/finance/expenses?sale_id=${sale.id}`}>View expenses for this sale</Link>}
+            {sale.status === 'active' && <ExpenseWorkspace now={today()} saleId={sale.id} saleNumber={String(sale.sale_number)}/>}
+            <Link className={styles.expenseLink} href={`/finance/expenses?sale_id=${sale.id}`}>View expenses for this sale</Link>
           </section>
         </div>
 

@@ -13,7 +13,7 @@ export function RecordExpenseButton() {
   const open = useContext(OpenExpense);
   return <button className={styles.primary} onClick={open}><Icons.plus size={19}/>Record expense</button>;
 }
-export function ExpenseWorkspace({ children, now, saleId }: { children: ReactNode; now: string; saleId: string }) {
+export function ExpenseWorkspace({ children, now, saleId, saleNumber }: { children?: ReactNode; now: string; saleId: string; saleNumber?: string }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const form = useRef<HTMLFormElement>(null);
   const key = useRef('');
@@ -35,8 +35,8 @@ export function ExpenseWorkspace({ children, now, saleId }: { children: ReactNod
     } catch { setError('Could not save the expense. Please try again.'); }
     finally { setBusy(false); }
   }
-  return <OpenExpense.Provider value={show}><div className={`${styles.workspace} ${open ? styles.drawerOpen : ''}`}>
-    <div className={styles.heading}><h1>Expenses</h1><RecordExpenseButton/></div>
+  return <OpenExpense.Provider value={show}><div className={saleNumber ? undefined : `${styles.workspace} ${open ? styles.drawerOpen : ''}`}>
+    {saleNumber ? <RecordExpenseButton/> : <div className={styles.heading}><h1>Expenses</h1><RecordExpenseButton/></div>}
     {saved && <p className={styles.success} role="status">Expense saved.</p>}
     {children}
     <dialog ref={dialog} className={styles.drawer} aria-labelledby="expense-drawer-title" onCancel={event => { if(busy) event.preventDefault(); }} onClose={() => setOpen(false)}>
@@ -44,9 +44,10 @@ export function ExpenseWorkspace({ children, now, saleId }: { children: ReactNod
       <form ref={form} onSubmit={event => { event.preventDefault(); if (!busy) void submit(new FormData(event.currentTarget)); }} className={styles.expenseForm}>
         <input type="hidden" name="sale_id" value={saleId}/>
         <div className={styles.fields}>
+          {saleId && <p>This expense is linked to {saleNumber ? `sale ${saleNumber}` : 'this sale'} and included in total expenses, whether paid or owed.</p>}
           <label>Date<input name="spent_on" type="date" defaultValue={now} max={now} required autoFocus/></label>
           <label>Category<select name="category" required>{EXPENSE_CATEGORIES.map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></label>
-          <label>What for<input name="description" required minLength={2} placeholder="e.g. 3 helpers for chicken prep"/></label>
+          <label>What for<input name="description" required minLength={2} placeholder={saleId ? 'e.g. Extra transport or packaging for this sale' : 'e.g. 3 helpers for chicken prep'}/></label>
           <label>Amount (TZS)<input name="amount" type="number" min="0.01" step="0.01" inputMode="decimal" required/></label>
           <fieldset className={styles.paymentStatus}><legend>Payment status</legend><div>{[['full','Paid now'],['part','Part paid'],['none','Owed']].map(([value,label]) => <label key={value} data-selected={paid===value}><input type="radio" name="paid_now" value={value} checked={paid===value} onChange={() => setPaid(value)}/>{label}</label>)}</div></fieldset>
           <section className={styles.paymentDetails}><h3><Icons.card size={19}/>{paid==='none' ? 'Expense details' : 'Payment details'}</h3>

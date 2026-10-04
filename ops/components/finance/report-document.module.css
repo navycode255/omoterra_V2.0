@@ -181,6 +181,43 @@
 .model dl + p { margin-top: 15.6mm; }
 .model p + p { margin-top: 2.4mm; }
 
+/* Additional overview pages use the same paper, rules and type as the report. */
+.overviewRevenue { left: 12.7mm; right: 12.7mm; top: 65mm; display: grid; gap: 3mm; }
+.overviewRevenue > span { color: var(--green); font-size: 9pt; font-weight: 700; }
+.overviewRevenue strong { color: var(--green); font-size: 36pt; font-weight: 900; letter-spacing: -.025em; }
+.overviewRevenue p { margin: 0; font-size: 8pt; color: var(--muted); }
+.overviewFigures { left: 12.7mm; right: 12.7mm; top: 108mm; display: grid; grid-template-columns: repeat(3, 1fr); gap: 8mm; }
+.overviewFigures div { display: grid; gap: 2.5mm; padding: 5mm 0; border-top: .3mm solid var(--line); }
+.overviewFigures span { font-size: 7pt; color: var(--muted); }
+.overviewFigures b { font-size: 15pt; font-weight: 900; letter-spacing: -.02em; }
+.overviewFigures small { font-size: 6.5pt; color: var(--muted); }
+.allocation { left: 12.7mm; right: 12.7mm; top: 151mm; }
+.allocation > p { margin: 2mm 0 5mm; font-size: 7pt; color: var(--muted); }
+.allocationTrack { position: relative; display: flex; height: 8mm; background: var(--track); border-radius: 4mm; overflow: hidden; }
+.allocationTrack i { height: 100%; display: block; }
+.overrun { position: absolute; top: 0; right: 0; bottom: 0; border: .4mm dashed var(--ink); background: rgba(255, 255, 255, .25); }
+.allocationLegend { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8mm; margin-top: 5mm; }
+.allocationLegend div { display: grid; gap: 2mm; }
+.allocationLegend span, .allocationLegend small { font-size: 6.5pt; color: var(--muted); }
+.allocationLegend b { font-size: 12pt; color: var(--green); }
+.donut { left: 12.7mm; top: 68mm; width: 84mm; height: 84mm; }
+.donut svg { width: 100%; height: 100%; }
+.donut > div { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2mm; }
+.donut span, .donut small { font-size: 6.8pt; color: var(--muted); }
+.donut b { font-size: 17pt; font-weight: 900; letter-spacing: -.02em; }
+.expenseLegend { left: 105mm; right: 12.7mm; top: 68mm; display: grid; gap: 4mm; }
+.expenseLegend > div { display: grid; grid-template-columns: 3mm minmax(0, 1fr) 12mm; align-items: start; gap: 3mm; border-bottom: .3mm solid var(--line); padding-bottom: 3mm; }
+.expenseLegend i { width: 2.5mm; height: 2.5mm; border-radius: 50%; margin-top: 1mm; }
+.expenseLegend span { display: grid; gap: 1.5mm; }
+.expenseLegend b { font-size: 7.4pt; line-height: 1.4; }
+.expenseLegend small { font-size: 6.8pt; color: var(--muted); }
+.expenseLegend strong { font-size: 7pt; color: var(--green); text-align: right; }
+.transportComparison { left: 12.7mm; right: 12.7mm; top: 179mm; padding-top: 5mm; border-top: .3mm solid var(--line); }
+.transportComparison > div { display: grid; grid-template-columns: repeat(3, 1fr); gap: 7mm; margin-top: 8mm; }
+.transportComparison span { display: grid; gap: 3mm; }
+.transportComparison small { font-size: 6.5pt; color: var(--muted); }
+.transportComparison b { font-size: 12pt; font-weight: 800; }
+
 @media print {
   .document { display: block; }
 }

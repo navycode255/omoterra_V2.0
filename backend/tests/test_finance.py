@@ -742,6 +742,32 @@ def test_sales_list_totals_follow_dates_and_search(client, seeded):
     assert client.get(API + f"/sales?q={paid['sale_number']}", headers=OPS).json()['summary']['sales_count'] == 1
 
 
+def test_overview_selected_period_filters_sales_collections_and_profit(client):
+    from datetime import timedelta
+    previous = (c.business_today().replace(day=1) - timedelta(days=1)).isoformat()
+    sale(client, sold_on=previous, payment={'amount': '300000', 'paid_on': previous, 'method': 'cash'})
+    expense(client, spent_on=previous, category='transport', amount='20000', payment=None)
+    sale(client)
+    body = client.get(API + f'/finance/summary?start={previous}&end={previous}', headers=OPS).json()
+    assert body['selected']['start'] == body['selected']['end'] == previous
+    assert Decimal(body['selected']['sales']) == Decimal('300000')
+    assert Decimal(body['selected']['money_in']) == Decimal('300000')
+    assert Decimal(body['profit_selected']['expenses']) == Decimal('20000')
+    assert Decimal(body['profit_selected']['net_profit']) == Decimal('280000')
+    # Current debts include today's unpaid sale even while viewing last month.
+    assert Decimal(body['owed_to_me']['total']) == Decimal('300000')
+
+
+@pytest.mark.parametrize('query', [
+    'start=2026-02-02&end=2026-02-01',
+    'start=2024-01-01&end=2025-02-01',
+    'end=2999-01-01',
+    'start=invalid',
+])
+def test_overview_rejects_invalid_periods(client, query):
+    assert client.get(API + f'/finance/summary?{query}', headers=OPS).status_code == 422
+
+
 def test_overview_trends_end_at_todays_balances(client, seeded):
     sale(client, payment={'amount': '30000', 'paid_on': TODAY, 'method': 'cash'}, items=[
         {'category': 'broilers', 'unit': 'bird', 'quantity': '10', 'unit_price': '7000',

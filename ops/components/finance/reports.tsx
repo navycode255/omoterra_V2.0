@@ -1,10 +1,10 @@
 'use client';
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { FinancialReport } from '@/lib/reports';
 import { expenseLabel } from '@/lib/finance';
 import styles from './reports.module.css';
 import { Busy } from '@/components/spinner';
-import { downloadReportPdf, prepareReportDocument, ReportDocument } from './report-document';
+import { createReportPdf, prepareReportDocument, ReportDocument } from './report-document';
 const amount = (value: string | number | null) => value === null ? 'Not available' : `TZS ${Number(value).toLocaleString('en-TZ', { maximumFractionDigits: 2 })}`;
 const month = (value: string | null) => value ? new Date(`${value}T00:00:00Z`).toLocaleDateString('en-GB', { month: 'short', year: 'numeric', timeZone: 'UTC' }) : 'Not reached within 12 months';
 const label = (value: string) => value.replaceAll('_', ' ');
@@ -45,12 +45,28 @@ function downloadCsv(report: FinancialReport) {
 function PdfButton({ report }: { report: FinancialReport }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  const [ready, setReady] = useState<{ url: string; file: File; shareable: boolean } | null>(null);
+  useEffect(() => () => { if (ready) URL.revokeObjectURL(ready.url); }, [ready]);
   const name = `Omoterra-Financial-Report-${report.actual.start}-to-${report.actual.end}`;
   async function download() {
     setBusy(true); setError('');
-    try { await downloadReportPdf(`${name}.pdf`, `Omoterra financial performance report ${report.actual.start} to ${report.actual.end}`); }
+    try {
+      const blob = await createReportPdf(`Omoterra financial performance report ${report.actual.start} to ${report.actual.end}`);
+      const file = new File([blob], `${name}.pdf`, { type: 'application/pdf' });
+      const url = URL.createObjectURL(blob);
+      setReady({ url, file, shareable: Boolean(navigator.canShare?.({ files: [file] })) });
+      // Keep a real link available for a fresh tap when a phone blocks the automatic download.
+      const link = document.createElement('a');
+      link.href = url; link.download = file.name;
+      document.body.append(link); link.click(); link.remove();
+    }
     catch { setError('The PDF could not be created on this device. Please try again, or use Download CSV.'); }
     finally { setBusy(false); }
+  }
+  async function share() {
+    if (!ready) return;
+    try { await navigator.share({ files: [ready.file], title: 'Omoterra financial report' }); }
+    catch (error) { if (!(error instanceof DOMException && error.name === 'AbortError')) setError('Use Download PDF or Open PDF to save this report.'); }
   }
   function print() {
     const previous = document.title;
@@ -59,8 +75,13 @@ function PdfButton({ report }: { report: FinancialReport }) {
     window.print();
   }
   return <>
-    <button type="button" className={styles.printButton} onClick={print} onPointerEnter={() => void prepareReportDocument()}>Print</button>
-    <button type="button" className={styles.primary} onClick={download} disabled={busy} aria-busy={busy}>{busy ? <Busy>Preparing PDF…</Busy> : 'Download PDF'}</button>
+    <button type="button" className={styles.printButton} onClick={print} disabled={busy} onPointerEnter={() => void prepareReportDocument()}>Print</button>
+    {ready ? <>
+      <a className={styles.primary} href={ready.url} download={ready.file.name}>Download PDF</a>
+      <a href={ready.url} target="_blank" rel="noopener">Open PDF</a>
+      {ready.shareable && <button type="button" onClick={share}>Save / share PDF</button>}
+    </> : <button type="button" className={styles.primary} onClick={download} disabled={busy} aria-busy={busy}>{busy ? <Busy>Preparing PDF…</Busy> : 'Download PDF'}</button>}
+    {ready && <p className={styles.pdfStatus} role="status">PDF ready. Tap Download PDF to save it, or Open PDF to use your browser’s save options.</p>}
     {error && <p className={styles.pdfError} role="alert">{error}</p>}
   </>;
 }
@@ -73,7 +94,7 @@ export function FinancialReports({ report, today }: { report: FinancialReport; t
   // The A4 document sits beside the screen report, so the screen styles (.report h2, p…) never reach it.
   return <><div className={styles.report} data-financial-report>
     <header className={styles.heading}><div><p className={styles.eyebrow}>OMOTERRA / BUSINESS PERFORMANCE</p><h1>Financial reports</h1><p>{a.start} — {a.end} · TZS · Generated {new Date(report.generated_at).toLocaleString('en-GB', { timeZone: 'Africa/Dar_es_Salaam' })} EAT</p></div>
-      <div className={styles.actions}><button onClick={() => downloadCsv(report)}>Download CSV</button><button onClick={() => save(`omoterra-report-${a.end}.json`, JSON.stringify(report, null, 2), 'application/json')}>Save snapshot</button><PdfButton report={report}/></div>
+      <div className={styles.actions}><button onClick={() => downloadCsv(report)}>Download CSV</button><button onClick={() => save(`omoterra-report-${a.end}.json`, JSON.stringify(report, null, 2), 'application/json')}>Save snapshot</button><PdfButton key={report.generated_at} report={report}/></div>
     </header>
     <form className={`${styles.panel} ${styles.controls}`} action="/finance/reports" method="get">
       <div className={styles.sectionHeading}><div><h2>Period & planning assumptions</h2><p>Historical results stay separate from your editable scenario.</p></div></div>
