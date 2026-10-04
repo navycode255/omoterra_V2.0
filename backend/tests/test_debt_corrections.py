@@ -296,12 +296,12 @@ def test_lpo_lines_take_the_receipt_unit(client, seeded, marked):  # noqa: F811
 
 def test_lines_not_from_a_receipt_still_need_a_unit(client):
     missing = post(client, '/sales', {'new_buyer': {'business_name': 'No unit'}, 'sold_on': TODAY,
-        'items': [{'category': 'beef', 'quantity': '2.5', 'unit_price': '12000'}]})
+        'items': [{'category': 'beef', 'quantity': '2.5', 'unit_price': '12000', 'cost_unknown': True}]})
     assert missing.status_code == 422
-    beef = sale(client, items=[{'category': 'beef', 'unit': 'kg', 'quantity': '2.5', 'unit_price': '12000'}])
+    beef = sale(client, items=[{'category': 'beef', 'unit': 'kg', 'quantity': '2.5', 'unit_price': '12000', 'cost_unknown': True}])
     assert Decimal(beef['items'][0]['quantity']) == Decimal('2.5')
     birds = post(client, '/sales', {'new_buyer': {'business_name': 'Half bird'}, 'sold_on': TODAY,
-        'items': [{'category': 'broilers', 'unit': 'bird', 'quantity': '2.5', 'unit_price': '12000'}]})
+        'items': [{'category': 'broilers', 'unit': 'bird', 'quantity': '2.5', 'unit_price': '12000', 'cost_unknown': True}]})
     assert birds.status_code == 422
 
 

@@ -109,6 +109,7 @@ export interface SupplierCredit {
 }
 
 export interface Debt {
+  location_id?: string | null;
   id: string;
   direction: Direction;
   party_kind: 'buyer' | 'supplier' | 'other';
@@ -176,6 +177,7 @@ export interface DebtDetail extends Debt {
 
 
 export interface SupplierCollectionStock {
+  allocated?: string;
   id: string;
   collection_number: string;
   supplier_id: string;
@@ -259,6 +261,7 @@ export interface DeliveryNoteDetail extends SupplierCollectionStock {
 }
 
 export interface SaleItem {
+  location_allocation_id: string | null;
   id: string;
   category: string;
   description: string;
@@ -294,6 +297,7 @@ export interface SalesSummary {
 export interface Commitments { total: string; unpaid: string; deposits: string; count: number }
 
 export interface Sale {
+  location_id: string | null;
   id: string;
   sale_number: string;
   sold_on: string;
@@ -409,6 +413,7 @@ export const EXPENSE_CATEGORIES: [string, string][] = [
 ];
 
 export function expenseLabel(value: string | null) {
+  if (value === 'depreciation') return 'Asset depreciation';
   return EXPENSE_CATEGORIES.find(([key]) => key === value)?.[1] ?? value ?? '';
 }
 

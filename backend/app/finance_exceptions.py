@@ -61,14 +61,15 @@ def unknown_cost_lines(db):
     rows = db.execute(select(m.Sale.sale_number, m.Sale.sold_on, m.SaleItem.id, m.SaleItem.position,
             m.SaleItem.description, m.SaleItem.quantity, m.SaleItem.unit, m.SaleItem.subtotal)
         .join(m.Sale, m.Sale.id == m.SaleItem.sale_id)
-        .where(m.Sale.status == 'active', or_(m.SaleItem.unit_cost.is_(None), m.SaleItem.cost_total.is_(None)))
+        .where(m.Sale.status == 'active', m.SaleItem.cost_state == 'unknown')
         .order_by(m.Sale.sold_on, m.Sale.sale_number, m.SaleItem.position)).all()
     records = [{'sale_number': r.sale_number, 'sold_on': r.sold_on, 'sale_item_id': r.id, 'line': r.position,
                 'description': r.description, 'quantity': r.quantity, 'unit': r.unit, 'revenue': _money(r.subtotal)}
                for r in rows]
-    return _section('unknown_cost_lines', 'Active sale lines with no known cost (own stock)', records,
+    return _section('unknown_cost_lines', 'Active sale lines with an unknown buying cost', records,
         'revenue affected', sum((r['revenue'] for r in records), ZERO),
-        'Profit on these sales is provisional (R5).', sales=len({r['sale_number'] for r in records}))
+        'Profit on these sales is provisional (R5). An admin gives each a cost on its sale page: from opening'
+        ' stock, an evidenced cost, or free (M1.3).', sales=len({r['sale_number'] for r in records}))
 
 
 def supplier_lines_without_source(db):

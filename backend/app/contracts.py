@@ -960,6 +960,7 @@ GoodsOutcome = Literal['never_left', 'buyer_return_accepted', 'not_recovered']
 
 
 class SaleItemInput(Input):
+    location_allocation_id: Optional[str] = Field(default=None, max_length=36)
     category: Optional[Category] = None
     description: str = Field(default='', max_length=200)
     # Required, except on received stock (LPO or delivery note): the
@@ -982,36 +983,58 @@ class SaleItemInput(Input):
     # records a same-day delivery note and the line sells from it (M1.6, R2).
     supplier_batch_id: Optional[str] = Field(default=None, max_length=36)
     receipt_confirmed: bool = False
+    # Stock held before the system (M1.3, D3): sold at its opening value.
+    opening_stock_id: Optional[str] = Field(default=None, max_length=36)
+    # Own stock whose buying cost nobody knows yet: said explicitly, never
+    # assumed (rule R5). The line's cost is unknown and the sale's margin
+    # provisional until an admin gives it a cost.
+    cost_unknown: bool = False
 
     @model_validator(mode='after')
     def complete(self):
+        if self.location_allocation_id:
+            if self.supplier_id or self.supplier_name or self.unit_cost is not None or self.cost_payment or self.lpo_line_id or self.supplier_collection_id or self.supplier_batch_id or self.opening_stock_id or self.cost_unknown:
+                raise ValueError(M('err.location_allocation_cost_source'))
+            return self
         # The form sends "" for "not from a registered batch".
         self.supplier_batch_id = self.supplier_batch_id or None
+        self.opening_stock_id = self.opening_stock_id or None
         if not self.supplier_batch_id:
             self.receipt_confirmed = False
         if self.supplier_batch_id and not self.supplier_id:
             raise ValueError(M('err.batch_needs_registered_supplier'))
-        if self.lpo_line_id and self.supplier_collection_id:
+        if sum(bool(v) for v in (self.lpo_line_id, self.supplier_collection_id, self.opening_stock_id)) > 1:
             raise ValueError(M('err.choose_one_received_stock_source'))
+        if self.opening_stock_id:
+            if (self.supplier_id or self.supplier_name or self.unit_cost is not None or self.cost_payment
+                    or self.supplier_batch_id or self.cost_unknown):
+                raise ValueError(M('err.opening_stock_cost_comes_from_entry'))
+            return self
         if self.lpo_line_id or self.supplier_collection_id:
             if self.supplier_id or self.supplier_name or self.unit_cost is not None or self.cost_payment:
                 raise ValueError(M('err.received_stock_cost_comes_from_receipt'))
+            self.cost_unknown = False
             return self
         if self.unit is None:
             raise ValueError(M('err.choose_unit_sold'))
         if not self.category and len(self.description) < 2:
             raise ValueError(M('err.describe_what_was_sold'))
         has_supplier = bool(self.supplier_id or self.supplier_name)
-        if has_supplier != (self.unit_cost is not None):
+        if has_supplier and (self.unit_cost is None or self.cost_unknown):
             raise ValueError(M('err.supplier_and_cost_go_together'))
         if self.cost_payment and not has_supplier:
             raise ValueError(M('err.supplier_and_cost_go_together'))
+        # Stock already owned: its cost, opening stock (above), or an
+        # explicit "cost unknown". Never a silent blank (M1.3).
+        if not has_supplier and (self.unit_cost is None) != self.cost_unknown:
+            raise ValueError(M('err.own_stock_cost_or_unknown'))
         if self.supplier_id and self.supplier_name:
             self.supplier_name = ''
         return self
 
 
 class DirectSaleInput(Input):
+    location_id: Optional[str] = Field(default=None, max_length=36)
     # Exactly one: an existing buyer record, a buyer app account, or a new buyer.
     buyer_profile_id: Optional[str] = Field(default=None, max_length=36)
     buyer_user_id: Optional[str] = Field(default=None, max_length=36)
@@ -1131,6 +1154,60 @@ class SupplierCreditNoteInput(Input):
         return _not_future(value)
 
 
+class OpeningStockInput(Input):
+    """Stock held before the system, valued by the finance owner (M1.3,
+    decision D3). The value is a cost per unit or a total for the quantity;
+    `evidence` says what the value rests on. It opens no supplier debt."""
+    category: Optional[Category] = None
+    description: str = Field(default='', max_length=200)
+    unit: Literal['bird', 'animal', 'kg', 'tray', 'piece']
+    quantity: Quantity
+    unit_cost: Optional[Money] = None
+    total_value: Optional[Money] = None
+    as_of: date
+    evidence: str = Field(min_length=3, max_length=1000)
+    valued_by: str = Field(min_length=2, max_length=150)
+
+    @field_validator('as_of')
+    @classmethod
+    def not_future(cls, value):
+        return _not_future(value)
+
+    @model_validator(mode='after')
+    def complete(self):
+        if (self.unit_cost is None) == (self.total_value is None):
+            raise ValueError(M('err.opening_value_needed'))
+        if not self.category and len(self.description) < 2:
+            raise ValueError(M('err.describe_what_was_sold'))
+        return self
+
+
+class CostResolutionInput(Input):
+    """Give an unknown-cost sale line its cost (M1.3), admin only, always
+    with a reason:
+
+    - opening_stock: it was sold from this opening stock entry, at its value;
+    - cost: an evidenced cost per unit (no supplier debt is opened; if a
+      supplier is still owed, record that debt separately);
+    - free: it cost nothing (gift stock), a known zero (decision D4)."""
+    how: Literal['opening_stock', 'cost', 'free']
+    opening_stock_id: Optional[str] = Field(default=None, max_length=36)
+    unit_cost: Optional[Money] = None
+    evidence: str = Field(default='', max_length=1000)
+    reason: str = Field(min_length=3, max_length=500)
+
+    @model_validator(mode='after')
+    def complete(self):
+        self.opening_stock_id = self.opening_stock_id or None
+        if (self.how == 'opening_stock') != bool(self.opening_stock_id):
+            raise ValueError(M('err.choose_opening_stock'))
+        if (self.how == 'cost') != (self.unit_cost is not None):
+            raise ValueError(M('err.give_unit_cost'))
+        if self.how == 'cost' and len(self.evidence) < 3:
+            raise ValueError(M('err.cost_needs_evidence'))
+        return self
+
+
 class DebtCorrectionInput(Input):
     """Why a supplier debt opened by a sale is wrong (build plan M1.4).
     Admin only, always with a reason.
@@ -1191,6 +1268,7 @@ ExpenseCategory = Literal['labour', 'transport', 'fuel', 'feed', 'medicine_vet',
 
 
 class ExpenseInput(Input):
+    location_id: Optional[str] = Field(default=None, max_length=36)
     """An operating cost: paid now (in full or part) or still owed."""
     spent_on: date
     category: ExpenseCategory

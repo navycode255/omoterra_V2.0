@@ -18,6 +18,7 @@ export const GROUPS = [
   ] },
   { label: 'Finance', modules: [
     { href: '/finance', label: 'Finance overview', icon: Icons.trend, key: null },
+    { href: '/locations', label: 'Locations & assets', icon: Icons.home, key: null },
     { href: '/sales', label: 'Sales', icon: Icons.clipboard, key: null },
     { href: '/finance/expenses', label: 'Expenses', icon: Icons.card, key: null },
     { href: '/finance/profit', label: 'Profit', icon: Icons.chart, key: null },

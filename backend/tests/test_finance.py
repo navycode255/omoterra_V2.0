@@ -25,7 +25,8 @@ def post(client, path, body, headers=OPS, idem=None):
 def sale(client, **overrides):
     body = {'new_buyer': {'business_name': 'Mama Asha Restaurant', 'phone': '0754 111 222', 'region': 'dar es salaam'},
             'sold_on': TODAY,
-            'items': [{'category': 'local_chicken', 'unit': 'bird', 'quantity': '20', 'unit_price': '15000'}]}
+            'items': [{'category': 'local_chicken', 'unit': 'bird', 'quantity': '20', 'unit_price': '15000',
+                       'cost_unknown': True}]}
     body.update(overrides)
     response = post(client, '/sales', body)
     assert response.status_code == 201, response.text
@@ -100,11 +101,13 @@ def test_supplier_cost_lines_open_payables_per_supplier(client, seeded):
          'supplier_id': seeded['supplier'], 'unit_cost': '15000'},
         {'description': 'Eggs', 'unit': 'tray', 'quantity': '2', 'unit_price': '12000',
          'supplier_name': 'Mzee Juma', 'unit_cost': '9000'},
-        {'description': 'Own stock goat', 'unit': 'animal', 'quantity': '1', 'unit_price': '150000'},
+        # Own stock with a known cost (M1.3): costed, owed to no one.
+        {'description': 'Own stock goat', 'unit': 'animal', 'quantity': '1', 'unit_price': '150000', 'unit_cost': '100000'},
     ])
     assert Decimal(body['total_amount']) == Decimal('394000.00')
-    assert Decimal(body['cost_amount']) == Decimal('183000.00')
-    assert Decimal(body['margin']) == Decimal('211000.00')
+    assert Decimal(body['cost_amount']) == Decimal('283000.00')
+    assert Decimal(body['margin']) == Decimal('111000.00')
+    assert [item['cost_state'] for item in body['items']] == ['known'] * 4
     payables = {d['party_name']: d for d in body['debts'] if d['direction'] == 'payable'}
     assert Decimal(payables['Secret legal name']['amount']) == Decimal('165000.00')
     assert payables['Secret legal name']['supplier_id'] == seeded['supplier']
@@ -448,9 +451,16 @@ def test_supplier_payment_needs_proof_and_cannot_cross_suppliers(client, seeded)
 
 def test_bad_lines_are_refused(client, seeded):
     base = {'new_buyer': {'business_name': 'X Shop'}, 'sold_on': TODAY}
-    cost_without_supplier = post(client, '/sales', {**base, 'items': [
-        {'category': 'broilers', 'unit': 'bird', 'quantity': '1', 'unit_price': '1', 'unit_cost': '1'}]})
-    assert cost_without_supplier.status_code == 422
+    # Stock already owned needs its cost, opening stock or "cost unknown" (M1.3).
+    silent = post(client, '/sales', {**base, 'items': [
+        {'category': 'broilers', 'unit': 'bird', 'quantity': '1', 'unit_price': '1'}]})
+    assert silent.status_code == 422 and 'cost unknown' in silent.text
+    both = post(client, '/sales', {**base, 'items': [
+        {'category': 'broilers', 'unit': 'bird', 'quantity': '1', 'unit_price': '1', 'unit_cost': '1', 'cost_unknown': True}]})
+    assert both.status_code == 422
+    unknown_supplier_cost = post(client, '/sales', {**base, 'items': [{'category': 'broilers', 'unit': 'bird',
+        'quantity': '1', 'unit_price': '2', 'supplier_name': 'Mzee', 'unit_cost': '1', 'cost_unknown': True}]})
+    assert unknown_supplier_cost.status_code == 422
     half_bird = post(client, '/sales', {**base, 'items': [
         {'category': 'broilers', 'unit': 'bird', 'quantity': '1.5', 'unit_price': '1'}]})
     assert half_bird.status_code == 422
@@ -725,11 +735,12 @@ def test_supplier_statement_shows_purchases_and_payments(client, seeded):
 def test_sales_list_totals_follow_dates_and_search(client, seeded):
     from datetime import date as day_, timedelta as span
     earlier = (day_.fromisoformat(TODAY) - span(days=40)).isoformat()
-    sale(client, sold_on=earlier, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '1', 'unit_price': '5000'}])
+    sale(client, sold_on=earlier, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '1', 'unit_price': '5000',
+        'cost_unknown': True}])
     paid = sale(client, payment={'amount': '70000', 'paid_on': TODAY, 'method': 'cash'}, items=[
         {'category': 'broilers', 'unit': 'bird', 'quantity': '10', 'unit_price': '7000',
          'supplier_id': seeded['supplier'], 'unit_cost': '6500'}])
-    sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '4', 'unit_price': '7000'}])
+    sale(client, items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '4', 'unit_price': '7000', 'cost_unknown': True}])
     body = client.get(API + f'/sales?start={TODAY}&end={TODAY}', headers=OPS).json()
     assert body['total'] == 2
     totals = body['summary']

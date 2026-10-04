@@ -813,6 +813,7 @@ class Sale(Entity, Base):
     only: it never moves listing or batch stock. Its buyer always has a CRM
     record, created on the spot for a new buyer, so they are kept for later."""
     __tablename__ = 'sales'
+    location_id: Mapped[Optional[str]] = mapped_column(ForeignKey('operating_locations.id'), index=True)
     sale_number: Mapped[str] = mapped_column(String(24), unique=True)
     sold_on: Mapped[date] = mapped_column(Date, index=True)
     buyer_profile_id: Mapped[str] = mapped_column(ForeignKey('buyer_profiles.id'), index=True)
@@ -838,8 +839,71 @@ class Sale(Entity, Base):
     )
 
 
+COST_STATES = ('known', 'free', 'unknown')
+
+
+class OpeningStock(Entity, Base):
+    """Stock Omoterra held before the system existed, valued by the finance
+    owner (decision D3, build plan M1.3): a receipt with a value and no
+    payable, because it was paid for before records began. Sales sell from
+    it at its cost, so their margin is known. On hand = quantity - active
+    sale lines - goods not recovered from a cancelled or edited sale. A
+    mistaken entry is cancelled by an admin with a reason, only while
+    nothing has been sold from it; it is never edited or deleted."""
+    __tablename__ = 'opening_stock'
+    receipt_number: Mapped[str] = mapped_column(String(32), unique=True, index=True)
+    category: Mapped[str] = mapped_column(String(32), default='')
+    description: Mapped[str] = mapped_column(Text, default='')
+    unit: Mapped[str] = mapped_column(String(16))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    unit_cost: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    # The value given: quantity x unit cost, or the total typed in.
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    as_of: Mapped[date] = mapped_column(Date, index=True)
+    # Why this value: the evidence or reasoning behind it (rule R6).
+    evidence: Mapped[str] = mapped_column(Text)
+    # Who supplied the value (the finance owner), as they are known.
+    valued_by: Mapped[str] = mapped_column(Text)
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    cancelled_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    cancel_reason: Mapped[str] = mapped_column(Text, default='')
+    __table_args__ = (
+        CheckConstraint('quantity > 0', name='opening_stock_quantity_check'),
+        CheckConstraint('unit_cost > 0 AND amount > 0', name='opening_stock_value_check'),
+        CheckConstraint("unit IN ('bird','animal','kg','tray','piece')", name='opening_stock_unit_check'),
+        CheckConstraint('length(btrim(evidence)) >= 3 AND length(btrim(valued_by)) >= 2', name='opening_stock_evidence_check'),
+        CheckConstraint('cancelled_at IS NULL OR length(btrim(cancel_reason)) >= 3', name='opening_stock_cancel_check'),
+    )
+
+
+OPENING_MOVEMENT_KINDS = ('never_left', 'buyer_return_accepted', 'not_recovered')
+
+
+class OpeningStockMovement(Entity, Base):
+    """What happened to opening stock a sale no longer sells (rule R2):
+    back on hand (never left, or returned and accepted, recorded as history)
+    or not recovered (out of stock, a loss at its cost)."""
+    __tablename__ = 'opening_stock_movements'
+    opening_stock_id: Mapped[str] = mapped_column(ForeignKey('opening_stock.id'), index=True)
+    kind: Mapped[str] = mapped_column(String(24))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    occurred_on: Mapped[date] = mapped_column(Date, index=True)
+    unit_cost: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    sale_id: Mapped[Optional[str]] = mapped_column(ForeignKey('sales.id'), index=True)
+    reason: Mapped[str] = mapped_column(Text, default='')
+    note: Mapped[str] = mapped_column(Text, default='')
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint(f"kind IN ({', '.join(repr(v) for v in OPENING_MOVEMENT_KINDS)})",
+            name='opening_stock_movements_kind_check'),
+        CheckConstraint('quantity > 0 AND unit_cost >= 0', name='opening_stock_movements_values_check'),
+    )
+
+
 class SaleItem(Entity, Base):
     __tablename__ = 'sale_items'
+    location_allocation_id: Mapped[Optional[str]] = mapped_column(ForeignKey('location_allocations.id'), index=True)
     sale_id: Mapped[str] = mapped_column(ForeignKey('sales.id'), index=True)
     position: Mapped[int] = mapped_column(Integer)
     category: Mapped[str] = mapped_column(String(32), default='')
@@ -860,14 +924,27 @@ class SaleItem(Entity, Base):
     supplier_collection_id: Mapped[Optional[str]] = mapped_column(ForeignKey('supplier_collections.id', use_alter=True), index=True)
     # Bought from a registered supplier's batch: selling reduces that batch.
     supplier_batch_id: Mapped[Optional[str]] = mapped_column(ForeignKey('supplier_batches.id', use_alter=True), index=True)
+    # Stock held before the system, sold at its opening value (M1.3, D3).
+    opening_stock_id: Mapped[Optional[str]] = mapped_column(ForeignKey('opening_stock.id'), index=True)
+    # What is known about the buying cost (build plan M1.3, rule R5):
+    # - known: unit_cost > 0, from a supplier, a receipt, opening stock or an
+    #   evidenced cost;
+    # - free: a known zero (gift stock), only by an admin with a reason;
+    # - unknown: no cost (unit_cost null, or a 0 nobody approved as free).
+    #   It counts for nothing in cost of goods and makes every period and
+    #   margin that contains it provisional, never final.
+    cost_state: Mapped[str] = mapped_column(String(16), default='known')
     __table_args__ = (
         CheckConstraint('quantity > 0', name='sale_items_quantity_check'),
         CheckConstraint('unit_price > 0', name='sale_items_unit_price_check'),
-        # 0 only for free or gift stock, set by a debt correction (M1.4).
+        # 0 only for free or gift stock, set by an admin (M1.4, M1.3).
         CheckConstraint('unit_cost >= 0', name='sale_items_unit_cost_check'),
-        CheckConstraint("(unit_cost IS NULL AND supplier_id IS NULL AND supplier_name = '')"
-            " OR (unit_cost IS NOT NULL AND (supplier_id IS NOT NULL OR supplier_name <> ''))",
+        # Owed to a supplier means a cost is known; own stock may carry one.
+        CheckConstraint("unit_cost IS NOT NULL OR (supplier_id IS NULL AND supplier_name = '')",
             name='sale_item_cost_has_supplier'),
+        CheckConstraint("(cost_state = 'known' AND coalesce(unit_cost, 0) > 0)"
+            " OR (cost_state = 'free' AND coalesce(unit_cost, -1) = 0)"
+            " OR (cost_state = 'unknown' AND coalesce(unit_cost, 0) = 0)", name='sale_items_cost_state_check'),
     )
 
 
@@ -895,6 +972,7 @@ class LedgerDebt(Entity, Base):
     source: Mapped[str] = mapped_column(String(16))
     # Set on operating expenses only (source 'expense').
     expense_category: Mapped[Optional[str]] = mapped_column(String(24))
+    location_id: Mapped[Optional[str]] = mapped_column(ForeignKey('operating_locations.id'), index=True)
     sale_id: Mapped[Optional[str]] = mapped_column(ForeignKey('sales.id'), index=True)
     # Payables for batches received on an LPO (source 'lpo').
     lpo_id: Mapped[Optional[str]] = mapped_column(ForeignKey('lpos.id', use_alter=True), index=True)
@@ -1220,7 +1298,8 @@ class StockLoss(Entity, Base):
 
 
 ADJUSTMENT_KINDS = ('wrong_supplier', 'duplicate_liability', 'free_stock', 'cost_never_existed',
-    'receipt_correction', 'supplier_credit_note', 'historical_batch_link')
+    'receipt_correction', 'supplier_credit_note', 'historical_batch_link', 'cost_resolved',
+    'opening_stock_cancelled')
 
 
 class FinancialAdjustment(Entity, Base):
@@ -1236,7 +1315,11 @@ class FinancialAdjustment(Entity, Base):
     - receipt_correction, supplier_credit_note: a delivery note and its
       payable reduced (never delivered; agreed credit for a return), M1.6.
     - historical_batch_link: an old sale line linked to a delivery note by
-      `python -m app.link_batch_sales` (entity: the sale line)."""
+      `python -m app.link_batch_sales` (entity: the sale line).
+    - cost_resolved: an unknown-cost sale line given a cost later (M1.3):
+      linked to opening stock, an evidenced cost, or free (entity: the line).
+    - opening_stock_cancelled: an opening stock entry made by mistake,
+      cancelled before anything was sold from it (entity: the entry)."""
     __tablename__ = 'financial_adjustments'
     kind: Mapped[str] = mapped_column(String(32))
     entity_type: Mapped[str] = mapped_column(String(32))
@@ -1291,3 +1374,79 @@ class MarketPriceBand(Entity, Base):
 
 # Registers the media_references hook wherever the models are loaded.
 from . import media_refs  # noqa: E402,F401
+
+
+class OperatingLocation(Entity, Base):
+    __tablename__ = 'operating_locations'
+    name: Mapped[str] = mapped_column(String(150), unique=True)
+    address: Mapped[str] = mapped_column(Text, default='')
+    notes: Mapped[str] = mapped_column(Text, default='')
+    daily_target: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=0)
+    active: Mapped[bool] = mapped_column(Boolean, default=True)
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (CheckConstraint('daily_target >= 0', name='location_target_positive'),)
+
+
+class BusinessAsset(Entity, Base):
+    __tablename__ = 'business_assets'
+    location_id: Mapped[str] = mapped_column(ForeignKey('operating_locations.id'), index=True)
+    name: Mapped[str] = mapped_column(String(150))
+    purchased_on: Mapped[date] = mapped_column(Date)
+    cost: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    residual_value: Mapped[Decimal] = mapped_column(Numeric(14, 2), default=0)
+    useful_months: Mapped[int] = mapped_column(Integer)
+    depreciation_start: Mapped[date] = mapped_column(Date)
+    retired_on: Mapped[Optional[date]] = mapped_column(Date)
+    notes: Mapped[str] = mapped_column(Text, default='')
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint('cost >= 0 AND residual_value >= 0 AND residual_value <= cost', name='asset_cost_values'),
+        CheckConstraint('useful_months > 0 AND useful_months <= 1200', name='asset_useful_life'),
+        CheckConstraint('depreciation_start >= purchased_on AND (retired_on IS NULL OR retired_on >= depreciation_start)', name='asset_dates'),
+    )
+
+
+class LocationInvestment(Entity, Base):
+    __tablename__ = 'location_investments'
+    location_id: Mapped[str] = mapped_column(ForeignKey('operating_locations.id'), index=True)
+    invested_on: Mapped[date] = mapped_column(Date)
+    description: Mapped[str] = mapped_column(Text)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (CheckConstraint('amount > 0', name='location_investment_positive'),)
+
+
+class LocationAllocation(Entity, Base):
+    __tablename__ = 'location_allocations'
+    opening_source_id: Mapped[Optional[str]] = mapped_column(ForeignKey('location_allocations.id'), index=True)
+    location_id: Mapped[str] = mapped_column(ForeignKey('operating_locations.id'), index=True)
+    allocated_on: Mapped[date] = mapped_column(Date, index=True)
+    category: Mapped[str] = mapped_column(String(32))
+    description: Mapped[str] = mapped_column(String(200))
+    unit: Mapped[str] = mapped_column(String(16))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    unit_cost: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    returned_quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3), default=0)
+    lpo_line_id: Mapped[Optional[str]] = mapped_column(ForeignKey('lpo_lines.id'), index=True)
+    supplier_collection_id: Mapped[Optional[str]] = mapped_column(ForeignKey('supplier_collections.id'), index=True)
+    notes: Mapped[str] = mapped_column(Text, default='')
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint('quantity > 0 AND unit_cost >= 0 AND returned_quantity >= 0 AND returned_quantity <= quantity', name='location_allocation_quantities'),
+        CheckConstraint('(CASE WHEN lpo_line_id IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN supplier_collection_id IS NOT NULL THEN 1 ELSE 0 END + CASE WHEN opening_source_id IS NOT NULL THEN 1 ELSE 0 END) <= 1', name='location_allocation_source'),
+        CheckConstraint("unit IN ('bird','animal','kg','tray','piece')", name='location_allocation_unit'),
+    )
+
+
+class LocationStockEvent(Entity, Base):
+    __tablename__ = 'location_stock_events'
+    allocation_id: Mapped[str] = mapped_column(ForeignKey('location_allocations.id'), index=True)
+    occurred_on: Mapped[date] = mapped_column(Date, index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    note: Mapped[str] = mapped_column(Text)
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint("kind IN ('returned','lost')", name='location_stock_event_kind'),
+        CheckConstraint('quantity > 0', name='location_stock_event_quantity'),
+    )

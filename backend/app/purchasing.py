@@ -120,7 +120,9 @@ def line_stock(db, line_id):
         .where(m.SaleItem.lpo_line_id == line_id, m.Sale.status == 'active')) or ZERO
     lost = db.scalar(select(func.coalesce(func.sum(m.StockLoss.quantity), 0))
         .where(m.StockLoss.lpo_line_id == line_id, m.StockLoss.cancelled_at.is_(None))) or ZERO
-    return {'accepted': accepted, 'rejected': rejected, 'sold': sold, 'lost': lost, 'on_hand': accepted - sold - lost}
+    from .locations import transferred
+    allocated = transferred(db, m.LocationAllocation.lpo_line_id, line_id)
+    return {'accepted': accepted, 'rejected': rejected, 'sold': sold, 'lost': lost, 'allocated': allocated, 'on_hand': accepted - sold - lost - allocated}
 
 
 def take_stock(db, line_id, quantity, taken=ZERO):

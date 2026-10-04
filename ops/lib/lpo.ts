@@ -4,7 +4,7 @@ import type { Tone } from './format';
 
 export type LpoStatus = 'draft' | 'issued' | 'accepted' | 'closed' | 'cancelled';
 
-export interface LineStock { accepted: string; rejected: string; sold: string; lost: string; on_hand: string }
+export interface LineStock { allocated?: string; accepted: string; rejected: string; sold: string; lost: string; on_hand: string }
 
 export interface LpoLine {
   id: string;

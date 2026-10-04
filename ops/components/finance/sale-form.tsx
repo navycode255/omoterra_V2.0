@@ -112,6 +112,7 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
       : kind === 'user' ? { buyer_user_id: id } : { buyer_profile_id: id || null };
     return JSON.stringify({
       ...buyerPart,
+      location_id: sale?.location_id ?? null,
       sold_on: soldOn,
       notes,
       items: lines.map((l) => ({
@@ -133,7 +134,7 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
       ...(!editing && paidNow > 0 ? { payment: { amount: clean(paid.amount), method: paid.method, reference: paid.reference, paid_on: paid.paid_on } } : {}),
       ...(editing && goods.outcome ? { goods: goods.outcome, goods_note: goods.note } : {}),
     });
-  }, [buyer, mode, newBuyer, soldOn, notes, lines, paid, paidNow, editing, goods]);
+  }, [buyer, mode, newBuyer, soldOn, notes, lines, paid, paidNow, editing, goods, sale?.location_id]);
 
   return (
     <form action={action} className={styles.saleForm}>

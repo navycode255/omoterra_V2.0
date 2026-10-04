@@ -98,8 +98,10 @@ def collection_stock(db, collection_id):
     accepted = row.accepted_quantity if row and row.cancelled_at is None else ZERO
     not_recovered, returned = out.get('not_recovered', ZERO), out.get('returned_to_supplier', ZERO)
     lost = out.get('lost', ZERO)
-    return {'sold': sold, 'not_recovered': not_recovered, 'returned': returned, 'lost': lost,
-            'on_hand': accepted - sold - not_recovered - returned - lost}
+    from .locations import transferred
+    allocated = transferred(db, m.LocationAllocation.supplier_collection_id, collection_id)
+    return {'sold': sold, 'not_recovered': not_recovered, 'returned': returned, 'lost': lost, 'allocated': allocated,
+            'on_hand': accepted - sold - not_recovered - returned - lost - allocated}
 
 
 def take_collection_stock(db, collection_id, quantity, taken=ZERO):

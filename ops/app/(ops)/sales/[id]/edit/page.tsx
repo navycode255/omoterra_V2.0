@@ -30,6 +30,7 @@ export default async function EditSale({ params }: { params: Promise<{ id: strin
       {error instanceof ApiError ? error.message : 'The sale could not be loaded.'}</Notice></div></>;
   }
   if (sale.status !== 'active') notFound();
+  if (sale.items.some(item => item.location_allocation_id)) return <div className="workspace"><Notice>To correct allocated-stock sales, reverse any payments, cancel the sale and record it again from its location.</Notice><Link href={`/sales/${id}`}>Back to sale</Link></div>;
 
   // Sold-out LPO lines disappear from the general stock picker. Keep the
   // current line selectable; the backend adds this sale's quantity back while

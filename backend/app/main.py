@@ -3094,10 +3094,12 @@ def reverse_sale(id: str, data: c.SaleReversalInput, idempotency_key: str = Head
 
 
 # Sales, the debts ledger and promotions live in their own modules.
-from . import batch_stock, finance, market_prices, market_schedule, promotions, purchasing  # noqa: E402
+from . import batch_stock, finance, locations, market_prices, market_schedule, opening_stock, promotions, purchasing  # noqa: E402
 app.include_router(batch_stock.router)
 app.include_router(finance.router)
 app.include_router(market_prices.router)
 app.include_router(market_schedule.router)
 app.include_router(promotions.router)
 app.include_router(purchasing.router)
+app.include_router(locations.router)
+app.include_router(opening_stock.router)

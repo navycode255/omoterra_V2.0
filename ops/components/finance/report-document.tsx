@@ -383,7 +383,7 @@ export function ReportDocument({ report }: { report: FinancialReport }) {
     <Page section="Report basis" number={9} heading="Report Basis" subtitle="How the numbers in this report should be interpreted.">
       <div className={styles.basis}>
         <div><b>Revenue</b><p>Active direct sales and delivered/completed marketplace orders under the existing reporting policy.</p></div>
-        <div><b>Expenses</b><p>Recorded expense debts and LPO stock losses. Depreciation, tax, financing and some collection losses are not comprehensively captured.</p></div>
+        <div><b>Expenses</b><p>Recorded expense debts, stock losses and depreciation of registered assets. Tax, financing and some collection losses are not comprehensively captured.</p></div>
         <div><b>Product analysis</b><p>Direct sales only. Unknown costs are not shown as final product margin.</p></div>
         <div><b>Forecasts</b><p>Operating scenarios, not cash forecasts. They assume stable prices, product mix, cost ratios and sufficient supply and delivery capacity.</p></div>
       </div>

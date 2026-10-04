@@ -57,6 +57,7 @@ export default async function SupplierDeliveryNote({ params }: { params: Promise
           <tbody><tr><td>{category(note.category)}</td><td>{quantity(note.delivered_quantity)} {unit}</td><td>{quantity(note.accepted_quantity)} {unit}</td><td>{quantity(note.rejected_quantity)} {unit}</td><td>{note.average_weight_kg ? note.average_weight_kg + ' kg' : '—'}</td><td>{tzs(note.unit_cost)}</td><td>{tzs(note.amount)}</td></tr></tbody></table>
         <section><h3>Stock movement</h3><dl className="delivery-note-stock">
           <div><dt>Accepted into Omoterra stock</dt><dd>{quantity(note.accepted_quantity)}</dd></div>
+          {Number(note.allocated ?? 0) > 0 && <div><dt>Allocated to locations</dt><dd>{quantity(note.allocated ?? '0')}</dd></div>}
           <div><dt>Sold</dt><dd>{quantity(note.sold)}</dd></div>
           {Number(note.not_recovered ?? 0) > 0 && <div><dt>Not recovered</dt><dd>{quantity(note.not_recovered ?? '0')}</dd></div>}
           {Number(note.returned ?? 0) > 0 && <div><dt>Returned to supplier</dt><dd>{quantity(note.returned ?? '0')}</dd></div>}

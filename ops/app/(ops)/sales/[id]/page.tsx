@@ -35,7 +35,7 @@ export default async function SaleWorkspace({ params, searchParams }: {
   const expenseTotal = payables.filter((debt) => debt.source === 'expense').reduce((total, debt) => total + Number(debt.amount), 0);
   const anyPaid = sale.debts.some((debt) => Number(debt.paid_amount) > 0);
   // Received goods (delivery note or LPO): cancelling asks what happened to them (rule R2).
-  const received = sale.items.filter((item) => item.supplier_collection_id || item.lpo_line_id);
+  const received = sale.items.filter((item) => item.location_allocation_id || item.supplier_collection_id || item.lpo_line_id);
   const goodsLabel = GOODS_OUTCOMES.find(([id]) => id === sale.cancel_goods)?.[1];
   const unitLabel = (value: string) => UNITS.find(([key]) => key === value)?.[1].toLowerCase() ?? value;
 
@@ -47,7 +47,7 @@ export default async function SaleWorkspace({ params, searchParams }: {
           subtitle={`Sold ${day(sale.sold_on)} · entered ${dateTime(sale.created_at)} by ${sale.created_by ?? '—'}`} />
       </div>
       <div className={styles.saleDetailActions}>
-        {sale.status === 'active' && <Link className={styles.editSaleButton} href={`/sales/${sale.id}/edit`}><Icons.edit size={18} />Edit sale</Link>}
+        {sale.status === 'active' && !sale.items.some(i => i.location_allocation_id) && <Link className={styles.editSaleButton} href={`/sales/${sale.id}/edit`}><Icons.edit size={18} />Edit sale</Link>}
         {sale.status === 'cancelled' ? <Status>Cancelled</Status>
           : Number(sale.balance) > 0 ? <Status tone="warning">Buyer owes {tzs(sale.balance)}</Status> : <Status tone="positive">Paid in full</Status>}
       </div>
@@ -63,6 +63,7 @@ export default async function SaleWorkspace({ params, searchParams }: {
           <section className={styles.saleDetailCard}>
             <header className={styles.saleCardHeader}><span><Icons.users size={22} /></span><h2>Buyer details</h2></header>
             <dl className={styles.saleDefinition}>
+              {sale.location_id && <div><dt>Location</dt><dd><Link href={`/locations/${sale.location_id}`}>View kitchen / location</Link></dd></div>}
               <div><dt>Buyer</dt><dd><Link href={`/buyers/${sale.buyer_profile_id}`}>{sale.buyer_name}</Link></dd></div>
               <div><dt>Phone</dt><dd>{phone(sale.buyer_phone)}</dd></div>
               <div><dt>Notes</dt><dd>{sale.notes || '—'}</dd></div>
@@ -86,7 +87,7 @@ export default async function SaleWorkspace({ params, searchParams }: {
                     <td><b>{tzs(item.subtotal)}</b></td>
                     <td>{item.supplier_collection_id ? <><Link href={`/supplier-collections/${item.supplier_collection_id}`}>Delivery note</Link><small>{supplier} · cost {tzs(item.unit_cost)} each</small></>
                       : item.lpo_line_id ? <>LPO stock<small>cost {tzs(item.unit_cost)} each</small></>
-                      : item.unit_cost ? <>{supplier}<small>cost {tzs(item.unit_cost)} each</small></> : 'Own stock'}</td>
+                      : item.location_allocation_id ? <><Link href={`/locations/${sale.location_id}`}>Location stock</Link><small>cost {tzs(item.unit_cost)} each</small></> : item.unit_cost ? <>{supplier}<small>cost {tzs(item.unit_cost)} each</small></> : 'Own stock'}</td>
                   </tr>;
                 })}</tbody>
               </table>

@@ -62,7 +62,7 @@ export default async function LpoWorkspace({ params }: { params: Promise<{ id: s
               <div className="table-wrap">
                 <table>
                   <thead><tr><th>Item</th><th className="numeric">Price</th><th className="numeric">Ordered</th>
-                    {lpo.status !== 'draft' && <><th className="numeric">Accepted</th><th className="numeric">Rejected</th><th className="numeric">Sold</th><th className="numeric">Lost</th><th className="numeric">On hand</th></>}</tr></thead>
+                    {lpo.status !== 'draft' && <><th className="numeric">Accepted</th><th className="numeric">Rejected</th><th className="numeric">Sold</th><th className="numeric">Lost</th><th className="numeric">Allocated to locations</th><th className="numeric">On hand</th></>}</tr></thead>
                   <tbody>
                     {lpo.lines.map((line) => (
                       <tr key={line.id}>
@@ -72,6 +72,7 @@ export default async function LpoWorkspace({ params }: { params: Promise<{ id: s
                         {line.stock && <>
                           <td className="numeric">{quantity(line.stock.accepted)}</td><td className="numeric">{quantity(line.stock.rejected)}</td>
                           <td className="numeric">{quantity(line.stock.sold)}</td><td className="numeric">{quantity(line.stock.lost)}</td>
+                          <td className="numeric">{quantity(line.stock.allocated ?? '0')}</td>
                           <td className="numeric money">{quantity(line.stock.on_hand)}</td></>}
                       </tr>
                     ))}

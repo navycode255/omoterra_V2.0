@@ -28,9 +28,14 @@ activity log until M2.5 stores it. A delivered order without a dated
 cost (R5, R6). An order not yet delivered is a *commitment*, reported on its
 own and never as revenue or as money owed to Omoterra.
 
-Not yet here (later milestones): cost states (M1.3) plug in at `cost_state`;
-money accounts and a verified cash balance (M2.3); payout attempts and
-disputed exposure from them (M2.7).
+Cost states (M1.3, rule R5): a sale line's buying cost is known, free (a
+known zero an admin approved) or unknown. An unknown line counts for nothing
+in cost of goods and makes every period containing it `provisional`:
+profit is shown as "Provisional: buying costs incomplete" with the sales and
+revenue affected, never as a final, minimum or range figure.
+
+Not yet here (later milestones): money accounts and a verified cash balance
+(M2.3); payout attempts and disputed exposure from them (M2.7).
 """
 from __future__ import annotations
 
@@ -45,6 +50,7 @@ from . import contracts as c, models as m, transfers as tr
 
 ZERO = Decimal('0')
 EAT = 'Africa/Dar_es_Salaam'
+PROVISIONAL = 'Provisional: buying costs incomplete'
 # App orders: recognised once delivered ('completed' is the same delivery,
 # never counted again); cancelled or failed ones count for nothing.
 RECOGNISED = ('delivered', 'completed')
@@ -339,7 +345,15 @@ def sales_summary(db, chosen, start=None, end=None, match=None):
     market = [row for row in revenue(db, start, end)['rows'] if row['source'] == 'marketplace'
               and (match is None or match(row))]
     pending = commitments(db)
+    # Rule R5: the active sales among them with an unknown buying cost.
+    unknown = select(m.SaleItem.sale_id).join(m.Sale, m.Sale.id == m.SaleItem.sale_id).where(
+        m.SaleItem.sale_id.in_(chosen), m.Sale.status == 'active', m.SaleItem.cost_state == 'unknown')
+    lines = db.scalar(select(func.count()).select_from(unknown.subquery())) or 0
+    affected, affected_revenue = db.execute(select(func.count(), func.coalesce(func.sum(m.Sale.total_amount), 0))
+        .where(m.Sale.id.in_(unknown))).one()
     return {'sales_total': direct + total(market), 'direct_total': direct, 'sales_count': count,
+            'unknown_cost': {'lines': lines, 'sales': affected, 'revenue': affected_revenue},
+            'provisional': lines > 0,
             'marketplace_total': total(market), 'marketplace_count': len(market),
             'received': db.scalar(paid) or ZERO, 'buyer_owes': buyer_owes, 'buyer_owes_count': owing,
             'supplier_owed': supplier_owed, 'supplier_owed_count': supplier_sales,
@@ -348,21 +362,18 @@ def sales_summary(db, chosen, start=None, end=None, match=None):
 
 
 def cost_state(item):
-    """What is known about a sale line's buying cost. M1.3 stores it on the
-    line (`sale_items.cost_state`: known, free or unknown); until then a
-    line without a cost is unknown and counts as 0 (a known limit), and the
-    period is not yet flagged provisional (R5)."""
-    if item.cost_total is None:
-        return 'unknown'
-    return 'known'
+    """What is known about a sale line's buying cost (M1.3): 'known',
+    'free' (a known zero an admin approved) or 'unknown' (rule R5)."""
+    return item.cost_state or 'unknown'
 
 
 def cost_of_goods(db, start=None, end=None):
     """Cost of what was sold in the period (metric 15), dated like its
     revenue: direct sale lines at their cost (delivery-note and LPO lines at
     the receipt's cost), and delivered app orders at their settlements.
-    `unknown` counts lines with no recorded cost and the revenue of their
-    sales: where M1.3 makes the period provisional."""
+    An unknown-cost line counts for nothing here (never as a zero cost):
+    `unknown` counts such lines, their sales and those sales' revenue, and
+    the period is `provisional` whenever there is one (rule R5)."""
     items = select(m.SaleItem, m.Sale).join(m.Sale, m.Sale.id == m.SaleItem.sale_id).where(m.Sale.status == 'active')
     if start:
         items = items.where(m.Sale.sold_on >= start)
@@ -373,9 +384,11 @@ def cost_of_goods(db, start=None, end=None):
         state = cost_state(item)
         if state == 'unknown':
             unknown_sales[sale.id] = sale.total_amount
-        rows.append(_row('ledger', 'sale_items', item.id, sale.sold_on, item.cost_total or ZERO,
+        amount = ZERO if state == 'unknown' else item.cost_total or ZERO
+        rows.append(_row('ledger', 'sale_items', item.id, sale.sold_on, amount,
             cost_state=state, sale_id=sale.id, party=item.supplier_name or '', supplier_id=item.supplier_id,
             supplier_collection_id=item.supplier_collection_id, lpo_line_id=item.lpo_line_id,
+            opening_stock_id=item.opening_stock_id,
             description=f'{sale.sale_number}: {item.description or item.category.replace("_", " ")}',
             href=f'/sales/{sale.id}'))
     orders = {order.id: on for order, on in _orders_recognised(db) if _within(on, start, end)}
@@ -392,8 +405,8 @@ def cost_of_goods(db, start=None, end=None):
     return {'total': total(rows), 'direct': total(r for r in rows if r['source'] == 'ledger'),
             'marketplace': total(r for r in rows if r['source'] == 'marketplace'),
             'unknown': {'lines': lines, 'sales': len(unknown_sales), 'revenue': sum(unknown_sales.values(), ZERO)},
-            # M1.3 (rule R5): True whenever any line's cost is unknown.
-            'provisional': False, 'rows': rows}
+            # Rule R5: never final while any line's cost is unknown.
+            'provisional': lines > 0, 'rows': rows}
 
 
 EXPENSE = and_(m.LedgerDebt.source == 'expense', m.LedgerDebt.status != 'cancelled')
@@ -410,6 +423,13 @@ def expenses(db, start=None, end=None):
     rows = [_row('ledger', 'ledger_debts', debt.id, debt.incurred_on, debt.amount, category=debt.expense_category,
         party=debt.party_name, description=debt.description, href=f'/finance/debts/{debt.id}')
         for debt in db.scalars(query)]
+    from .locations import depreciation_rows
+    assets = list(db.scalars(select(m.BusinessAsset)))
+    if assets:
+        first = start or min(a.depreciation_start for a in assets)
+        last = end or c.business_today()
+        rows += [_row('ledger', 'business_assets', f"{r['asset_id']}:{r['date']}", r['date'], r['amount'], category='depreciation',
+            description=r['description'], href=f"/locations/{r['location_id']}") for r in depreciation_rows(assets, first, last)]
     rows = dedupe(rows)
     return {'total': total(rows), 'count': len(rows), 'rows': rows}
 
@@ -431,6 +451,21 @@ def stock_lost(db, start=None, end=None):
     rows += [_row('ledger', 'collection_movements', row.id, row.occurred_on, money(row.quantity * row.unit_cost),
         description=row.reason or row.kind.replace('_', ' '), href=f'/supplier-collections/{row.collection_id}')
         for row in db.scalars(notes)]
+    opening = select(m.OpeningStockMovement).where(m.OpeningStockMovement.kind == 'not_recovered')
+    if start:
+        opening = opening.where(m.OpeningStockMovement.occurred_on >= start)
+    if end:
+        opening = opening.where(m.OpeningStockMovement.occurred_on <= end)
+    rows += [_row('ledger', 'opening_stock_movements', row.id, row.occurred_on, money(row.quantity * row.unit_cost),
+        description=row.reason or 'Opening stock not recovered', href=f'/finance/opening-stock/{row.opening_stock_id}')
+        for row in db.scalars(opening)]
+    location_losses = select(m.LocationStockEvent, m.LocationAllocation).join(m.LocationAllocation).where(m.LocationStockEvent.kind == 'lost')
+    if start:
+        location_losses = location_losses.where(m.LocationStockEvent.occurred_on >= start)
+    if end:
+        location_losses = location_losses.where(m.LocationStockEvent.occurred_on <= end)
+    rows += [_row('ledger', 'location_stock_events', e.id, e.occurred_on, money(e.quantity * a.unit_cost),
+        description=e.note, href=f'/locations/{a.location_id}') for e, a in db.execute(location_losses)]
     rows = dedupe(rows)
     return {'total': total(rows), 'count': len(rows), 'rows': rows}
 
@@ -443,12 +478,13 @@ def profit(db, start, end):
     spent, lost = expenses(db, start, end), stock_lost(db, start, end)
     days = {}
     for d in (start + timedelta(n) for n in range((end - start).days + 1)):
-        days[d] = {'date': d, **{key: ZERO for key in ('sales', 'stock_cost', 'marketplace_sales', 'marketplace_cost',
-            'expenses', 'stock_lost')}}
+        days[d] = {'date': d, 'unknown_cost_lines': 0, **{key: ZERO for key in ('sales', 'stock_cost',
+            'marketplace_sales', 'marketplace_cost', 'expenses', 'stock_lost')}}
     for row in sold['rows']:
         days[row['date']]['sales' if row['source'] == 'ledger' else 'marketplace_sales'] += row['amount']
     for row in cost['rows']:
         days[row['date']]['stock_cost' if row['source'] == 'ledger' else 'marketplace_cost'] += row['amount']
+        days[row['date']]['unknown_cost_lines'] += row['cost_state'] == 'unknown'
     for row in spent['rows']:
         days[row['date']]['expenses'] += row['amount']
     for row in lost['rows']:
@@ -459,6 +495,7 @@ def profit(db, start, end):
         row['gross_profit'] = row['revenue'] - row['cost_of_goods']
         row['expenses_and_losses'] = row['expenses'] + row['stock_lost']
         row['net_profit'] = row['gross_profit'] - row['expenses_and_losses']
+        row['provisional'] = row['unknown_cost_lines'] > 0
     totals = {key: sum((row[key] for row in days.values()), ZERO) for key in
         ('sales', 'stock_cost', 'marketplace_sales', 'marketplace_cost', 'revenue', 'cost_of_goods', 'gross_profit',
          'expenses', 'stock_lost', 'expenses_and_losses', 'net_profit')}
@@ -468,7 +505,10 @@ def profit(db, start, end):
     return {'start': start, 'end': end, **totals,
         'sales_count': sold['direct_count'], 'marketplace_count': sold['marketplace_count'],
         'unresolved_marketplace': {k: sold['unresolved'][k] for k in ('count', 'amount')},
+        # Rule R5: with any unknown cost the profit figures are not final.
+        # Screens show PROVISIONAL with these counts instead of a result.
         'unknown_cost': cost['unknown'], 'provisional': cost['provisional'],
+        'provisional_label': PROVISIONAL if cost['provisional'] else None,
         'expenses_by_category': sorted(({'category': k, 'amount': v} for k, v in categories.items()),
             key=lambda r: -r['amount']),
         'days': sorted(days.values(), key=lambda r: r['date'], reverse=True)}
@@ -477,8 +517,8 @@ def profit(db, start, end):
 # ---- stock (M1 exit check) ---------------------------------------------------
 
 def stock_on_hand(db):
-    """Received stock still on hand, at its receipt cost: delivery notes and
-    LPO lines. A supplier's registered batch is their declaration and is
+    """Received stock still on hand, at its receipt cost: delivery notes,
+    LPO lines and opening stock (at its opening value). A supplier's registered batch is their declaration and is
     never stock. Current state only (dated stock arrives with M2.1)."""
     from .batch_stock import collection_stock
     from .purchasing import line_stock
@@ -495,6 +535,25 @@ def stock_on_hand(db):
         if left > 0:
             rows.append(_row('ledger', 'lpo_lines', line.id, None, left * line.unit_price, quantity=left,
                 unit_cost=line.unit_price, description=line.item, href=f'/lpos/{line.lpo_id}'))
+    from .opening_stock import stock as opening_stock
+    for entry in db.scalars(select(m.OpeningStock).where(m.OpeningStock.cancelled_at.is_(None))):
+        left = opening_stock(db, entry.id)['on_hand']
+        if left > 0:
+            rows.append(_row('ledger', 'opening_stock', entry.id, entry.as_of, left * entry.unit_cost,
+                quantity=left, unit_cost=entry.unit_cost, description=f'Opening stock {entry.receipt_number}',
+                href=f'/finance/opening-stock/{entry.id}'))
+    from .locations import allocation_views, opening_return_stock
+    allocations = list(db.scalars(select(m.LocationAllocation)))
+    for allocation, balance in zip(allocations, allocation_views(db, allocations)):
+        left = balance['on_hand']
+        if left > 0:
+            rows.append(_row('ledger', 'location_allocations', allocation.id, allocation.allocated_on, left * allocation.unit_cost,
+                quantity=left, unit_cost=allocation.unit_cost, description=allocation.description, href=f'/locations/{allocation.location_id}'))
+        if not allocation.lpo_line_id and not allocation.supplier_collection_id and not allocation.opening_source_id:
+            returned = opening_return_stock(db, allocation)
+            if returned > 0:
+                rows.append(_row('ledger', 'location_opening_returns', allocation.id, allocation.allocated_on, returned * allocation.unit_cost,
+                    quantity=returned, unit_cost=allocation.unit_cost, description='Returned opening stock · ' + allocation.description, href=f'/locations/{allocation.location_id}'))
     rows = dedupe(rows)
     return {'total': total(rows), 'quantity': total(rows, 'quantity'), 'rows': rows}
 

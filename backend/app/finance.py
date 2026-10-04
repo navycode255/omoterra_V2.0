@@ -52,6 +52,7 @@ from sqlalchemy import Date, Text, and_, cast, exists, func, or_, select
 
 from . import auth, contracts as c, models as m, notifications as notes, paging, services as s, supplier_payment_sms
 from . import reporting as rp, transfers as tr
+from .opening_stock import cost_state_for, take_opening_stock
 from .db import database
 from .i18n import M, fail
 from .media import save_photo
@@ -86,7 +87,7 @@ def debt_view(row):
     today = c.business_today()
     return {**{k: getattr(row, k) for k in ('id', 'direction', 'party_kind', 'buyer_profile_id', 'supplier_id',
         'party_name', 'party_phone', 'description', 'amount', 'paid_amount', 'incurred_on', 'due_on', 'source',
-        'expense_category', 'sale_id', 'lpo_id', 'status', 'created_at', 'cancelled_at', 'cancel_reason')},
+        'expense_category', 'location_id', 'sale_id', 'lpo_id', 'status', 'created_at', 'cancelled_at', 'cancel_reason')},
         'balance': row.balance, 'overdue': row.status == 'open' and row.due_on is not None and row.due_on < today}
 
 
@@ -114,7 +115,7 @@ def sale_view(db, sale, detail=False):
     debts = _sale_debts(db, sale.id)
     receivable = next((d for d in debts if d.direction == 'receivable'), None)
     payables = [d for d in debts if d.direction == 'payable']
-    view = {**{k: getattr(sale, k) for k in ('id', 'sale_number', 'sold_on', 'buyer_profile_id', 'buyer_user_id',
+    view = {**{k: getattr(sale, k) for k in ('id', 'location_id', 'sale_number', 'sold_on', 'buyer_profile_id', 'buyer_user_id',
         'buyer_name', 'buyer_phone', 'total_amount', 'cost_amount', 'notes', 'status', 'created_at',
         'cancelled_at', 'cancel_reason', 'cancel_goods')},
         'created_by': _operator_name(db, sale.created_by),
@@ -123,13 +124,26 @@ def sale_view(db, sale, detail=False):
         # Owed to suppliers for this sale's stock (its own cost debts); a
         # sale-linked expense is not a supplier (metric 10).
         'supplier_balance': sum((d.balance for d in payables if d.status != 'cancelled' and d.source == 'sale_cost'), ZERO),
-        'margin': sale.total_amount - sale.cost_amount,
         'receivable_id': receivable.id if receivable else None}
+    # Rule R5: a sale with an unknown buying cost has no final margin.
+    unknown = db.scalar(select(func.count()).where(m.SaleItem.sale_id == sale.id, m.SaleItem.cost_state == 'unknown'))
+    view['unknown_cost_lines'] = unknown
+    view['cost_state'] = 'unknown' if unknown else 'known'
+    view['margin'] = None if unknown else sale.total_amount - sale.cost_amount
     if detail:
         items = db.scalars(select(m.SaleItem).where(m.SaleItem.sale_id == sale.id).order_by(m.SaleItem.position)).all()
         view['items'] = [{k: getattr(i, k) for k in ('id', 'category', 'description', 'unit', 'quantity', 'unit_price',
             'subtotal', 'supplier_id', 'supplier_name', 'unit_cost', 'cost_total', 'lpo_line_id',
-            'supplier_collection_id', 'supplier_batch_id')} for i in items]
+            'supplier_collection_id', 'supplier_batch_id', 'location_allocation_id', 'opening_stock_id', 'cost_state')}
+            | {'margin': None if i.cost_state == 'unknown' else i.subtotal - (i.cost_total or ZERO)} for i in items]
+        openings = {i.opening_stock_id for i in items if i.opening_stock_id}
+        numbers = dict(db.execute(select(m.OpeningStock.id, m.OpeningStock.receipt_number)
+            .where(m.OpeningStock.id.in_(openings))).all()) if openings else {}
+        for row in view['items']:
+            row['opening_stock_number'] = numbers.get(row['opening_stock_id'])
+        view['cost_adjustments'] = [adjustment_view(db, row) for row in db.scalars(select(m.FinancialAdjustment)
+            .where(m.FinancialAdjustment.sale_id == sale.id, m.FinancialAdjustment.kind == 'cost_resolved')
+            .order_by(m.FinancialAdjustment.created_at))]
         view['debts'] = [{**debt_view(d), 'payments': [payment_view(db, p) for p in _payments(db, d.id)]} for d in debts]
     return view
 
@@ -272,11 +286,31 @@ def _collect_batch_lines(db, collected, sale, operator):
     return receipts
 
 
+def _opening_item(db, sale_id, position, line, subtotal, taken=ZERO):
+    """A sale line from opening stock (M1.3, D3): sold in its unit and
+    category at the value the finance owner gave it. No supplier is owed."""
+    row = take_opening_stock(db, line.opening_stock_id, line.quantity, taken)
+    unit, category = _receipt_line(line, row.unit, row.category)
+    return m.SaleItem(sale_id=sale_id, position=position, category=category,
+        description=line.description or row.description or category.replace('_', ' '), unit=unit,
+        quantity=line.quantity, unit_price=line.unit_price, subtotal=subtotal, opening_stock_id=row.id,
+        unit_cost=row.unit_cost, cost_total=s.money(line.quantity * row.unit_cost))
+
+
+def _known_cost(items):
+    """A sale's recorded buying cost: its known and free lines. An unknown
+    line adds nothing and makes the margin provisional (R5)."""
+    return sum((i.cost_total or ZERO for i in items if i.cost_state != 'unknown'), ZERO)
+
+
 @router.post('/sales', status_code=201)
 def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operator=Depends(auth.ops), db=Depends(database)):
     key, fingerprint, prior = s.replay(db, operator.id, 'sale', idempotency_key, data.model_dump())
     if prior:
         return _result(sale_view(db, db.get(m.Sale, prior), True), 201)
+    from .locations import location, take_location_stock, whole_quantity
+    if data.location_id:
+        location(db, data.location_id, active=True)
     profile = _sale_buyer(db, data)
     sale_id = m.identifier()
     number = 'SL-' + sale_id.replace('-', '')[:8].upper()
@@ -285,6 +319,19 @@ def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operat
     collected = []
     for position, line in enumerate(data.items, 1):
         subtotal = s.money(line.quantity * line.unit_price)
+        if line.location_allocation_id:
+            allocation = take_location_stock(db, line, data.location_id, data.sold_on, taken[line.location_allocation_id])
+            whole_quantity(allocation.unit, line.quantity)
+            taken[line.location_allocation_id] += line.quantity
+            items.append(m.SaleItem(sale_id=sale_id, position=position, location_allocation_id=allocation.id,
+                category=allocation.category, description=allocation.description, unit=allocation.unit,
+                quantity=line.quantity, unit_price=line.unit_price, subtotal=subtotal,
+                unit_cost=allocation.unit_cost, cost_total=s.money(line.quantity * allocation.unit_cost)))
+            continue
+        if line.opening_stock_id:
+            items.append(_opening_item(db, sale_id, position, line, subtotal, taken[line.opening_stock_id]))
+            taken[line.opening_stock_id] += line.quantity
+            continue
         if line.supplier_collection_id:
             from .batch_stock import take_collection_stock
             collection, batch = take_collection_stock(db, line.supplier_collection_id, line.quantity,
@@ -323,7 +370,8 @@ def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operat
             description=line.description or '', unit=line.unit, quantity=line.quantity, unit_price=line.unit_price,
             subtotal=subtotal, supplier_id=line.supplier_id, supplier_name=line.supplier_name,
             unit_cost=line.unit_cost, cost_total=cost_total))
-        if cost_total:  # free stock (0) is owed to no one
+        # Free stock (0) and own stock are owed to no one.
+        if cost_total and (line.supplier_id or line.supplier_name):
             if line.supplier_id:
                 party = ('supplier', line.supplier_id)
                 costs[party]['name'], costs[party]['phone'] = _supplier_party(db, line.supplier_id)
@@ -334,10 +382,12 @@ def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operat
             costs[party]['lines'].append(line.description or line.category.replace('_', ' '))
             if line.cost_payment:
                 costs[party].setdefault('payments', []).append((cost_total, line.cost_payment))
+    for item in items:
+        item.cost_state = cost_state_for(item.unit_cost)
     total = sum((i.subtotal for i in items), ZERO)
-    cost = sum((i.cost_total or ZERO for i in items), ZERO)
+    cost = _known_cost(items)
     name = profile.business_name or profile.contact_person or profile.phone
-    sale = m.Sale(id=sale_id, sale_number=number, sold_on=data.sold_on, buyer_profile_id=profile.id,
+    sale = m.Sale(id=sale_id, location_id=data.location_id, sale_number=number, sold_on=data.sold_on, buyer_profile_id=profile.id,
         buyer_user_id=profile.user_id, buyer_name=name, buyer_phone=profile.phone or '',
         total_amount=total, cost_amount=cost, notes=data.notes, created_by=operator.id)
     db.add(sale)
@@ -391,6 +441,13 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
         fail('err.sale_not_found', 404)
     if sale.status != 'active':
         fail('err.cancelled_sale_cannot_be_edited')
+    from .locations import error
+    if db.scalar(select(m.SaleItem.id).where(m.SaleItem.sale_id == id, m.SaleItem.location_allocation_id.is_not(None))):
+        error('err.location_cancel_to_correct', 422)
+    if data.location_id != sale.location_id:
+        error('err.location_immutable_sale_location', 422)
+    if any(line.location_allocation_id for line in data.items):
+        error('err.location_record_from_location', 422)
     if data.payment or any(line.cost_payment for line in data.items):
         fail('err.sale_edit_payments_separately', 422)
 
@@ -408,9 +465,13 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
         if item.supplier_batch_id:
             return_to_batch(db, item.supplier_batch_id, item.quantity)
             legacy_batches.add(item.supplier_batch_id)
-    free = {_party_key(item) for item in old_items if item.unit_cost == 0}
+    free = {_party_key(item) for item in old_items if item.cost_state == 'free'}
+    old_opening = defaultdict(lambda: ZERO)
     unit_costs = {}
     for item in old_items:
+        if item.opening_stock_id:
+            old_opening[item.opening_stock_id] += item.quantity
+            unit_costs[item.opening_stock_id] = item.unit_cost
         if item.lpo_line_id:
             old_lpo[item.lpo_line_id] += item.quantity
             unit_costs[item.lpo_line_id] = item.unit_cost
@@ -423,6 +484,11 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
     collected = []
     for position, line in enumerate(data.items, 1):
         subtotal = s.money(line.quantity * line.unit_price)
+        if line.opening_stock_id:
+            prior = taken[line.opening_stock_id] - old_opening[line.opening_stock_id]
+            items.append(_opening_item(db, id, position, line, subtotal, prior))
+            taken[line.opening_stock_id] += line.quantity
+            continue
         if line.supplier_collection_id:
             from .batch_stock import take_collection_stock
             prior = taken[line.supplier_collection_id] - old_collections[line.supplier_collection_id]
@@ -465,7 +531,8 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
             description=line.description or '', unit=line.unit, quantity=line.quantity, unit_price=line.unit_price,
             subtotal=subtotal, supplier_id=line.supplier_id, supplier_name=line.supplier_name,
             unit_cost=line.unit_cost, cost_total=cost_total, supplier_batch_id=line.supplier_batch_id))
-        if cost_total:  # free stock (0) is owed to no one
+        # Free stock (0) and own stock are owed to no one.
+        if cost_total and (line.supplier_id or line.supplier_name):
             if line.supplier_id:
                 party = ('supplier', line.supplier_id)
                 costs[party]['name'], costs[party]['phone'] = _supplier_party(db, line.supplier_id)
@@ -475,8 +542,10 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
             costs[party]['amount'] += cost_total
             costs[party]['lines'].append(line.description or line.category.replace('_', ' '))
 
+    for item in items:
+        item.cost_state = cost_state_for(item.unit_cost, _party_key(item) in free)
     total = sum((item.subtotal for item in items), ZERO)
-    cost = sum((item.cost_total or ZERO for item in items), ZERO)
+    cost = _known_cost(items)
     debts = db.scalars(select(m.LedgerDebt).where(m.LedgerDebt.sale_id == id).with_for_update()).all()
     receivable = next((row for row in debts if row.direction == 'receivable'), None)
     if not receivable or total < receivable.paid_amount:
@@ -523,7 +592,7 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
     # Received goods this edit no longer sells: staff say what happened to
     # them (rule R2). Nothing on the receipt or its payable changes.
     reductions = [(source, quantity - taken[source], unit_costs[source], kind)
-        for kind, old in (('collection', old_collections), ('lpo', old_lpo))
+        for kind, old in (('collection', old_collections), ('lpo', old_lpo), ('opening', old_opening))
         for source, quantity in old.items() if quantity > taken[source]]
     _goods_taken_off(db, sale, reductions, data.goods, data.goods_note, 'Sale edited: fewer sold', operator)
 
@@ -561,8 +630,9 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
 
 def _goods_taken_off(db, sale, reductions, goods, note, reason, operator):
     """Received goods a sale no longer sells (cancelled, or edited to fewer):
-    `reductions` is [(delivery note or LPO line id, quantity, unit cost,
-    'collection' | 'lpo')]. Staff say what happened (rule R2):
+    `reductions` is [(delivery note, LPO line, opening stock or location
+    allocation id, quantity, unit cost, 'collection' | 'lpo' | 'opening' |
+    'location')]. Staff say what happened (rule R2):
 
     - never_left / buyer_return_accepted (condition noted): back on hand on
       their receipt; recorded as history;
@@ -579,7 +649,14 @@ def _goods_taken_off(db, sale, reductions, goods, note, reason, operator):
         fail('err.describe_returned_goods_condition', 422)
     today = c.business_today()
     for source, quantity, unit_cost, kind in reductions:
-        if kind == 'collection':
+        if kind == 'location':
+            if goods == 'not_recovered':
+                db.add(m.LocationStockEvent(allocation_id=source, occurred_on=today, kind='lost', quantity=quantity,
+                    note=f'Not recovered from sale {sale.sale_number}: {reason}'[:500], created_by=operator.id))
+        elif kind == 'opening':
+            db.add(m.OpeningStockMovement(opening_stock_id=source, kind=goods, quantity=quantity, occurred_on=today,
+                unit_cost=unit_cost or ZERO, sale_id=sale.id, reason=reason[:500], note=note, recorded_by=operator.id))
+        elif kind == 'collection':
             db.add(m.CollectionMovement(collection_id=source, kind=goods, quantity=quantity, occurred_on=today,
                 unit_cost=unit_cost or ZERO, sale_id=sale.id, reason=reason[:500], note=note, recorded_by=operator.id))
         elif goods == 'not_recovered':
@@ -612,12 +689,15 @@ def cancel_sale(id: str, data: c.SaleCancelInput, idempotency_key: str = Header(
         for item in items:
             if item.supplier_batch_id:
                 return_to_batch(db, item.supplier_batch_id, item.quantity)
+        for allocation_id in sorted({i.location_allocation_id for i in items if i.location_allocation_id}):
+            db.scalar(select(m.LocationAllocation).where(m.LocationAllocation.id == allocation_id).with_for_update())
         received = defaultdict(lambda: [ZERO, ZERO, ''])
         for item in items:
-            source = item.supplier_collection_id or item.lpo_line_id
+            source = item.location_allocation_id or item.supplier_collection_id or item.lpo_line_id or item.opening_stock_id
             if source:
                 received[source][0] += item.quantity
-                received[source][1:] = [item.unit_cost, 'collection' if item.supplier_collection_id else 'lpo']
+                received[source][1:] = [item.unit_cost, 'location' if item.location_allocation_id else 'collection'
+                    if item.supplier_collection_id else 'opening' if item.opening_stock_id else 'lpo']
         _goods_taken_off(db, sale, [(source, *values) for source, values in received.items()], data.goods,
             data.goods_note, f'Sale cancelled: {data.reason}', operator)
         sale.cancel_goods = data.goods if received else None
@@ -932,7 +1012,7 @@ def _snapshot(row, fields):
 
 
 DEBT_FIELDS = ('id', 'supplier_id', 'party_kind', 'party_name', 'amount', 'paid_amount', 'status', 'cancel_reason')
-ITEM_FIELDS = ('id', 'supplier_id', 'supplier_name', 'unit_cost', 'cost_total', 'quantity', 'unit')
+ITEM_FIELDS = ('id', 'supplier_id', 'supplier_name', 'unit_cost', 'cost_total', 'quantity', 'unit', 'cost_state')
 
 
 def _state(debt, sale, lines):
@@ -1016,12 +1096,14 @@ def correct_debt(id: str, data: c.DebtCorrectionInput, idempotency_key: str = He
             if data.kind == 'wrong_supplier':
                 item.supplier_id, item.supplier_name = data.supplier_id, '' if data.supplier_id else data.supplier_name
             elif data.kind == 'free_stock':
-                # A known zero. M1.3 marks these lines' cost_state 'free'.
+                # A known zero, approved by this admin with a reason (M1.3).
                 item.unit_cost = item.cost_total = Decimal('0.00')
+                item.cost_state = 'free'
             elif data.kind == 'cost_never_existed':
                 # Unknown again, never zero (R5).
                 item.supplier_id, item.supplier_name, item.unit_cost, item.cost_total = None, '', None, None
-        sale.cost_amount = sum((item.cost_total or ZERO for item in items), ZERO)
+                item.cost_state = 'unknown'
+        sale.cost_amount = _known_cost(items)
         debt.status, debt.cancelled_at, debt.cancelled_by, debt.cancel_reason = 'cancelled', m.now(), operator.id, reason
         db.flush()
         after = _state(debt, sale, lines)
@@ -1596,13 +1678,20 @@ def create_expense(data: c.ExpenseInput, idempotency_key: str = Header(), operat
     key, fingerprint, prior = s.replay(db, operator.id, 'expense', idempotency_key, data.model_dump())
     if prior:
         return _result(_debt_detail(db, db.get(m.LedgerDebt, prior)), 201)
+    from .locations import location, error
+    location_id = data.location_id
     if data.sale_id:
         sale = db.get(m.Sale, data.sale_id)
         if not sale:
             fail('err.sale_not_found', 404)
+        if location_id and sale.location_id and location_id != sale.location_id:
+            error('err.location_expense_sale_match', 422)
+        location_id = location_id or sale.location_id
+    if location_id:
+        location(db, location_id, active=True)
     row = m.LedgerDebt(direction='payable', party_kind='other', party_name=data.paid_to or 'Expense',
         party_phone=data.paid_to_phone, description=data.description, amount=data.amount, incurred_on=data.spent_on,
-        due_on=data.due_on, source='expense', expense_category=data.category, sale_id=data.sale_id,
+        due_on=data.due_on, source='expense', expense_category=data.category, sale_id=data.sale_id, location_id=location_id,
         created_by=operator.id)
     db.add(row)
     db.flush()
@@ -1614,8 +1703,8 @@ def create_expense(data: c.ExpenseInput, idempotency_key: str = Header(), operat
 
 @router.get('/expenses')
 def expenses(params: Paging = Depends(), start: Optional[date] = None, end: Optional[date] = None,
-             category: Optional[str] = None, sale_id: Optional[str] = None, operator=Depends(auth.ops),
-             db=Depends(database)):
+             category: Optional[str] = None, sale_id: Optional[str] = None, location_id: Optional[str] = None,
+             operator=Depends(auth.ops), db=Depends(database)):
     where = [m.LedgerDebt.source == 'expense']
     if start:
         where.append(m.LedgerDebt.incurred_on >= start)
@@ -1625,6 +1714,9 @@ def expenses(params: Paging = Depends(), start: Optional[date] = None, end: Opti
         where.append(m.LedgerDebt.expense_category == category)
     if sale_id:
         where.append(m.LedgerDebt.sale_id == sale_id)
+    if location_id:
+        where.append(or_(m.LedgerDebt.location_id == location_id, and_(m.LedgerDebt.location_id.is_(None),
+            m.LedgerDebt.sale_id.in_(select(m.Sale.id).where(m.Sale.location_id == location_id)))))
     body = paging.page(db, DEBTS, params, debt_view, where=where)
     # Money over every row the list pages through (same dates, category, sale,
     # search and status tab), not just this page. `total` stays the row count.
@@ -1678,8 +1770,10 @@ def financial_report(start: date, end: date,
         days = (end - start).days + 1
         previous = profit_between(db, start - timedelta(days=days), previous_end)
         where = (m.Sale.status == 'active', m.Sale.sold_on >= start, m.Sale.sold_on <= end)
+        # An unknown cost is never a product's final margin (R5).
+        unknown_line = m.SaleItem.cost_state == 'unknown'
         rows = db.execute(select(m.SaleItem.category, func.sum(m.SaleItem.subtotal),
-            func.sum(m.SaleItem.cost_total), func.count().filter(m.SaleItem.cost_total.is_(None)),
+            func.sum(m.SaleItem.cost_total).filter(~unknown_line), func.count().filter(unknown_line),
             func.count()).join(m.Sale, m.Sale.id == m.SaleItem.sale_id).where(*where)
             .group_by(m.SaleItem.category)).all()
         products = [{'category': category or 'other', 'revenue': revenue, 'known_cost': cost or ZERO,
@@ -1690,7 +1784,7 @@ def financial_report(start: date, end: date,
         active_days = sum(d['revenue'] > 0 for d in actual['days'])
         issues = []
         if unknown:
-            issues.append(f'{unknown} sale lines have no recorded buying cost. Complete their costs before forecasting.')
+            issues.append(f"{rp.PROVISIONAL}: {actual['unknown_cost']['sales']} sales (TZS {actual['unknown_cost']['revenue']:,.2f} revenue) have {unknown} lines with an unknown buying cost. Give them a cost before forecasting.")
         if days < 60 or active_days < 10:
             issues.append('Use at least 60 calendar days with sales on at least 10 days. This is a minimum screening rule, not a confidence guarantee.')
         if actual['revenue'] <= 0:
@@ -1702,9 +1796,9 @@ def financial_report(start: date, end: date,
         if fixed is None or variable_pct is None or not reviewed:
             issues.append('Enter monthly fixed costs and other variable costs, then confirm that you reviewed the assumptions and source records.')
         notes = [
-            'Management report of recorded activity, not reconciled statutory accounts. Missing expenses, opening stock costs and historical corrections can change these results.',
+            'Management report of recorded activity, not reconciled statutory accounts. Missing expenses and historical corrections can change these results. While any sale line has an unknown buying cost, profit is provisional: buying costs incomplete.',
             'Revenue covers active direct sales on their sale date and delivered app orders on their delivery date (decision D2). App orders not yet delivered are commitments, not revenue. App order cost is the supplier payout for the accepted quantity.',
-            'Expenses include recorded expense debts, whether paid or unpaid, plus recorded LPO stock losses and delivery-note goods recorded as not recovered. Other collection losses (mortality), depreciation, tax and financing are not comprehensively captured.',
+            'Expenses include recorded expense debts, whether paid or unpaid, plus recorded LPO stock losses and delivery-note goods recorded as not recovered. Registered-asset depreciation is included as a non-cash expense. Other collection losses, tax and financing are not comprehensively captured.',
             'Product analysis covers direct sales only. Unknown costs are never shown as a final product margin.',
             'Forecasts are conditional operating scenarios, not cash forecasts. They assume constant selling prices, product mix and stock-cost ratios, with enough supply and delivery capacity.',
             'Investment recovery means future cumulative operating earnings reach the entered unrecovered amount; it is not a cash payback or guaranteed date.',
@@ -1716,8 +1810,8 @@ def financial_report(start: date, end: date,
             growth_pct=growth_pct, investment=investment)
         suggestions = []
         if unknown:
-            suggestions.append({'title': 'Complete buying costs first', 'evidence': f'{unknown} direct-sale lines are uncosted.',
-                'action': 'Match these sales to supplier receipts. Do not use their apparent margin to justify expansion.', 'priority': 'Data quality'})
+            suggestions.append({'title': 'Complete buying costs first', 'evidence': f'{unknown} direct-sale lines have an unknown buying cost.',
+                'action': 'Give each a cost: link it to opening stock, enter an evidenced cost, or record it as free (admins). Do not use the apparent margin to justify expansion.', 'priority': 'Data quality'})
         for row in sorted(products, key=lambda r: r['gross_margin'] if r['gross_margin'] is not None else ZERO)[:3]:
             if row['gross_margin'] is not None and row['gross_margin'] < 0:
                 suggestions.append({'title': f'Review {row["category"].replace("_", " ")} pricing',
@@ -1743,6 +1837,8 @@ def financial_report(start: date, end: date,
                 'action': 'Complete costs and reconcile cash, then collect repeat-demand and capacity evidence. No investment amount is recommended from incomplete data.', 'priority': 'Growth readiness'})
         return _result({'generated_at': datetime.now(timezone.utc), 'model_version': 'operating-scenarios-v1',
             'actual': actual, 'previous': previous, 'products': products, 'unknown_cost_lines': unknown,
+            'provisional': actual['provisional'], 'provisional_label': actual['provisional_label'],
+            'unknown_cost': actual['unknown_cost'],
             'active_sales_days': active_days, 'history_days': days, 'limitations': notes,
             'forecast_blockers': issues, 'forecast': forecast, 'suggestions': suggestions,
             'assumptions': {'fixed': fixed, 'variable_pct': variable_pct, 'growth_pct': growth_pct,

@@ -1,5 +1,5 @@
 ID,Priority,Outcome,Implementation,Acceptance criteria,Suggested owner,Dependencies,Status
-F01,P0,Unify financial report populations,Common source-aware reporting views and metric dictionary,Marketplace-only and mixed-stream totals equal complete drilldowns,Backend + finance,Metric definitions,Open
+F01,P0,Unify financial report populations,Common source-aware reporting views and metric dictionary,Marketplace-only and mixed-stream totals equal complete drilldowns,Backend + finance,Metric definitions,Built + committed 6141ac8 (plan 1.7); not deployed
 F02,P0,Preserve inventory carrying cost,Opening inventory and known/unknown cost states without duplicate payable,Already-paid stock retains cost; missing cost marks margin provisional,Backend + finance,Opening stock evidence,Open
 F03,P0,Enforce receipt unit and date,Derive units and validate historical lot availability,Bird receipt rejects kg consumption without explicit conversion; no unsupported backdated stock,Backend,None,"Units done, committed d579d24 (plan 1.5); dated stock checks pending (plan 2.2)"
 F04,P0,Separate money from allocations,"Transfer ledger, unapplied credit, reallocation and actual refunds",Reallocation leaves cash unchanged; transfer balances to allocations plus credit/refunds,Backend + finance,Payment classification,Built + committed d579d24 (plan 1.2); not deployed

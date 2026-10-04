@@ -297,6 +297,7 @@ export async function createExpense(_: ActionResult | null, formData: FormData) 
   const sale = text(formData, 'sale_id');
   const body = {
     spent_on: text(formData, 'spent_on'),
+    location_id: text(formData, 'location_id') || null,
     category: text(formData, 'category'),
     description: text(formData, 'description'),
     amount,
@@ -310,7 +311,7 @@ export async function createExpense(_: ActionResult | null, formData: FormData) 
     } : null,
   };
   return run(() => post('/ops/expenses', body, key(formData)),
-    [...FINANCE, '/finance/expenses', '/finance/profit', ...(sale ? [`/sales/${sale}`] : [])]);
+    [...FINANCE, '/locations', '/finance/expenses', '/finance/profit', ...(sale ? [`/sales/${sale}`] : [])]);
 }
 
 export async function sendPromotion(_: ActionResult | null, formData: FormData) {

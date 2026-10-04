@@ -28,9 +28,10 @@ test('Finance headlines agree on Finance, Debts, Sales, Profit and the Cash book
   await signInOperator(context, seeded.operator_token);
 
   await page.goto('/finance');
-  await expect(page.getByRole('link', { name: 'Money owed to me' }).locator('strong')).toHaveText(tzs(OWED_TO_ME));
-  await expect(page.getByRole('link', { name: 'Money I owe' }).locator('strong')).toHaveText(tzs(COST));
-  await expect(page.getByRole('link', { name: 'Sales' }).locator('strong')).toHaveText(tzs(SALE));
+  const overview = page.locator('section[aria-label="Finance summary"]');
+  await expect(overview.getByRole('link', { name: 'Money owed to me', exact: true }).locator('strong')).toHaveText(tzs(OWED_TO_ME));
+  await expect(overview.getByRole('link', { name: 'Money I owe', exact: true }).locator('strong')).toHaveText(tzs(COST));
+  await expect(overview.getByRole('link', { name: 'Sales', exact: true }).locator('strong')).toHaveText(tzs(SALE));
 
   await page.goto('/finance/debts');
   const debts = page.locator('section[aria-label="Debt summary"]');

@@ -44,8 +44,9 @@ def _sale(db, profile, number, items, status='active'):
     db.add(sale); db.flush()
     rows = []
     for position, item in enumerate(items, 1):
+        state = 'known' if item.get('unit_cost') else 'unknown'
         row = m.SaleItem(sale_id=sale.id, position=position, description='Broilers', unit='bird',
-                         quantity=item['subtotal'] / 1000, unit_price=1000, **item)
+                         quantity=item['subtotal'] / 1000, unit_price=1000, cost_state=state, **item)
         db.add(row); rows.append(row)
     db.flush()
     return sale, rows
@@ -263,7 +264,7 @@ def test_command_writes_nothing(sessions, seeded, engine, monkeypatch, capsys):
         json_out = json.loads(capsys.readouterr().out)
     finally:
         event.remove(engine, 'before_cursor_execute', watch)
-    assert 'SL-0200' in text_out and '1. Active sale lines with no known cost (own stock): 1' in text_out
+    assert 'SL-0200' in text_out and '1. Active sale lines with an unknown buying cost: 1' in text_out
     assert json_out['sections'][0]['amount'] == 20000
     writes = [s for s in statements if s.lstrip().split()[0].upper() in ('INSERT', 'UPDATE', 'DELETE', 'CREATE', 'ALTER', 'DROP', 'TRUNCATE')]
     assert writes == []

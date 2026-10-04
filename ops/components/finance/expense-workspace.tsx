@@ -13,7 +13,7 @@ export function RecordExpenseButton() {
   const open = useContext(OpenExpense);
   return <button className={styles.primary} onClick={open}><Icons.plus size={19}/>Record expense</button>;
 }
-export function ExpenseWorkspace({ children, now, saleId, saleNumber }: { children?: ReactNode; now: string; saleId: string; saleNumber?: string }) {
+export function ExpenseWorkspace({ children, now, saleId, saleNumber, locationId, locationName }: { children?: ReactNode; now: string; saleId: string; saleNumber?: string; locationId?: string; locationName?: string }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const form = useRef<HTMLFormElement>(null);
   const key = useRef('');
@@ -35,15 +35,17 @@ export function ExpenseWorkspace({ children, now, saleId, saleNumber }: { childr
     } catch { setError('Could not save the expense. Please try again.'); }
     finally { setBusy(false); }
   }
-  return <OpenExpense.Provider value={show}><div className={saleNumber ? undefined : `${styles.workspace} ${open ? styles.drawerOpen : ''}`}>
-    {saleNumber ? <RecordExpenseButton/> : <div className={styles.heading}><h1>Expenses</h1><RecordExpenseButton/></div>}
+  return <OpenExpense.Provider value={show}><div className={saleNumber || locationName ? undefined : `${styles.workspace} ${open ? styles.drawerOpen : ''}`}>
+    {saleNumber || locationName ? <RecordExpenseButton/> : <div className={styles.heading}><h1>Expenses</h1><RecordExpenseButton/></div>}
     {saved && <p className={styles.success} role="status">Expense saved.</p>}
     {children}
     <dialog ref={dialog} className={styles.drawer} aria-labelledby="expense-drawer-title" onCancel={event => { if(busy) event.preventDefault(); }} onClose={() => setOpen(false)}>
       <div className={styles.drawerHeading}><h2 id="expense-drawer-title">Record an expense</h2><button type="button" className={styles.iconButton} aria-label="Close expense form" disabled={busy} onClick={close}><Icons.close/></button></div>
       <form ref={form} onSubmit={event => { event.preventDefault(); if (!busy) void submit(new FormData(event.currentTarget)); }} className={styles.expenseForm}>
         <input type="hidden" name="sale_id" value={saleId}/>
+        {locationId && <input type="hidden" name="location_id" value={locationId}/>}
         <div className={styles.fields}>
+          {locationName && <p>Expense for {locationName}. Included in this location’s running costs and total business expenses.</p>}
           {saleId && <p>This expense is linked to {saleNumber ? `sale ${saleNumber}` : 'this sale'} and included in total expenses, whether paid or owed.</p>}
           <label>Date<input name="spent_on" type="date" defaultValue={now} max={now} required autoFocus/></label>
           <label>Category<select name="category" required>{EXPENSE_CATEGORIES.map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></label>
