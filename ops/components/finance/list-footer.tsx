@@ -5,7 +5,9 @@ import styles from './finance-list.module.css';
 
 // "Showing 1 – 10 of 54", the page numbers and rows per page under a list.
 // `href(page)` builds the link to a page with the list's current filters.
-export function ListFooter({ data, href, label }: { data: Page<unknown>; href: (page: number) => string; label: string }) {
+// A second list on a page leaves out rows per page (`perPage` false), which
+// belongs to the page's main list.
+export function ListFooter({ data, href, label, perPage = true }: { data: Page<unknown>; href: (page: number) => string; label: string; perPage?: boolean }) {
   const pages = pageCount(data);
   const current = Math.min(data.page, pages);
   const first = data.total ? (current - 1) * data.page_size + 1 : 0;
@@ -21,6 +23,6 @@ export function ListFooter({ data, href, label }: { data: Page<unknown>; href: (
       </span>)}
       {current < pages ? <Link href={href(current + 1)} className={styles.step}>Next ›</Link> : <span className={styles.step} aria-disabled="true">Next ›</span>}
     </nav>}
-    <RowsPerPage value={data.page_size} />
+    {perPage && <RowsPerPage value={data.page_size} />}
   </footer>;
 }

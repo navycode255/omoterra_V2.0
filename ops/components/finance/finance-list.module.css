@@ -268,3 +268,13 @@
 .payLayout .table td:first-child { min-width: 150px; }
 .payLayout .tableWrap { overflow-x: auto; }
 .smsOptions .switch { font-size: 13px; }
+
+/* Reporting layer (M1.7): rows behind part of a headline, and scope notes. */
+.sourceNote { margin: -6px 0 12px 2px; color: #6b7a8f; font-size: 13px; }
+.sourceNote strong { color: var(--ink); font-weight: 700; }
+.scope { color: var(--muted); font-size: 12px; }
+.phoneLabel { display: none; }
+@media (max-width: 700px) {
+  .wideLabel { display: none; }
+  .phoneLabel { display: inline; }
+}

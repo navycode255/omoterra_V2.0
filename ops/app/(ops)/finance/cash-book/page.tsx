@@ -11,7 +11,7 @@ import { dateTime, tzs } from '@/lib/format';
 import { listPath, param, type ListParams, type Page } from '@/lib/paging';
 
 export const metadata = { title: 'Cash book · Omoterra Operations' };
-type CashBook = Page<CashMovement> & { summary: { money_in: string; money_out: string; net: string; cash_in_hand: string } };
+type CashBook = Page<CashMovement> & { summary: { money_in: string; money_out: string; net: string; recorded_net_cash: string } };
 const tabs = [['', 'All'], ['in', 'Money in'], ['out', 'Money out'], ['reversed', 'Reversed']];
 const plain = (value: string) => Number(value).toLocaleString('en-US', { maximumFractionDigits: 2 });
 const signed = (value: string) => `${Number(value) < 0 ? '-' : ''}${tzs(String(Math.abs(Number(value))))}`;
@@ -63,8 +63,10 @@ export default async function CashBookPage({ searchParams }: { searchParams: Pro
     </div>
 
     <section className={styles.stats} data-count="4" aria-label="Cash summary">
-      <article className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.cash size={26} /></span>
-        <div><span>Cash in hand</span><strong>{signed(total.cash_in_hand)}</strong></div></article>
+      {/* Not a verified balance until money accounts and counts (M2.3). */}
+      <Link href={href({ method: 'cash', dates: 'all', start: '', end: '', status: '', page: '' })} className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.cash size={26} /></span>
+        <div><span><span className={styles.wideLabel}>Recorded net cash movement (unverified)</span><span className={styles.phoneLabel}>Net cash (unverified)</span></span>
+          <strong>{signed(total.recorded_net_cash)}</strong><small>Cash entries since records began; excludes app orders</small></div></Link>
       <Link href={href({ status: 'in', page: '' })} className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.arrowUp size={26} /></span>
         <div><span>Money in</span><strong>{tzs(total.money_in)}</strong></div></Link>
       <Link href={href({ status: 'out', page: '' })} className={styles.stat} data-tone="red"><span className={styles.statIcon}><Icons.arrowDown size={26} /></span>
@@ -95,14 +97,17 @@ export default async function CashBookPage({ searchParams }: { searchParams: Pro
           const incoming = p.flow === 'in';
           // A supplier transfer is one row however many invoices it paid;
           // a refund from a supplier is its own money-in row.
-          const who = p.debt_id && p.kind !== 'transfer' ? `/finance/debts/${p.debt_id}` : p.supplier_id ? `/suppliers/${p.supplier_id}#money` : null;
+          // App order money links to its order (buyer receipts) or supplier (payouts).
+          const who = p.debt_id && p.kind !== 'transfer' ? `/finance/debts/${p.debt_id}` : p.supplier_id ? `/suppliers/${p.supplier_id}#money`
+            : p.order_id ? `/orders/${p.order_id}` : null;
           const what = p.kind === 'refund' ? 'Refund from supplier'
             : p.kind === 'transfer' ? (p.invoices > 1 ? `Supplier transfer over ${p.invoices} invoices` : p.description ?? 'Supplier transfer')
             : p.description ?? '';
           return <tr key={`${p.kind}:${p.id}`} data-reversed={p.reversed || undefined}>
             <td data-label="Date" className={styles.money}>{day(p.paid_on)}</td>
             <td data-label="Who">{who ? <Link className={styles.name} href={who}>{p.party_name}</Link> : p.party_name}</td>
-            <td data-label="For" className={styles.forCell}>{p.sale_id && p.kind !== 'refund' ? <Link href={`/sales/${p.sale_id}`}>{what}</Link> : what}</td>
+            <td data-label="For" className={styles.forCell}>{p.sale_id && p.kind !== 'refund' ? <Link href={`/sales/${p.sale_id}`}>{what}</Link>
+              : p.order_id ? <Link href={`/orders/${p.order_id}`}>{what}</Link> : what}</td>
             <td data-label="In" className={styles.inAmount}>{incoming ? plain(p.amount) : '–'}</td>
             <td data-label="Out" className={styles.outAmount}>{incoming ? '–' : plain(p.amount)}</td>
             <td data-label="Method">{methodLabel(p.method)}{p.reference && <small className={styles.block}>{p.reference}</small>}</td>
@@ -115,6 +120,7 @@ export default async function CashBookPage({ searchParams }: { searchParams: Pro
                   {p.debt_id && <Link href={`/finance/debts/${p.debt_id}`}>{p.kind === 'transfer' ? 'Open the first invoice' : 'Open the debt'}</Link>}
                   {p.supplier_id && <Link href={`/suppliers/${p.supplier_id}#money`}>Supplier statement</Link>}
                   {p.sale_id && <Link href={`/sales/${p.sale_id}`}>Open sale</Link>}
+                  {p.order_id && <Link href={`/orders/${p.order_id}`}>Open app order</Link>}
                   {!p.reversed && p.kind === 'payment' && p.debt_id && <Link href={`/finance/debts/${p.debt_id}`}>Reverse (on the debt)</Link>}
                 </div>
               </details>

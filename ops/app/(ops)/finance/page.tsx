@@ -22,7 +22,7 @@ function PartyTable({ parties, empty }: { parties: Party[]; empty: string }) {
             const q = encodeURIComponent(p.party_phone || p.party_name);
             return (
               <tr key={`${p.party_kind}:${p.buyer_profile_id ?? p.supplier_id ?? p.party_name}`}>
-                <td><Link href={`/finance/debts?q=${q}`} className="strong">{p.party_name}</Link></td>
+                <td><Link href={`/finance/debts?q=${q}`} className="strong">{p.party_name}</Link>{p.sources.includes('marketplace') && <small>App orders</small>}</td>
                 <td>{p.party_phone ? phone(p.party_phone) : '—'}</td>
                 <td className="money strong">{tzs(p.balance)}</td>
                 <td>{Number(p.overdue) > 0 ? <Status tone="error">{tzs(p.overdue)}</Status> : '–'}</td>
@@ -87,23 +87,26 @@ export default async function Finance({ searchParams }: { searchParams: Promise<
         <section className={styles.summaryGrid} aria-label="Finance summary">
           <Link href="/finance/debts?status=owed_to_me" className={styles.summaryCard} aria-label="Money owed to me">
             <Icons.users className={styles.summaryIcon} size={34} />
-            <div><span>Owed to me</span><Amount value={tzs(data.owed_to_me.total)}/></div>
+            <div><span>Owed to me</span><Amount value={tzs(data.owed_to_me.total)}/>
+              {/* Undelivered app orders: beside the debt, never inside it (D2). */}
+              {Number(data.commitments.total) > 0 && <Amount cash value={`Not delivered yet: ${tzs(data.commitments.total)}`}/>}</div>
             <Sparkline className={styles.spark} values={data.trends.owed_to_me} />
           </Link>
           <Link href="/finance/debts?status=i_owe" className={styles.summaryCard} aria-label="Money I owe">
             <Icons.card className={`${styles.summaryIcon} ${styles.oweIcon}`} size={34} />
-            <div><span>I owe</span><Amount value={tzs(data.i_owe.total)}/></div>
+            <div><span>I owe</span><Amount value={tzs(data.i_owe.total)}/>
+              {Number(data.i_owe.disputed) > 0 && <Amount cash value={`Payouts disputed: ${tzs(data.i_owe.disputed)}`}/>}</div>
             <Sparkline className={styles.spark} values={data.trends.i_owe} tone="red" />
           </Link>
           <Link href="/sales" className={styles.summaryCard} aria-label="Sales">
             <Icons.chart className={styles.summaryIcon} size={34} />
             <div><span>{period === 'today' ? 'Sales today' : 'Sales this month'}</span><Amount value={tzs(period === 'today' ? data.today.sales : data.month.sales)}/>
-              <Amount cash value={`Cash received: ${tzs(period === 'today' ? data.today.money_in : data.month.money_in)}`}/></div>
+              <Amount cash value={`Collected: ${tzs(period === 'today' ? data.today.money_in : data.month.money_in)}`}/></div>
             <Sparkline className={styles.spark} values={data.trends.revenue} />
           </Link>
           <Link href="/finance/profit" className={styles.summaryCard} aria-label="Profit">
             <Icons.trend className={styles.summaryIcon} size={34} />
-            <div><span>{period === 'today' ? 'Profit today' : 'Profit this month'}</span><Amount value={signed(period === 'today' ? data.profit_today.net_profit : data.profit_month.net_profit)}/></div>
+            <div><span>{period === 'today' ? 'Operating profit today' : 'Operating profit this month'}</span><Amount value={signed(period === 'today' ? data.profit_today.net_profit : data.profit_month.net_profit)}/></div>
             <Sparkline className={styles.spark} values={data.trends.net_profit} tone={Number(period === 'today' ? data.profit_today.net_profit : data.profit_month.net_profit) < 0 ? 'red' : 'green'} />
           </Link>
         </section>
@@ -115,6 +118,7 @@ export default async function Finance({ searchParams }: { searchParams: Promise<
               <Link href="/finance/debts?status=owed_to_me" className={styles.allLink}>View all <Icons.chevron size={15} /></Link>
             </div>
             <PartyTable parties={data.debtors} empty="Nobody owes you anything recorded here." />
+            {data.debtors.length > 5 && <p className={styles.previewNote}>The 5 largest of {data.debtors.length}. View all lists every debt and delivered app order.</p>}
           </section>
           <section className={styles.panel}>
             <div className={styles.panelHeader}>
@@ -125,6 +129,7 @@ export default async function Finance({ searchParams }: { searchParams: Promise<
               </div>
             </div>
             <PartyTable parties={data.creditors} empty="You owe nothing recorded here." />
+            {data.creditors.length > 5 && <p className={styles.previewNote}>The 5 largest of {data.creditors.length}. All lists every debt and pending app payout.</p>}
           </section>
         </div>
 
@@ -145,7 +150,7 @@ export default async function Finance({ searchParams }: { searchParams: Promise<
                     ))}
                     <tr className={styles.totalRow}>
                       <td>Total</td><td>{tzs(data.all_time.money_in)}</td><td>{tzs(data.all_time.money_out)}</td>
-                      <td className={Number(data.all_time.money_in) - Number(data.all_time.money_out) < 0 ? styles.negative : styles.positive}>{signed(Number(data.all_time.money_in) - Number(data.all_time.money_out))}</td>
+                      <td className={Number(data.all_time.net) < 0 ? styles.negative : styles.positive}>{signed(data.all_time.net)}</td>
                     </tr>
                   </tbody>
                 </table>

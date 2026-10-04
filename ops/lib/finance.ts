@@ -1,7 +1,34 @@
 // Types and labels for sales, the debts ledger and promotions
 // (backend/app/finance.py and backend/app/promotions.py).
 
+import type { Page } from './paging';
+
 export type Direction = 'receivable' | 'payable';
+/** Where a figure's row comes from: the ledger (direct sales, debts) or app orders. */
+export type Source = 'ledger' | 'marketplace';
+
+/**
+ * One row behind a headline (GET /ops/finance/rows, backend reporting.py):
+ * the record it is counted from, so every headline can be opened and no
+ * record is counted twice.
+ */
+export interface ReportRow {
+  source: Source;
+  source_table: string;
+  source_id: string;
+  key: string;
+  date: string | null;
+  amount: string;
+  party?: string;
+  description?: string;
+  href?: string | null;
+  overdue?: boolean;
+  status?: string;
+  paid?: string;
+  unpaid?: string;
+}
+
+export type ReportRows = Page<ReportRow> & { amount: string };
 
 export interface LedgerPayment {
   id: string;
@@ -32,10 +59,14 @@ export interface LedgerPayment {
  * One cash book row (GET /ops/ledger/payments): a real movement of money.
  * A supplier transfer is one row however many invoices it pays; a refund is
  * its own money-in row; reversed installments are kept for the history.
+ * App orders add buyer receipts and supplier payouts (source 'marketplace').
  */
 export interface CashMovement {
   id: string;
-  kind: 'payment' | 'allocation' | 'transfer' | 'refund';
+  kind: 'payment' | 'allocation' | 'transfer' | 'refund' | 'receipt' | 'payout';
+  source: Source;
+  source_table: string;
+  order_id: string | null;
   flow: 'in' | 'out';
   direction: Direction;
   paid_on: string;
@@ -250,11 +281,17 @@ export interface OpenBatch {
   registered: string; remaining: string; created_at: string; asking_price_per_unit: string | null;
 }
 
-// Totals for the sales a list shows (GET /ops/sales -> summary).
+// Totals for the sales a list shows (GET /ops/sales -> summary). Sales
+// total is direct sales plus app orders delivered in the same dates.
 export interface SalesSummary {
-  sales_total: string; sales_count: number; received: string;
+  sales_total: string; direct_total: string; sales_count: number;
+  marketplace_total: string; marketplace_count: number; received: string;
   buyer_owes: string; buyer_owes_count: number; supplier_owed: string; supplier_owed_count: number;
+  expenses_owed: string; expenses_owed_count: number; commitments: Commitments;
 }
+
+/** App orders not delivered yet: never revenue or money owed to Omoterra. */
+export interface Commitments { total: string; unpaid: string; deposits: string; count: number }
 
 export interface Sale {
   id: string;
@@ -295,16 +332,22 @@ export interface Party {
   debts: number;
   oldest: string;
   overdue: string;
+  sources: Source[];
 }
 
+interface Period { sales: string; direct_sales: string; marketplace_sales: string; sales_count: number; money_in: string; money_out: string; net: string }
+interface Balance { ledger: string; marketplace: string; total: string; count: number; overdue: string; overdue_count: number }
+
 export interface FinanceSummary {
-  today: { date: string; sales: string; sales_count: number; money_in: string; money_out: string };
-  month: { start: string; sales: string; money_in: string; money_out: string };
-  all_time: { sales: string; money_in: string; money_out: string };
+  today: Period & { date: string };
+  month: Period & { start: string };
+  all_time: Period;
   profit_today: ProfitTotals;
   profit_month: ProfitTotals;
-  owed_to_me: { ledger: string; marketplace: string; total: string; overdue: string };
-  i_owe: { ledger: string; marketplace: string; total: string; overdue: string };
+  owed_to_me: Balance;
+  /** Disputed app payouts, supplier credit and unresolved money: beside the total, never netted. */
+  i_owe: Balance & { disputed: string; disputed_count: number; credit: string; unresolved: string };
+  commitments: Commitments;
   by_method: { method: string; in: string; out: string; net: string }[];
   debtors: Party[];
   creditors: Party[];
@@ -321,15 +364,28 @@ export interface ProfitTotals {
   marketplace_sales: string;
   marketplace_cost: string;
   revenue: string;
+  /** Stock cost of direct sales plus app order payouts. */
+  cost_of_goods: string;
   gross_profit: string;
   expenses: string;
   stock_lost: string;
+  expenses_and_losses: string;
   net_profit: string;
+  sales_count: number;
+  marketplace_count: number;
+  /** Delivered app orders with no recorded delivery date: in no period. */
+  unresolved_marketplace: { count: number; amount: string };
+  /** Sale lines with no buying cost (M1.3 makes the period provisional). */
+  unknown_cost: { lines: number; sales: number; revenue: string };
+  provisional: boolean;
   expenses_by_category: { category: string; amount: string }[];
 }
 
+type DayFigures = 'sales' | 'stock_cost' | 'marketplace_sales' | 'marketplace_cost' | 'revenue' | 'cost_of_goods'
+  | 'gross_profit' | 'expenses' | 'stock_lost' | 'expenses_and_losses' | 'net_profit';
+
 export interface ProfitReport extends ProfitTotals {
-  days: (Omit<ProfitTotals, 'start' | 'end' | 'expenses_by_category'> & { date: string })[];
+  days: (Pick<ProfitTotals, DayFigures> & { date: string })[];
 }
 
 export const EXPENSE_CATEGORIES: [string, string][] = [
@@ -397,8 +453,13 @@ export const METHODS: [string, string][] = [
   ['other', 'Other'],
 ];
 
+// App orders record no real payment method yet (backend reporting.APP_METHODS).
+const APP_METHODS: Record<string, string> = {
+  pay_on_delivery: 'App order (on delivery)', pay_now: 'App order (paid online)', app_payout: 'App order payout',
+};
+
 export function methodLabel(value: string) {
-  return METHODS.find(([key]) => key === value)?.[1] ?? value;
+  return METHODS.find(([key]) => key === value)?.[1] ?? APP_METHODS[value] ?? value;
 }
 
 export const UNITS: [string, string][] = [

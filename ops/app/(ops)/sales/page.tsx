@@ -3,10 +3,11 @@ import { Notice, PageHeader } from '@/components/ui';
 import { Icons } from '@/components/icons';
 import { FilterMenu, SearchBox } from '@/components/list-toolbar';
 import { ListFooter } from '@/components/finance/list-footer';
+import { SourceRows } from '@/components/finance/source-rows';
 import ui from '@/components/finance/expenses.module.css';
 import styles from '@/components/finance/finance-list.module.css';
 import { ApiError, get } from '@/lib/api';
-import { day, thisMonth, type Sale, type SalesSummary } from '@/lib/finance';
+import { day, thisMonth, today, type ReportRows, type Sale, type SalesSummary } from '@/lib/finance';
 import { phone, tzs } from '@/lib/format';
 import { listPath, param, type ListParams, type Page } from '@/lib/paging';
 
@@ -25,18 +26,29 @@ export default async function Sales({ searchParams }: { searchParams: Promise<Li
   const params = await searchParams;
   const { start, end } = range(params);
   let data: Page<Sale> & { summary: SalesSummary };
+  let appOrders: ReportRows;
+  // App orders delivered in the same dates (decision D2), for the same buyer
+  // and search: with the direct sales above they add up to Sales total.
+  const appQuery = new URLSearchParams({ metric: 'revenue', source: 'marketplace', page: param(params, 'app_page') || '1' });
+  for (const [name, value] of [['start', start], ['end', end], ['q', param(params, 'q')], ['buyer_profile_id', param(params, 'buyer_profile_id')]]) {
+    if (value) appQuery.set(name, value);
+  }
   try {
-    data = await get<Page<Sale> & { summary: SalesSummary }>(listPath('/ops/sales', params, ['start', 'end'], { start, end }));
+    [data, appOrders] = await Promise.all([
+      get<Page<Sale> & { summary: SalesSummary }>(listPath('/ops/sales', params, ['start', 'end', 'buyer_profile_id'], { start, end })),
+      get<ReportRows>(`/ops/finance/rows?${appQuery}`),
+    ]);
   } catch (error) {
     return <><div className="topbar"><PageHeader title="Sales" /></div><div className="workspace"><Notice tone="error">
       {error instanceof ApiError ? error.message : 'Sales could not be loaded.'}</Notice></div></>;
   }
   const status = param(params, 'status');
   const total = data.summary;
-  const share = Number(total.sales_total) > 0 ? Math.round(Number(total.received) / Number(total.sales_total) * 100) : 0;
+  const share = Number(total.direct_total) > 0 ? Math.round(Number(total.received) / Number(total.direct_total) * 100) : 0;
+  const toDate = !end || end >= today();
   function href(change: Record<string, string>) {
     const query = new URLSearchParams();
-    for (const key of ['q', 'status', 'page_size', 'start', 'end', 'dates']) { const value = param(params, key); if (value) query.set(key, value); }
+    for (const key of ['q', 'status', 'page_size', 'start', 'end', 'dates', 'page', 'app_page', 'buyer_profile_id']) { const value = param(params, key); if (value) query.set(key, value); }
     for (const [key, value] of Object.entries(change)) { if (value) query.set(key, value); else query.delete(key); }
     return `/sales${query.size ? `?${query}` : ''}`;
   }
@@ -46,17 +58,20 @@ export default async function Sales({ searchParams }: { searchParams: Promise<Li
 
     <section className={styles.stats} data-count="4" aria-label="Sales summary">
       <article className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.chart size={26} /></span>
-        <div><span>Sales total</span><strong>{tzs(total.sales_total)}</strong><small>{sales(total.sales_count)}</small></div></article>
+        <div><span>Sales total</span><strong>{tzs(total.sales_total)}</strong>
+          <small>{sales(total.sales_count)}{total.marketplace_count ? ` · ${total.marketplace_count} app ${total.marketplace_count === 1 ? 'order' : 'orders'} ${tzs(total.marketplace_total)}` : ''}</small>
+          {Number(total.commitments.total) > 0 && <small>App orders not delivered yet (not sales): {tzs(total.commitments.total)}</small>}</div></article>
       <article className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.wallet size={26} /></span>
-        <div><span>Received</span><strong>{tzs(total.received)}</strong><small>{share}% received</small></div></article>
+        <div><span>Paid on these sales{toDate ? ' to date' : ` by ${day(end)}`}</span><strong>{tzs(total.received)}</strong><small>{share}% of direct sales</small></div></article>
       <Link href={href({ status: 'unpaid', page: '' })} className={styles.stat} data-tone="late"><span className={styles.statIcon}><Icons.users size={26} /></span>
         <div><span>Buyer owes</span><strong>{tzs(total.buyer_owes)}</strong><small>{sales(total.buyer_owes_count)}</small></div></Link>
       <Link href="/finance/supplier-payments" className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.truck size={26} /></span>
-        <div><span>I owe suppliers</span><strong>{tzs(total.supplier_owed)}</strong><small>{sales(total.supplier_owed_count)}</small></div></Link>
+        <div><span>I owe suppliers</span><strong>{tzs(total.supplier_owed)}</strong><small>{sales(total.supplier_owed_count)}</small>
+          {Number(total.expenses_owed) > 0 && <small>Unpaid sale expenses: {tzs(total.expenses_owed)}</small>}</div></Link>
     </section>
 
     <nav className={styles.tabs} aria-label="Sale status">
-      {tabs.map(([key, label]) => <Link key={key} href={href({ status: key, page: '' })} data-active={status === key} aria-current={status === key ? 'page' : undefined}>
+      {tabs.map(([key, label]) => <Link key={key} href={href({ status: key, page: '', app_page: '' })} data-active={status === key} aria-current={status === key ? 'page' : undefined}>
         {label}<span>{data.counts?.[key || 'all'] ?? ''}</span>
       </Link>)}
     </nav>
@@ -92,5 +107,9 @@ export default async function Sales({ searchParams }: { searchParams: Promise<Li
     </div>
 
     <ListFooter data={data} label="Sale" href={(page) => href({ page: String(page) })} />
+
+    {appOrders.total > 0 && <SourceRows title="App orders delivered in these dates" data={appOrders}
+      note="Counted on the day they were delivered. Part of Sales total." empty="No app order was delivered in these dates."
+      href={(page) => href({ app_page: String(page) })} amountLabel="Order total" />}
   </div>;
 }

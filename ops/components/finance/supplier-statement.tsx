@@ -16,6 +16,8 @@ type TransferEvent = { id: string; kind: 'credit' | 'reallocation' | 'refund' | 
 // allocated + credit + refunded + entry error + unresolved = amount.
 export type SupplierStatement = {
   bought: string; paid: string; owed: string; open_count: number;
+  /** App order payouts to them, beside the invoices (backend reporting.supplier_totals). */
+  settlements_pending: string; settlements_paid: string;
   transferred: string; allocated: string; credit: string; refunded: string; entry_error: string;
   unresolved: string; net_paid: string; without_transfer: string;
   unresolved_items: { ledger_payment_id: string; amount: string; transfer_id: string; transfer_paid_on: string;

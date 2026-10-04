@@ -1046,14 +1046,15 @@ def supplier_invoices(user=Depends(supplier), db=Depends(database)):
         'source': row.source, 'status': row.status, 'sale_id': row.sale_id, 'lpo_id': row.lpo_id,
         'payments': by_debt.get(row.id, []),
     } for row in debts]
-    from . import transfers
-    held = transfers.by_supplier(db, [user.id]).get(user.id, {})
+    from . import reporting
+    # The same figures as the staff statement and Supplier payments.
+    money = reporting.supplier_totals(db, [user.id]).get(user.id, {})
     return result({
-        'pending_total': sum((row.balance for row in debts if row.status == 'open'), Decimal('0')),
-        'paid_total': sum((row.paid_amount for row in debts), Decimal('0')),
+        'pending_total': money.get('owed', Decimal('0')),
+        'paid_total': money.get('paid', Decimal('0')),
         # Money already sent to them that is on no invoice yet: it goes on
         # their next invoice unless they send it back.
-        'credit_total': held.get('credit', Decimal('0')),
+        'credit_total': money.get('credit', Decimal('0')),
         'invoices': invoices,
     })
 
@@ -2338,9 +2339,8 @@ def ops_settlements(params: Paging = Depends(), db=Depends(database)):
                 .order_by(m.PayoutConfirmation.created_at.desc()).limit(1)) or ''}
     # Every unpaid settlement comes first, oldest first; paid ones are history.
     body = paging.page(db, paging.SETTLEMENTS, params, view)
-    totals = dict(db.execute(select(m.Settlement.status, func.coalesce(func.sum(m.Settlement.total_payable), 0))
-        .group_by(m.Settlement.status)).all())
-    body['totals'] = {'pending': totals.get('pending', Decimal('0')), 'paid': totals.get('paid', Decimal('0'))}
+    from . import reporting
+    body['totals'] = reporting.settlement_totals(db)
     return result(body)
 
 
@@ -2532,6 +2532,7 @@ def _today_range():
 
 @app.get(prefix + '/ops/summary', dependencies=[Depends(auth.ops)])
 def ops_summary(db=Depends(database)):
+    from . import reporting
     start, end = _today_range()
     today = select(m.Order).where(m.Order.created_at >= start, m.Order.created_at < end)
     counted = [o for o in db.scalars(today) if o.internal_status not in ('cancelled', 'payment_failed')]
@@ -2556,8 +2557,7 @@ def ops_summary(db=Depends(database)):
         'orders_today': len(counted),
         'sales_today': sales,
         'gross_margin_today': margin,
-        'pending_settlements': sum((r.total_payable for r in db.scalars(
-            select(m.Settlement).where(m.Settlement.status == 'pending'))), Decimal('0')),
+        'pending_settlements': reporting.settlement_totals(db)['pending'],
         'demand_metrics': {
             'active_buyer_demand': active_demand,
             'total_quantity_demanded': total_demanded,
@@ -2624,7 +2624,8 @@ def ops_dashboard(start: Optional[date] = None, end: Optional[date] = None, year
     batches = db.scalars(select(m.SupplierBatch)).all()
     open_orders = db.scalars(select(m.Order).where(m.Order.internal_status.notin_(
         ['delivered', 'completed', 'cancelled', 'payment_failed']))).all()
-    pending_settlements = db.scalars(select(m.Settlement).where(m.Settlement.status == 'pending')).all()
+    from . import reporting
+    payouts = reporting.settlement_totals(db)
 
     # Supplies recorded: stock listings and production batches suppliers submit.
     trend = [0] * 12
@@ -2679,8 +2680,8 @@ def ops_dashboard(start: Optional[date] = None, end: Optional[date] = None, year
             'approved_suppliers': sum(1 for p in profiles if p.status == 'approved'),
             'active_batches': sum(1 for b in batches if b.status in OPEN_BATCH),
             'open_orders': len(open_orders),
-            'pending_settlements': sum((r.total_payable for r in pending_settlements), Decimal('0')),
-            'pending_settlement_count': len(pending_settlements),
+            'pending_settlements': payouts['pending'],
+            'pending_settlement_count': payouts['pending_count'],
         },
         'trading': {
             'orders': len(period_orders),
@@ -2724,8 +2725,8 @@ async def ops_supplier_photo(file: UploadFile = File(), db=Depends(database)):
 def _supplier_activity(db, supplier_id):
     """What Omoterra does with a supplier outside app orders: their batches
     and birds still left, birds bought (sold straight from them or received
-    on delivery notes), money paid, money still owed (including unpaid app
-    payouts) and the last day anything happened."""
+    on delivery notes), money paid and still owed on their invoices, unpaid
+    app payouts beside them, and the last day anything happened."""
     zero = Decimal('0')
     batches = db.scalars(select(m.SupplierBatch).where(m.SupplierBatch.supplier_id == supplier_id)).all()
     open_batches = [b for b in batches if b.status != 'sold' and b.available_to_commit > 0]
@@ -2735,23 +2736,21 @@ def _supplier_activity(db, supplier_id):
                m.SaleItem.supplier_collection_id.is_(None), m.SaleItem.lpo_line_id.is_(None))).one()
     received = db.execute(select(func.coalesce(func.sum(m.SupplierCollection.accepted_quantity), 0), func.max(m.SupplierCollection.received_on))
         .where(m.SupplierCollection.supplier_id == supplier_id, m.SupplierCollection.cancelled_at.is_(None))).one()
-    money = db.execute(select(func.coalesce(func.sum(m.LedgerDebt.paid_amount), 0),
-            func.coalesce(func.sum(m.LedgerDebt.amount - m.LedgerDebt.paid_amount), 0))
-        .where(m.LedgerDebt.supplier_id == supplier_id, m.LedgerDebt.direction == 'payable', m.LedgerDebt.status != 'cancelled')).one()
+    from . import reporting
+    money = reporting.supplier_totals(db, [supplier_id]).get(supplier_id, {})
     last_paid = db.scalar(select(func.max(m.LedgerPayment.paid_on)).join(m.LedgerDebt, m.LedgerDebt.id == m.LedgerPayment.debt_id)
         .where(m.LedgerDebt.supplier_id == supplier_id, m.LedgerPayment.reversed_at.is_(None)))
-    settlements = db.scalar(select(func.coalesce(func.sum(m.Settlement.total_payable), 0)).where(
-        m.Settlement.supplier_id == supplier_id, m.Settlement.status == 'pending')) or zero
     days = [d for d in (direct[1], received[1], last_paid) if d]
-    from . import transfers
-    held = transfers.by_supplier(db, [supplier_id]).get(supplier_id, {})
     return {'batches_total': len(batches), 'batches_open': len(open_batches),
         'birds_left': sum((b.available_to_commit for b in open_batches), zero),
         'birds_bought': (direct[0] or zero) + (received[0] or zero),
-        'paid_total': money[0] or zero, 'owed_total': (money[1] or zero) + settlements,
+        # The same paid and owed as their statement, Supplier payments and
+        # the portal (invoices only); app payouts pending are beside them.
+        'paid_total': money.get('paid', zero), 'owed_total': money.get('owed', zero),
+        'pending_settlement_total': money.get('settlements_pending', zero),
         # Money they hold from payments taken off invoices (M1.2), beside
         # what is owed, never netted against it; unresolved awaits a decision.
-        'credit_total': held.get('credit', zero), 'unresolved_total': held.get('unresolved', zero),
+        'credit_total': money.get('credit', zero), 'unresolved_total': money.get('unresolved', zero),
         'last_activity': max(days) if days else None}
 
 
@@ -2760,8 +2759,6 @@ def ops_suppliers(params: Paging = Depends(), db=Depends(database)):
     def view(profile):
         user = db.get(m.User, profile.user_id)
         listings = db.scalars(select(m.Listing).where(m.Listing.supplier_id == profile.user_id)).all()
-        pending = db.scalars(select(m.Settlement).where(
-            m.Settlement.supplier_id == profile.user_id, m.Settlement.status == 'pending')).all()
         return {'id': user.id, 'phone': user.phone, 'region': profile.region,
             'district': profile.district, 'categories': profile.categories,
             'public_alias': profile.public_alias, 'alias_approved': profile.alias_approved,
@@ -2769,7 +2766,6 @@ def ops_suppliers(params: Paging = Depends(), db=Depends(database)):
             'completed_supplies_count': profile.completed_supplies_count,
             'live_listings': sum(1 for r in listings if r.listing_status == 'live'),
             'pending_listings': sum(1 for r in listings if r.listing_status == 'pending_review'),
-            'pending_settlement_total': sum((r.total_payable for r in pending), Decimal('0')),
             **_supplier_activity(db, profile.user_id)}
     # Registrations waiting for review come first, longest waiting first.
     return result(paging.page(db, paging.SUPPLIERS, params, view))

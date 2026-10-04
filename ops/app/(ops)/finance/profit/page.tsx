@@ -55,8 +55,9 @@ export default async function Profit({ searchParams }: { searchParams: Promise<L
       {error instanceof ApiError ? error.message : 'Profit could not be calculated.'}</Notice></div></>;
   }
 
-  // Day by day, oldest first, 10 a page. Stock lost counts with expenses so
-  // each row adds up: sales − stock cost − expenses = net profit.
+  // Day by day, oldest first, 10 a page. Every figure comes from the API
+  // (backend reporting.profit), so each row adds up:
+  // sales − stock cost − expenses − stock lost = operating profit.
   const days = [...data.days].sort((a, b) => a.date.localeCompare(b.date));
   const size = Math.min(100, Math.max(1, Number(param(params, 'page_size')) || 10));
   const pages = Math.max(1, Math.ceil(days.length / size));
@@ -69,9 +70,8 @@ export default async function Profit({ searchParams }: { searchParams: Promise<L
     for (const [key, value] of Object.entries(change)) { if (value) query.set(key, value); else query.delete(key); }
     return `/finance/profit?${query}`;
   };
-  const stockCost = Number(data.stock_cost) + Number(data.marketplace_cost);
-  const spent = Number(data.expenses) + Number(data.stock_lost);
   const loss = Number(data.net_profit) < 0;
+  const app = (value: string) => Number(value) > 0 ? ` · app orders ${tzs(value)}` : '';
 
   return <div className={`${ui.workspace} ${styles.page}`}>
     <div className={ui.heading}><h1>Profit</h1><Link href="/finance/reports" className={ui.primary}>Reports & forecasts</Link><Link href="/finance/expenses" className={ui.primary}>+ Expense</Link></div>
@@ -89,26 +89,31 @@ export default async function Profit({ searchParams }: { searchParams: Promise<L
 
     <section className={styles.stats} data-count="4" aria-label="Profit summary">
       <article className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.chart size={26} /></span>
-        <div><span>Sales</span><strong>{tzs(data.revenue)}</strong>{Number(data.marketplace_sales) > 0 && <small>incl. marketplace {tzs(data.marketplace_sales)}</small>}</div></article>
+        <div><span>Sales</span><strong>{tzs(data.revenue)}</strong><small>Direct {tzs(data.sales)}{app(data.marketplace_sales)}</small></div></article>
       <article className={styles.stat} data-tone="late"><span className={styles.statIcon}><Icons.box size={26} /></span>
-        <div><span>Stock cost</span><strong>{tzs(String(stockCost))}</strong></div></article>
+        <div><span>Stock cost</span><strong>{tzs(data.cost_of_goods)}</strong><small>Direct {tzs(data.stock_cost)}{app(data.marketplace_cost)}</small></div></article>
       <Link href={`/finance/expenses?start=${start}&end=${end}`} className={styles.stat} data-tone="red"><span className={styles.statIcon}><Icons.file size={26} /></span>
-        <div><span>Expenses</span><strong>{tzs(String(spent))}</strong>{Number(data.stock_lost) > 0 && <small>incl. stock lost {tzs(data.stock_lost)}</small>}</div></Link>
+        <div><span>Expenses</span><strong>{tzs(data.expenses)}</strong>{Number(data.stock_lost) > 0 && <small>Stock lost, also deducted: {tzs(data.stock_lost)}</small>}</div></Link>
+      {/* An operating result: no depreciation, interest or tax yet (M3.2). */}
       <article className={styles.stat} data-tone={loss ? 'red' : 'in'} data-highlight={loss ? 'loss' : 'gain'}><span className={styles.statIcon}><Icons.trend size={26} /></span>
-        <div><span>{loss ? 'Net loss' : 'Net profit'}</span><strong>{loss ? '-' : ''}{tzs(String(Math.abs(Number(data.net_profit))))}</strong></div></article>
+        <div><span>{loss ? 'Operating loss' : 'Operating profit'}</span><strong>{loss ? '-' : ''}{tzs(String(Math.abs(Number(data.net_profit))))}</strong></div></article>
     </section>
+
+    {data.unresolved_marketplace.count > 0 && <p className={styles.sourceNote} role="note">
+      {data.unresolved_marketplace.count} delivered app {data.unresolved_marketplace.count === 1 ? 'order has' : 'orders have'} no recorded delivery date
+      ({tzs(data.unresolved_marketplace.amount)}), so {data.unresolved_marketplace.count === 1 ? 'it is' : 'they are'} in no period&apos;s sales.</p>}
 
     <section className={styles.panel}>
       <h2>Day by day</h2>
       <div className={styles.tableWrap}>
         <table className={styles.table} data-phone-show="1 5">
-          <thead><tr><th>Date</th><th>Sales (TZS)</th><th>Stock cost (TZS)</th><th>Expenses (TZS)</th><th>Net profit (TZS)</th></tr></thead>
+          <thead><tr><th>Date</th><th>Sales (TZS)</th><th>Stock cost (TZS)</th><th>Expenses and stock lost (TZS)</th><th>Operating profit (TZS)</th></tr></thead>
           <tbody>{shown.map((d) => <tr key={d.date}>
             <td data-label="Date"><Link className={styles.plainLink} href={`/sales?start=${d.date}&end=${d.date}`}>{day(d.date)}</Link></td>
             <td data-label="Sales" className={styles.money}>{plain(d.revenue)}</td>
-            <td data-label="Stock cost" className={styles.money}>{plain(Number(d.stock_cost) + Number(d.marketplace_cost))}</td>
-            <td data-label="Expenses" className={styles.money}>{plain(Number(d.expenses) + Number(d.stock_lost))}</td>
-            <td data-label="Net profit" className={Number(d.net_profit) < 0 ? styles.outAmount : styles.inAmount}>{signed(d.net_profit)}</td>
+            <td data-label="Stock cost" className={styles.money}>{plain(d.cost_of_goods)}</td>
+            <td data-label="Expenses and stock lost" className={styles.money}>{plain(d.expenses_and_losses)}</td>
+            <td data-label="Operating profit" className={Number(d.net_profit) < 0 ? styles.outAmount : styles.inAmount}>{signed(d.net_profit)}</td>
           </tr>)}</tbody>
         </table>
       </div>

@@ -631,3 +631,6 @@ a.summaryCard:hover { border-color: #c9dccf; box-shadow: 0 10px 26px rgba(31, 83
   .titleRow { flex-wrap: wrap; }
   .panelHeader { flex-wrap: wrap; }
 }
+
+/* A preview of the 5 largest parties says so (metric dictionary, rule 8). */
+.previewNote { margin: 10px 2px 0; color: #8492a6; font-size: 12.5px; }

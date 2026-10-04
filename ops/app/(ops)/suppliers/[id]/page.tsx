@@ -69,7 +69,8 @@ export default async function SupplierDetailPage({ params, searchParams }: { par
     const fields = missing.filter((key) => !SECTION_FIELDS[section].includes(key));
     return fields.length ? <div className="grid-2">{fields.map((key) => requiredInputs[key])}</div> : undefined;
   };
-  const owed = supplier.settlements.filter((settlement) => settlement.status === 'pending').reduce((sum, settlement) => sum + Number(settlement.total_payable), 0);
+  // Pending app payouts, from the API (backend reporting.supplier_totals).
+  const owed = statement?.settlements_pending ?? '0';
 
   return <>
     <div className="supplier-detail-topbar">
@@ -203,7 +204,7 @@ export default async function SupplierDetailPage({ params, searchParams }: { par
       </section>
       <section className="supplier-lower-section" id="history"><h2>Stock and supply history</h2>
         {supplier.listings.length === 0 ? <Empty>No stock submitted yet.</Empty> : <div className="table-wrap lower-table"><table><thead><tr><th>Reference</th><th>Category</th><th className="numeric">Total</th><th className="numeric">Available</th><th className="numeric">Asking</th><th className="numeric">Buyer price</th><th>Status</th></tr></thead><tbody>{supplier.listings.map((listing) => <tr key={listing.id}><td><Link href={`/supply/${listing.id}`} className="strong">{reference(listing.id, 'ST')}</Link></td><td>{category(listing.category)}</td><td className="numeric">{quantity(listing.quantity_total)}</td><td className="numeric">{quantity(listing.quantity_available)}</td><td className="numeric">{tzs(listing.farmer_asking_price_per_unit)}</td><td className="numeric">{tzs(listing.buyer_price_per_unit)}</td><td><Status tone={listingTone(listing.listing_status)}>{titleCase(listing.listing_status)}</Status></td></tr>)}</tbody></table></div>}
-        <p>{supplier.completed_supplies_count ?? 0} completed supplies · {tzs(owed.toFixed(2))} pending settlements</p>
+        <p>{supplier.completed_supplies_count ?? 0} completed supplies · {tzs(owed)} pending settlements</p>
       </section>
       <SupplierStatementSection statement={statement} supplierId={id} admin={operator.role === 'admin'} />
       <section className="supplier-lower-section"><h2>App order payouts</h2>

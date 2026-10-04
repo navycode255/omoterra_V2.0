@@ -91,8 +91,8 @@ export function FinancialReports({ report, today }: { report: FinancialReport; t
     <aside className={styles.notice}><strong>Provisional management report</strong><span>{report.unknown_cost_lines ? `${report.unknown_cost_lines} sale lines have missing costs. ` : ''}Recorded operating results are not reconciled cash or final net income. Review the scope notes before investing.</span></aside>
     <section className={styles.metrics} aria-label="Recorded performance">
       <article><span>Recorded revenue</span><strong>{amount(a.revenue)}</strong><small>Previous period: {amount(report.previous.revenue)}</small></article>
-      <article><span>Stock cost</span><strong>{amount(Number(a.stock_cost) + Number(a.marketplace_cost))}</strong><small>{report.unknown_cost_lines ? 'Incomplete buying costs' : 'Recorded cost of stock sold'}</small></article>
-      <article><span>Expenses & recorded losses</span><strong>{amount(Number(a.expenses) + Number(a.stock_lost))}</strong><small>Includes unpaid expense obligations</small></article>
+      <article><span>Stock cost</span><strong>{amount(a.cost_of_goods)}</strong><small>{report.unknown_cost_lines ? 'Incomplete buying costs' : 'Recorded cost of stock sold'}</small></article>
+      <article><span>Expenses & recorded losses</span><strong>{amount(a.expenses_and_losses)}</strong><small>Includes unpaid expense obligations</small></article>
       <article data-tone={Number(a.net_profit) < 0 ? 'negative' : 'positive'}><span>Recorded operating result</span><strong>{amount(a.net_profit)}</strong><small>Provisional · {report.history_days} days / {report.active_sales_days} selling days</small></article>
     </section>
     <section className={styles.panel}><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>LOOKING AHEAD</p><h2>Earnings & break-even</h2></div>{report.forecast && <div className={styles.tabs}>{report.forecast.scenarios.map((s, i) => <button key={s.name} aria-pressed={scenario === i} onClick={() => setScenario(i)}>{s.name}</button>)}</div>}</div>

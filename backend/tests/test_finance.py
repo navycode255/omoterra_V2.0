@@ -504,7 +504,7 @@ def test_manual_debts_both_ways(client, seeded):
 
 def test_summary_adds_up_every_shilling(client, seeded, sessions):
     from test_commerce import order
-    order(sessions, seeded)  # a marketplace order: TZS 48,000 still owed by its buyer
+    order(sessions, seeded)  # an app order, not delivered: a TZS 48,000 commitment, not a debt (D2)
     first = sale(client, items=[{'category': 'local_chicken', 'unit': 'bird', 'quantity': '10', 'unit_price': '15000',
         'supplier_name': 'Mzee Juma', 'unit_cost': '10000'}],
         payment={'amount': '60000', 'paid_on': TODAY, 'method': 'mpesa'})
@@ -517,10 +517,11 @@ def test_summary_adds_up_every_shilling(client, seeded, sessions):
     assert body['today']['sales_count'] == 2
     assert Decimal(body['today']['money_in']) == Decimal('160000.00')
     assert Decimal(body['today']['money_out']) == Decimal('40000.00')
-    # Sales less money in, plus the marketplace buyer.
+    # Sales less money in. The undelivered app order is a commitment beside it.
     assert Decimal(body['owed_to_me']['ledger']) == Decimal('290000.00')
-    assert Decimal(body['owed_to_me']['marketplace']) == Decimal('48000.00')
-    assert Decimal(body['owed_to_me']['total']) == Decimal('338000.00')
+    assert Decimal(body['owed_to_me']['marketplace']) == 0
+    assert Decimal(body['owed_to_me']['total']) == Decimal('290000.00')
+    assert Decimal(body['commitments']['total']) == Decimal('48000.00') and body['commitments']['count'] == 1
     assert Decimal(body['i_owe']['ledger']) == Decimal('60000.00')
     debtors = {p['party_name']: Decimal(p['balance']) for p in body['debtors']}
     assert debtors == {'Hotel Bahari': Decimal('200000.00'), 'Mama Asha Restaurant': Decimal('90000.00')}
@@ -765,7 +766,7 @@ def test_cash_book_totals_follow_dates_and_method(client, seeded):
     totals = body['summary']
     assert Decimal(totals['money_in']) == Decimal('70000') and Decimal(totals['money_out']) == Decimal('12000')
     assert Decimal(totals['net']) == Decimal('58000')
-    assert Decimal(totals['cash_in_hand']) == Decimal('38000')
+    assert Decimal(totals['recorded_net_cash']) == Decimal('38000')
     mpesa = client.get(API + '/ledger/payments?method=mpesa', headers=OPS).json()
     assert mpesa['total'] == 1 and Decimal(mpesa['summary']['money_in']) == Decimal('20000')
 

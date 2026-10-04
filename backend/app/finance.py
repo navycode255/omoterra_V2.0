@@ -48,10 +48,10 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, File, Header, Query, UploadFile
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import Date, Integer, String, Text, and_, case, cast, exists, func, literal, null, or_, select, union_all
+from sqlalchemy import Date, Text, and_, cast, exists, func, or_, select
 
 from . import auth, contracts as c, models as m, notifications as notes, paging, services as s, supplier_payment_sms
-from . import transfers as tr
+from . import reporting as rp, transfers as tr
 from .db import database
 from .i18n import M, fail
 from .media import save_photo
@@ -120,7 +120,9 @@ def sale_view(db, sale, detail=False):
         'created_by': _operator_name(db, sale.created_by),
         'received_amount': receivable.paid_amount if receivable else ZERO,
         'balance': receivable.balance if receivable and receivable.status != 'cancelled' else ZERO,
-        'supplier_balance': sum((d.balance for d in payables if d.status != 'cancelled'), ZERO),
+        # Owed to suppliers for this sale's stock (its own cost debts); a
+        # sale-linked expense is not a supplier (metric 10).
+        'supplier_balance': sum((d.balance for d in payables if d.status != 'cancelled' and d.source == 'sale_cost'), ZERO),
         'margin': sale.total_amount - sale.cost_amount,
         'receivable_id': receivable.id if receivable else None}
     if detail:
@@ -1217,30 +1219,6 @@ SALES = Spec(m.Sale, (m.Sale.sold_on.desc(), m.Sale.created_at.desc(), m.Sale.id
     column=m.Sale.status)
 
 
-def _sales_summary(db, where, q):
-    """Totals for the sales a list shows (its dates, buyer and search; every
-    status tab): what was sold, received, still owed by buyers and still owed
-    to suppliers, with how many sales each covers. Cancelled sales count for
-    nothing."""
-    chosen = select(m.Sale.id).where(m.Sale.status == 'active', *where)
-    if q:
-        chosen = chosen.where(SALES.search(q))
-    sold, count = db.execute(select(func.coalesce(func.sum(m.Sale.total_amount), 0), func.count())
-        .where(m.Sale.id.in_(chosen))).one()
-    def owed(direction):
-        debts = select(m.LedgerDebt).where(m.LedgerDebt.sale_id.in_(chosen), m.LedgerDebt.direction == direction,
-            m.LedgerDebt.status != 'cancelled').subquery()
-        paid, balance, sales = db.execute(select(func.coalesce(func.sum(debts.c.paid_amount), 0),
-            func.coalesce(func.sum(debts.c.amount - debts.c.paid_amount), 0),
-            func.count(func.distinct(debts.c.sale_id)).filter(debts.c.amount > debts.c.paid_amount))).one()
-        return paid, balance, sales
-    received, buyer_owes, owing_sales = owed('receivable')
-    _paid, supplier_owed, supplier_sales = owed('payable')
-    return {'sales_total': sold, 'sales_count': count, 'received': received,
-            'buyer_owes': buyer_owes, 'buyer_owes_count': owing_sales,
-            'supplier_owed': supplier_owed, 'supplier_owed_count': supplier_sales}
-
-
 @router.get('/sales')
 def sales(params: Paging = Depends(), buyer_profile_id: Optional[str] = None, start: Optional[date] = None,
           end: Optional[date] = None, operator=Depends(auth.ops), db=Depends(database)):
@@ -1250,7 +1228,18 @@ def sales(params: Paging = Depends(), buyer_profile_id: Optional[str] = None, st
     if end:
         where.append(m.Sale.sold_on <= end)
     body = paging.page(db, SALES, params, lambda row: sale_view(db, row), where=where)
-    body['summary'] = _sales_summary(db, where, params.q)
+    chosen = select(m.Sale.id).where(m.Sale.status == 'active', *where)
+    if params.q:
+        chosen = chosen.where(SALES.search(params.q))
+    # Delivered app orders in the same dates, for the same buyer and search.
+    user_id = db.get(m.BuyerProfile, buyer_profile_id).user_id if buyer_profile_id and db.get(
+        m.BuyerProfile, buyer_profile_id) else None
+    needle = (params.q or '').strip().casefold()
+    def match(row):
+        if buyer_profile_id and (not user_id or row['buyer_user_id'] != user_id):
+            return False
+        return not needle or needle in f"{row['party']} {row['description']}".casefold()
+    body['summary'] = rp.sales_summary(db, chosen, start, end, match)
     return _result(body)
 
 
@@ -1316,19 +1305,11 @@ def supplier_balances(q: str = Query('', max_length=100), state: str = Query('',
     collections), most urgent first, with totals for the whole set:
     owed, due now (due today, overdue or without a due date), overdue."""
     today = c.business_today()
-    rows = db.execute(select(m.LedgerDebt.supplier_id, func.count(), func.sum(m.LedgerDebt.amount - m.LedgerDebt.paid_amount),
-            func.min(m.LedgerDebt.due_on), func.bool_or(m.LedgerDebt.due_on.is_(None)))
-        .where(m.LedgerDebt.direction == 'payable', m.LedgerDebt.status == 'open', m.LedgerDebt.supplier_id.is_not(None))
-        .group_by(m.LedgerDebt.supplier_id)).all()
-    due = dict(db.execute(select(m.LedgerDebt.supplier_id, func.sum(m.LedgerDebt.amount - m.LedgerDebt.paid_amount))
-        .where(m.LedgerDebt.direction == 'payable', m.LedgerDebt.status == 'open', m.LedgerDebt.supplier_id.is_not(None),
-               or_(m.LedgerDebt.due_on.is_(None), m.LedgerDebt.due_on <= today)).group_by(m.LedgerDebt.supplier_id)).all())
-    late = dict(db.execute(select(m.LedgerDebt.supplier_id, func.sum(m.LedgerDebt.amount - m.LedgerDebt.paid_amount))
-        .where(m.LedgerDebt.direction == 'payable', m.LedgerDebt.status == 'open', m.LedgerDebt.supplier_id.is_not(None),
-               m.LedgerDebt.due_on < today).group_by(m.LedgerDebt.supplier_id)).all())
-    credit = tr.credit_by_supplier(db)
+    totals = rp.supplier_totals(db)
     suppliers = []
-    for supplier_id, invoices, owed, earliest, undated in rows:
+    for supplier_id, money in totals.items():
+        if not money['open_invoices']:
+            continue
         profile = db.get(m.SupplierProfile, supplier_id)
         user = db.get(m.User, supplier_id)
         # The last money sent: a transfer, or a payment from before transfers.
@@ -1342,15 +1323,18 @@ def supplier_balances(q: str = Query('', max_length=100), state: str = Query('',
             .order_by(m.LedgerPayment.paid_on.desc(), m.LedgerPayment.created_at.desc()).limit(1)).first()]
         last = max((row for row in candidates if row), key=lambda row: (row[0], row[2]), default=None)
         # The earliest dated invoice; overdue money outranks an undated one.
-        first_due = earliest
+        first_due = money['earliest_due']
         place = ', '.join(part for part in ((profile.district if profile else ''), (profile.region if profile else user.region if user else '')) if part)
         suppliers.append({'supplier_id': supplier_id,
             'name': (profile.legal_name or profile.public_alias) if profile else (user.name if user else ''),
             'alias': profile.public_alias if profile else '', 'phone': user.phone if user else '', 'place': place,
-            'open_invoices': invoices, 'owed': owed, 'due_now': due.get(supplier_id, ZERO), 'overdue': late.get(supplier_id, ZERO),
-            'credit': credit.get(supplier_id, ZERO),
+            'open_invoices': money['open_invoices'], 'owed': money['owed'], 'due_now': money['due_now'],
+            'overdue': money['overdue'], 'credit': money['credit'],
+            # App payouts still pending to them: shown beside the invoices,
+            # paid on Settlements, never added to what is owed here.
+            'settlements_pending': money['settlements_pending'],
             'earliest_due': first_due,
-            'state': 'overdue' if late.get(supplier_id, ZERO) > 0 else 'due_now' if undated else _supplier_state(first_due, today),
+            'state': 'overdue' if money['overdue'] > 0 else 'due_now' if money['undated'] else _supplier_state(first_due, today),
             'last_payment': {'paid_on': last[0], 'amount': last[1]} if last else None})
     rank = {'overdue': 0, 'due_now': 1, 'due_soon': 2, 'on_track': 3}
     suppliers.sort(key=lambda row: (rank[row['state']], row['earliest_due'] or today, -row['owed']))
@@ -1360,7 +1344,10 @@ def supplier_balances(q: str = Query('', max_length=100), state: str = Query('',
         'total_suppliers': db.scalar(select(func.count()).select_from(m.SupplierProfile)) or 0,
         # Money suppliers hold from payments taken off invoices: shown beside
         # what is owed, never netted against it.
-        'credit': sum(credit.values(), ZERO), 'credit_suppliers': len(credit)}
+        'credit': sum((row['credit'] for row in totals.values()), ZERO),
+        'credit_suppliers': sum(1 for row in totals.values() if row['credit'] > 0),
+        'settlements_pending': sum((row['settlements_pending'] for row in totals.values()), ZERO),
+        'settlements_suppliers': sum(1 for row in totals.values() if row['settlements_pending'] > 0)}
     if q.strip():
         needle = q.strip().casefold()
         suppliers = [row for row in suppliers if needle in ' '.join((row['name'], row['alias'], row['phone'], row['place'])).casefold()]
@@ -1405,11 +1392,13 @@ def supplier_statement(supplier_id: str, operator=Depends(auth.ops), db=Depends(
     payments.sort(key=lambda row: (row['paid_on'], row['created_at']), reverse=True)
     money = {key: sum((row[key] for row in held.values()), ZERO) for key in (*tr.BUCKETS, 'transferred', 'net_paid')}
     unwrapped = sum((row.amount for row in legacy), ZERO)
+    totals = rp.supplier_totals(db, [supplier_id]).get(supplier_id, {})
     return _result({
-        'bought': sum((row.amount for row in debts), ZERO),
-        'paid': sum((row.paid_amount for row in debts), ZERO),
-        'owed': sum((row.balance for row in debts), ZERO),
-        'open_count': sum(1 for row in debts if row.status == 'open'),
+        'bought': totals.get('bought', ZERO), 'paid': totals.get('paid', ZERO), 'owed': totals.get('owed', ZERO),
+        'open_count': totals.get('open_invoices', 0),
+        # App payouts to them, beside the invoices (paid on Settlements).
+        'settlements_pending': totals.get('settlements_pending', ZERO),
+        'settlements_paid': totals.get('settlements_paid', ZERO),
         # Money sent: transfers (less entry errors) plus older single payments.
         'transferred': money['transferred'] + unwrapped,
         'allocated': money['allocated'] + unwrapped,
@@ -1422,63 +1411,9 @@ def supplier_statement(supplier_id: str, operator=Depends(auth.ops), db=Depends(
     })
 
 
-def _cash_movements():
-    """Every movement of money the ledger knows, one row each (rule R3):
-
-    - payments in from buyers and others (receivable installments);
-    - payments out with no transfer: to unregistered parties, expenses, and
-      supplier payments from before transfers existed;
-    - supplier transfers, once each at what really left (less entry errors),
-      however many invoices they pay;
-    - refunds from suppliers: separate dated inflows;
-    - reversed installments, kept for the history. They count for nothing:
-      a reversed supplier allocation moved to credit, so its money is still
-      in its transfer's row (rule R4).
-
-    `flow` is 'in' or 'out'; `kind` is payment, allocation (a reversed one),
-    transfer or refund."""
-    P, D, T, E, U, S = m.LedgerPayment, m.LedgerDebt, m.SupplierPayment, m.TransferEvent, m.User, m.SupplierProfile
-    text_ = lambda value: cast(literal(value), Text)
-    nothing = lambda kind: cast(null(), kind)
-    supplier = func.coalesce(func.nullif(S.legal_name, ''), func.nullif(U.name, ''), U.phone)
-    payments = (select(P.id.label('id'),
-            case((P.supplier_payment_id.is_(None), text_('payment')), else_=text_('allocation')).label('kind'),
-            case((D.direction == 'receivable', text_('in')), else_=text_('out')).label('flow'),
-            P.paid_on.label('paid_on'), P.amount.label('amount'), P.method.label('method'),
-            P.reference.label('reference'), P.note.label('note'), D.party_name.label('party_name'),
-            D.description.label('description'), P.debt_id.label('debt_id'), D.sale_id.label('sale_id'),
-            D.supplier_id.label('supplier_id'), P.supplier_payment_id.label('transfer_id'),
-            cast(literal(1), Integer).label('invoices'), P.created_at.label('created_at'),
-            P.recorded_by.label('recorded_by'), P.reversed_at.label('reversed_at'), P.reversed_by.label('reversed_by'),
-            P.reverse_reason.label('reverse_reason'))
-        .join(D, D.id == P.debt_id)
-        .where(or_(P.supplier_payment_id.is_(None), P.reversed_at.is_not(None))))
-    corrected = (select(func.coalesce(func.sum(E.amount), 0)).where(E.supplier_payment_id == T.id,
-        E.kind == 'entry_error').correlate(T).scalar_subquery())
-    def first(column):
-        """From the first invoice the transfer paid: what it was for."""
-        return (select(column).select_from(P).join(D, D.id == P.debt_id).where(P.supplier_payment_id == T.id)
-            .order_by(P.created_at).limit(1).correlate(T).scalar_subquery())
-    invoices = (select(func.count(func.distinct(P.debt_id))).where(P.supplier_payment_id == T.id,
-        P.reversed_at.is_(None)).correlate(T).scalar_subquery())
-    transfers = (select(T.id, text_('transfer'), text_('out'), T.paid_on, (T.amount - corrected), T.method,
-            T.reference, T.note, supplier,
-            first(D.description), first(D.id), first(D.sale_id),
-            T.supplier_id, T.id, invoices, T.created_at, T.recorded_by,
-            nothing(m.LedgerPayment.reversed_at.type), nothing(String(36)), text_(''))
-        .join(U, U.id == T.supplier_id).outerjoin(S, S.user_id == T.supplier_id)
-        .where(T.amount - corrected > 0))
-    refunds = (select(E.id, text_('refund'), text_('in'), E.occurred_on, E.amount, E.method, E.reference,
-            E.reason, supplier, text_('Refund from supplier'), nothing(String(36)), nothing(String(36)),
-            E.supplier_id, E.supplier_payment_id, cast(literal(0), Integer), E.created_at, E.recorded_by,
-            nothing(m.LedgerPayment.reversed_at.type), nothing(String(36)), text_(''))
-        .join(U, U.id == E.supplier_id).outerjoin(S, S.user_id == E.supplier_id)
-        .where(E.kind == 'refund'))
-    return union_all(payments, transfers, refunds).subquery('cash_movements')
-
-
-CASH = _cash_movements()
-COUNTED = CASH.c.reversed_at.is_(None)
+# The cash book's rows: every recorded movement of money, ledger and app
+# orders (reporting.CASH).
+CASH, COUNTED = rp.CASH, rp.COUNTED
 PAYMENTS = Spec(CASH, (CASH.c.paid_on.desc(), CASH.c.created_at.desc(), CASH.c.id.desc()),
     lambda q: paging.matches(q, CASH.c.party_name, CASH.c.reference, CASH.c.note, CASH.c.description),
     tabs={'in': and_(COUNTED, CASH.c.flow == 'in'), 'out': and_(COUNTED, CASH.c.flow == 'out'),
@@ -1486,24 +1421,16 @@ PAYMENTS = Spec(CASH, (CASH.c.paid_on.desc(), CASH.c.created_at.desc(), CASH.c.i
     rows=True)
 
 
-def _moved(db, *conditions):
-    """Money in and out over the counted movements matching the conditions."""
-    rows = db.execute(select(CASH.c.flow, func.coalesce(func.sum(CASH.c.amount), 0))
-        .where(COUNTED, *conditions).group_by(CASH.c.flow)).all()
-    totals = {flow: amount for flow, amount in rows}
-    return totals.get('in', ZERO), totals.get('out', ZERO)
-
-
 def _cash_totals(db, where, q):
     """Money in and out for the movements a cash book view shows (its dates,
-    method and search), and cash in hand: every cash movement in minus every
-    cash movement out, all time. Supplier transfers count once each; a
-    payment moved to supplier credit is still money out (rule R4)."""
+    method and search), and the recorded net cash movement: every cash
+    movement in minus every cash movement out, all time. It is not a
+    verified balance (M2.3). Supplier transfers count once each; a payment
+    moved to supplier credit is still money out (rule R4)."""
     chosen = [*where, PAYMENTS.search(q)] if q else list(where)
-    money_in, money_out = _moved(db, *chosen)
-    cash_in, cash_out = _moved(db, CASH.c.method == 'cash')
+    money_in, money_out = rp.moved(db, *chosen)
     return {'money_in': money_in, 'money_out': money_out, 'net': money_in - money_out,
-            'cash_in_hand': cash_in - cash_out}
+            'recorded_net_cash': rp.recorded_net_cash(db)}
 
 
 def movement_view(db, row):
@@ -1532,93 +1459,97 @@ def cash_book(params: Paging = Depends(), start: Optional[date] = None, end: Opt
     return _result(body)
 
 
-def _parties(db, direction):
-    """Everyone with an open balance in one direction, largest first."""
-    rows = db.scalars(select(m.LedgerDebt).where(m.LedgerDebt.direction == direction, OPEN_DEBT)).all()
-    today = c.business_today()
+def _parties(rows):
+    """Everyone with an open balance in one direction, largest first, from
+    the rows of receivables() or payables(): a supplier owed on invoices and
+    on app payouts is one party, so the parties add up to the card."""
     parties = {}
     for row in rows:
-        key = row.buyer_profile_id or row.supplier_id or f'{row.party_kind}:{row.party_name.casefold()}'
-        party = parties.setdefault(key, {'party_name': row.party_name, 'party_phone': row.party_phone,
-            'party_kind': row.party_kind, 'buyer_profile_id': row.buyer_profile_id, 'supplier_id': row.supplier_id,
-            'balance': ZERO, 'debts': 0, 'oldest': row.incurred_on, 'overdue': ZERO})
-        party['balance'] += row.balance
+        party = parties.setdefault(row['party_key'], {'party_name': row['party'], 'party_phone': row['party_phone'],
+            'party_kind': row['party_kind'], 'buyer_profile_id': row['buyer_profile_id'], 'supplier_id': row['supplier_id'],
+            'balance': ZERO, 'debts': 0, 'oldest': row['date'], 'overdue': ZERO, 'sources': []})
+        party['balance'] += row['amount']
         party['debts'] += 1
-        party['oldest'] = min(party['oldest'], row.incurred_on)
-        if row.due_on is not None and row.due_on < today:
-            party['overdue'] += row.balance
+        if row['date'] is not None and (party['oldest'] is None or row['date'] < party['oldest']):
+            party['oldest'] = row['date']
+        if row['overdue']:
+            party['overdue'] += row['amount']
+        if row['source'] not in party['sources']:
+            party['sources'].append(row['source'])
     return sorted(parties.values(), key=lambda p: (-p['balance'], p['party_name']))
 
 
-def _sold(db, *conditions):
-    return db.scalar(select(func.coalesce(func.sum(m.Sale.total_amount), 0))
-        .where(m.Sale.status == 'active', *conditions)) or ZERO
-
-
-def _trends(db, today, days=30):
-    """Daily figures for the last `days` days, oldest first, for the overview's
-    small charts: what buyers owed and what Omoterra owed at the end of each
-    day (from debts and their payment dates), and each day's revenue and net
-    profit. Cancelled debts and reversed payments are left out."""
-    start = today - timedelta(days=days - 1)
-    def balances(direction):
-        live = and_(m.LedgerDebt.direction == direction, m.LedgerDebt.status != 'cancelled')
-        owed = dict(db.execute(select(m.LedgerDebt.incurred_on, func.sum(m.LedgerDebt.amount)).where(live)
-            .group_by(m.LedgerDebt.incurred_on)).all())
-        paid = dict(db.execute(select(m.LedgerPayment.paid_on, func.sum(m.LedgerPayment.amount))
-            .join(m.LedgerDebt, m.LedgerDebt.id == m.LedgerPayment.debt_id)
-            .where(live, m.LedgerPayment.reversed_at.is_(None)).group_by(m.LedgerPayment.paid_on)).all())
-        balance = sum((v for d, v in owed.items() if d < start), ZERO) - sum((v for d, v in paid.items() if d < start), ZERO)
-        series = []
-        for n in range(days):
-            d = start + timedelta(n)
-            balance += owed.get(d, ZERO) - paid.get(d, ZERO)
-            series.append(balance)
-        return series
-    profit = sorted(profit_between(db, start, today)['days'], key=lambda row: row['date'])
-    return {'owed_to_me': balances('receivable'), 'i_owe': balances('payable'),
-            'revenue': [row['revenue'] for row in profit], 'net_profit': [row['net_profit'] for row in profit]}
+def _balance(summary, *keys):
+    return {'ledger': summary['ledger'], 'marketplace': summary['marketplace'], 'total': summary['total'],
+            'count': summary['count'], 'overdue': summary['overdue'], 'overdue_count': summary['overdue_count'],
+            **{key: summary[key] for key in keys}}
 
 
 @router.get('/finance/summary')
 def finance_summary(operator=Depends(auth.ops), db=Depends(database)):
+    """The Finance overview, every figure from the reporting layer: balances
+    now (owed either way, app commitments beside them), sales and money moved
+    today and this month, profit, and the last 30 days for the small charts."""
     today = c.business_today()
     month = today.replace(day=1)
-    debtors, creditors = _parties(db, 'receivable'), _parties(db, 'payable')
-    owed_to_me = sum((p['balance'] for p in debtors), ZERO)
-    i_owe = sum((p['balance'] for p in creditors), ZERO)
-    # The marketplace keeps its own records; count them so nothing is missed.
-    market_owed = db.scalar(select(func.coalesce(func.sum(m.Payment.amount - m.Payment.received_amount), 0))
-        .join(m.Order, m.Order.id == m.Payment.order_id)
-        .where(m.Payment.status.in_(('pending', 'partial')),
-               m.Order.internal_status.not_in(('cancelled', 'payment_failed')))) or ZERO
-    market_payouts = db.scalar(select(func.coalesce(func.sum(m.Settlement.total_payable), 0))
-        .where(m.Settlement.status == 'pending')) or ZERO
-    by_method = defaultdict(lambda: {'in': ZERO, 'out': ZERO})
-    for method, flow, amount in db.execute(select(CASH.c.method, CASH.c.flow, func.sum(CASH.c.amount))
-            .where(COUNTED).group_by(CASH.c.method, CASH.c.flow)):
-        by_method[method][flow] += amount
-    def moved(*conditions):
-        money_in, money_out = _moved(db, *conditions)
-        return {'money_in': money_in, 'money_out': money_out}
+    owed, owe = rp.receivables(db), rp.payables(db)
+    pending = rp.commitments(db)
+    def period(start=None, end=None):
+        sold, money = rp.revenue(db, start, end), rp.cash_movements(db, start, end)
+        return {'sales': sold['total'], 'direct_sales': sold['direct'], 'marketplace_sales': sold['marketplace'],
+                'sales_count': sold['count'], 'money_in': money['money_in'], 'money_out': money['money_out'],
+                'net': money['net']}
+    everything = rp.cash_movements(db)
     recent = db.scalars(select(m.LedgerPayment).order_by(m.LedgerPayment.created_at.desc()).limit(15)).all()
+    window = rp.profit(db, today - timedelta(days=29), today)
+    days = sorted(window['days'], key=lambda row: row['date'])
+    without_days = lambda report: {k: v for k, v in report.items() if k != 'days'}
     return _result({
-        'today': {'date': today, 'sales': _sold(db, m.Sale.sold_on == today),
-                  'sales_count': db.scalar(select(func.count()).where(m.Sale.status == 'active', m.Sale.sold_on == today)),
-                  **moved(CASH.c.paid_on == today)},
-        'month': {'start': month, 'sales': _sold(db, m.Sale.sold_on >= month), **moved(CASH.c.paid_on >= month)},
-        'all_time': {'sales': _sold(db), **moved()},
-        'profit_today': {k: v for k, v in profit_between(db, today, today).items() if k != 'days'},
-        'profit_month': {k: v for k, v in profit_between(db, month, today).items() if k != 'days'},
-        'owed_to_me': {'ledger': owed_to_me, 'marketplace': market_owed, 'total': owed_to_me + market_owed,
-                       'overdue': sum((p['overdue'] for p in debtors), ZERO)},
-        'i_owe': {'ledger': i_owe, 'marketplace': market_payouts, 'total': i_owe + market_payouts,
-                  'overdue': sum((p['overdue'] for p in creditors), ZERO)},
-        'by_method': [{'method': k, **v, 'net': v['in'] - v['out']} for k, v in sorted(by_method.items())],
-        'debtors': debtors[:100], 'creditors': creditors[:100],
+        'today': {'date': today, **period(today, today)},
+        'month': {'start': month, **period(month, today)},
+        'all_time': {**period(), 'by_source': everything['by_source']},
+        'profit_today': without_days(rp.profit(db, today, today)),
+        'profit_month': without_days(rp.profit(db, month, today)),
+        'owed_to_me': _balance(owed),
+        'i_owe': _balance(owe, 'disputed', 'disputed_count', 'credit', 'unresolved'),
+        'commitments': {k: pending[k] for k in ('total', 'unpaid', 'deposits', 'count')},
+        'by_method': everything['by_method'],
+        'debtors': _parties(owed['rows'])[:100], 'creditors': _parties(owe['rows'])[:100],
         'recent_payments': [payment_view(db, p, db.get(m.LedgerDebt, p.debt_id)) for p in recent],
-        'trends': _trends(db, today),
+        'trends': {**rp.balance_trends(db, today), 'revenue': [row['revenue'] for row in days],
+                   'net_profit': [row['net_profit'] for row in days]},
     })
+
+
+@router.get('/finance/rows')
+def finance_rows(metric: str = Query(..., pattern='^(' + '|'.join(rp.METRICS) + ')$'),
+                 start: Optional[date] = None, end: Optional[date] = None,
+                 source: Optional[str] = Query(None, pattern='^(ledger|marketplace)$'),
+                 q: str = Query('', max_length=100), buyer_profile_id: Optional[str] = None,
+                 supplier_id: Optional[str] = None, overdue: bool = False,
+                 page: int = Query(1, ge=1), page_size: int = Query(10, ge=1, le=100),
+                 operator=Depends(auth.ops), db=Depends(database)):
+    """The rows behind one headline (reporting.METRICS), newest first, with
+    their sum across every page under the same filters: the drilldown."""
+    rows = rp.rows_for(db, metric, start, end)
+    if source:
+        rows = [row for row in rows if row['source'] == source]
+    if overdue:
+        rows = [row for row in rows if row.get('overdue')]
+    if supplier_id:
+        rows = [row for row in rows if row.get('supplier_id') == supplier_id]
+    if buyer_profile_id:
+        profile = db.get(m.BuyerProfile, buyer_profile_id)
+        user_id = profile.user_id if profile else None
+        rows = [row for row in rows if row.get('buyer_profile_id') == buyer_profile_id
+                or (user_id and row.get('buyer_user_id') == user_id)]
+    needle = q.strip().casefold()
+    if needle:
+        rows = [row for row in rows if needle in ' '.join(str(row.get(key) or '') for key in
+            ('party', 'party_phone', 'description')).casefold()]
+    first = (page - 1) * page_size
+    return _result({'items': rows[first:first + page_size], 'total': len(rows), 'page': page, 'page_size': page_size,
+        'actionable': 0, 'amount': rp.total(rows)})
 
 
 @router.get('/finance/parties')
@@ -1670,9 +1601,6 @@ def create_expense(data: c.ExpenseInput, idempotency_key: str = Header(), operat
     return _result(_debt_detail(db, row), 201)
 
 
-EXPENSE = and_(m.LedgerDebt.source == 'expense', m.LedgerDebt.status != 'cancelled')
-
-
 @router.get('/expenses')
 def expenses(params: Paging = Depends(), start: Optional[date] = None, end: Optional[date] = None,
              category: Optional[str] = None, sale_id: Optional[str] = None, operator=Depends(auth.ops),
@@ -1700,56 +1628,11 @@ def expenses(params: Paging = Depends(), start: Optional[date] = None, end: Opti
     return _result(body)
 
 
-def _order_day():
-    return cast(func.timezone('Africa/Dar_es_Salaam', m.Order.created_at), Date)
-
-
-DELIVERED = m.Order.internal_status.in_(('delivered', 'completed'))
-
-
 def profit_between(db, start, end):
-    """Profit for the days start..end (inclusive), on Omoterra's calendar."""
-    def by_day(query, day_column):
-        return {day: value or ZERO for day, value in db.execute(query.where(day_column >= start, day_column <= end)
-            .group_by(day_column)).all()}
-
-    sales = db.execute(select(m.Sale.sold_on, func.sum(m.Sale.total_amount), func.sum(m.Sale.cost_amount))
-        .where(m.Sale.status == 'active', m.Sale.sold_on >= start, m.Sale.sold_on <= end).group_by(m.Sale.sold_on)).all()
-    day = _order_day()
-    market_sales = by_day(select(day, func.sum(m.Order.total_amount)).where(DELIVERED), day)
-    market_cost = by_day(select(day, func.sum(m.OrderItem.payout_snapshot * func.coalesce(m.OrderItem.actual_quantity,
-        m.OrderItem.quantity))).join(m.Order, m.Order.id == m.OrderItem.order_id).where(DELIVERED), day)
-    spent = by_day(select(m.LedgerDebt.incurred_on, func.sum(m.LedgerDebt.amount)).where(EXPENSE), m.LedgerDebt.incurred_on)
-    # Received stock that died or was lost before it was sold, at cost.
-    lost = by_day(select(m.StockLoss.lost_on, func.sum(m.StockLoss.quantity * m.StockLoss.unit_cost))
-        .where(m.StockLoss.cancelled_at.is_(None)), m.StockLoss.lost_on)
-    # Delivery-note goods lost before they were sold (died, culled, stolen,
-    # spoiled) or not recovered from a cancelled or reduced sale (rule R2), at cost.
-    for day_, value in by_day(select(m.CollectionMovement.occurred_on,
-            func.sum(m.CollectionMovement.quantity * m.CollectionMovement.unit_cost))
-            .where(m.CollectionMovement.kind.in_(m.COLLECTION_LOSSES), m.CollectionMovement.cancelled_at.is_(None)),
-            m.CollectionMovement.occurred_on).items():
-        lost[day_] = lost.get(day_, ZERO) + value
-    categories = db.execute(select(m.LedgerDebt.expense_category, func.sum(m.LedgerDebt.amount))
-        .where(EXPENSE, m.LedgerDebt.incurred_on >= start, m.LedgerDebt.incurred_on <= end)
-        .group_by(m.LedgerDebt.expense_category)).all()
-    days = {}
-    for d in (start + timedelta(n) for n in range((end - start).days + 1)):
-        days[d] = {'date': d, 'sales': ZERO, 'stock_cost': ZERO, 'expenses': spent.get(d, ZERO),
-                   'marketplace_sales': market_sales.get(d, ZERO), 'marketplace_cost': s.money(market_cost.get(d, ZERO)),
-                   'stock_lost': s.money(lost.get(d, ZERO))}
-    for d, total, cost in sales:
-        days[d]['sales'], days[d]['stock_cost'] = total, cost
-    for row in days.values():
-        row['revenue'] = row['sales'] + row['marketplace_sales']
-        row['gross_profit'] = row['revenue'] - row['stock_cost'] - row['marketplace_cost']
-        row['net_profit'] = row['gross_profit'] - row['expenses'] - row['stock_lost']
-    totals = {key: sum((row[key] for row in days.values()), ZERO) for key in
-        ('sales', 'stock_cost', 'marketplace_sales', 'marketplace_cost', 'revenue', 'gross_profit', 'expenses',
-         'stock_lost', 'net_profit')}
-    return {'start': start, 'end': end, **totals,
-        'expenses_by_category': sorted(({'category': k, 'amount': v} for k, v in categories), key=lambda r: -r['amount']),
-        'days': sorted(days.values(), key=lambda r: r['date'], reverse=True)}
+    """Profit for the days start..end (inclusive), on Omoterra's calendar:
+    the reporting layer's (direct sales by sale date, app orders by delivery
+    date, cost of goods dated with its revenue)."""
+    return rp.profit(db, start, end)
 
 
 @router.get('/finance/profit')
@@ -1801,15 +1684,15 @@ def financial_report(start: date, end: date,
             issues.append('Use at least 60 calendar days with sales on at least 10 days. This is a minimum screening rule, not a confidence guarantee.')
         if actual['revenue'] <= 0:
             issues.append('No positive sales baseline is available for this period.')
-        if actual['marketplace_sales'] > 0:
-            issues.append('Marketplace revenue currently uses order creation dates after delivery. Forecasts are withheld until recognition dates are reconciled.')
+        if actual['unresolved_marketplace']['count']:
+            issues.append(f"{actual['unresolved_marketplace']['count']} delivered app orders have no recorded delivery date, so they are in no period. Forecasts are withheld until their dates are confirmed.")
         if (today - end).days > 31:
             issues.append('The report ends more than 31 days ago. Choose a recent period for a forward projection.')
         if fixed is None or variable_pct is None or not reviewed:
             issues.append('Enter monthly fixed costs and other variable costs, then confirm that you reviewed the assumptions and source records.')
         notes = [
             'Management report of recorded activity, not reconciled statutory accounts. Missing expenses, opening stock costs and historical corrections can change these results.',
-            'Revenue covers active direct sales and delivered/completed marketplace orders. Marketplace activity is grouped by order creation date under the existing reporting policy.',
+            'Revenue covers active direct sales on their sale date and delivered app orders on their delivery date (decision D2). App orders not yet delivered are commitments, not revenue. App order cost is the supplier payout for the accepted quantity.',
             'Expenses include recorded expense debts, whether paid or unpaid, plus recorded LPO stock losses and delivery-note goods recorded as not recovered. Other collection losses (mortality), depreciation, tax and financing are not comprehensively captured.',
             'Product analysis covers direct sales only. Unknown costs are never shown as a final product margin.',
             'Forecasts are conditional operating scenarios, not cash forecasts. They assume constant selling prices, product mix and stock-cost ratios, with enough supply and delivery capacity.',
@@ -1817,7 +1700,7 @@ def financial_report(start: date, end: date,
             'Lower/higher cases change sales by -20%/+20% at the same cost ratios and fixed overhead. These are sensitivity assumptions, not statistical confidence intervals.',
         ]
         forecast = None if issues else project(revenue=actual['revenue'],
-            stock_cost=actual['stock_cost'] + actual['marketplace_cost'], losses=actual['stock_lost'],
+            stock_cost=actual['cost_of_goods'], losses=actual['stock_lost'],
             days=days, end=end, fixed=fixed, variable_pct=variable_pct,
             growth_pct=growth_pct, investment=investment)
         suggestions = []

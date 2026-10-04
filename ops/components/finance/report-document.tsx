@@ -85,7 +85,7 @@ type Action = { title: string; detail: string; step: string };
 function analyse(report: FinancialReport) {
   const a = report.actual;
   const revenue = num(a.revenue);
-  const stock = num(a.stock_cost) + num(a.marketplace_cost);
+  const stock = num(a.cost_of_goods);
   const expenseRows = a.expenses_by_category.map((row) => ({ label: title(expenseLabel(row.category)), key: row.category, amount: num(row.amount) }));
   if (num(a.stock_lost) > 0) expenseRows.push({ label: 'Recorded Stock Losses', key: 'stock_lost', amount: num(a.stock_lost) });
   expenseRows.sort((x, y) => y.amount - x.amount);
@@ -93,7 +93,7 @@ function analyse(report: FinancialReport) {
     const rest = expenseRows.splice(MAX_EXPENSE_ROWS - 1);
     expenseRows.push({ label: 'All Other Categories', key: 'rest', amount: rest.reduce((sum, row) => sum + row.amount, 0) });
   }
-  const expenses = num(a.expenses) + num(a.stock_lost);
+  const expenses = num(a.expenses_and_losses);
   const result = num(a.net_profit);
   const unknown = report.unknown_cost_lines;
   const historyShort = report.history_days < MIN_HISTORY_DAYS;
@@ -106,7 +106,7 @@ function analyse(report: FinancialReport) {
   if (report.assumptions.variable_pct === null) blockers.push('Other variable costs not supplied');
   if (report.assumptions.fixed !== null && report.assumptions.variable_pct !== null && !report.assumptions.reviewed) blockers.push('Assumptions not yet reviewed');
   if (revenue <= 0) blockers.push('No positive sales baseline');
-  if (num(a.marketplace_sales) > 0) blockers.push('Marketplace dates not reconciled');
+  if (a.unresolved_marketplace.count > 0) blockers.push('App deliveries without a date');
   if (stale) blockers.push('Period ended over a month ago');
   if (historyShort) blockers.push(`Only ${plural(report.history_days, 'day')} of history`);
   if (sellingShort) blockers.push(`Only ${plural(report.active_sales_days, 'selling day')}`);
@@ -115,7 +115,7 @@ function analyse(report: FinancialReport) {
   if (unknown || report.assumptions.fixed === null || report.assumptions.variable_pct === null) unlocks.push('Complete costs');
   if (blockers.length) unlocks.push('Reconcile cash');
   if (report.assumptions.fixed !== null && report.assumptions.variable_pct !== null && !report.assumptions.reviewed) unlocks.push('Review the assumptions');
-  if (num(a.marketplace_sales) > 0) unlocks.push('Reconcile marketplace dates');
+  if (a.unresolved_marketplace.count > 0) unlocks.push('Confirm app delivery dates');
   if (stale) unlocks.push('Choose a recent period');
   if (historyShort || sellingShort || revenue <= 0) unlocks.push('Build repeat-demand history');
 
