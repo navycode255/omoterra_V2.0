@@ -105,7 +105,8 @@ export interface Debt {
 /** One reasoned correction of a supplier debt (backend financial_adjustments, M1.4). */
 export interface FinancialAdjustment {
   id: string;
-  kind: 'wrong_supplier' | 'duplicate_liability' | 'free_stock' | 'cost_never_existed';
+  kind: 'wrong_supplier' | 'duplicate_liability' | 'free_stock' | 'cost_never_existed'
+    | 'receipt_correction' | 'supplier_credit_note' | 'historical_batch_link';
   entity_type: string;
   /** The debt corrected. */
   entity_id: string;
@@ -125,11 +126,17 @@ export const ADJUSTMENT_LABELS: Record<FinancialAdjustment['kind'], string> = {
   duplicate_liability: 'Duplicate liability',
   free_stock: 'Free or gift stock',
   cost_never_existed: 'Cost never existed',
+  receipt_correction: 'Receipt corrected',
+  supplier_credit_note: 'Supplier credit note',
+  historical_batch_link: 'Linked to a delivery note',
 };
 
 export interface DebtDetail extends Debt {
   created_by: string | null;
   sale_number: string | null;
+  /** A delivery note's payable: corrected, returned and credited on the note (M1.6). */
+  collection_id?: string | null;
+  collection_number?: string | null;
   payments: LedgerPayment[];
   adjustments: FinancialAdjustment[];
   /** Other open debts to the same supplier this one may duplicate. */
@@ -161,6 +168,63 @@ export interface SupplierCollectionStock {
   created_at: string;
   cancelled_at: string | null;
   cancel_reason: string;
+  /** 'delivery' (Receive stock), 'sale' (collected and sold together) or 'historical' (linked later). */
+  origin?: 'delivery' | 'sale' | 'historical';
+  sale_id?: string | null;
+  not_recovered?: string;
+  returned?: string;
+  /** Died, culled, stolen or spoiled before sale (uncancelled losses). */
+  lost?: string;
+}
+
+/** What happened to received goods a sale no longer sells (rule R2). */
+export type GoodsOutcome = 'never_left' | 'buyer_return_accepted' | 'not_recovered';
+
+export const GOODS_OUTCOMES: [GoodsOutcome, string][] = [
+  ['never_left', 'They never left Omoterra: back on hand'],
+  ['buyer_return_accepted', 'The buyer returned them and we accepted them back: back on hand'],
+  ['not_recovered', 'Not recovered: record as a loss pending investigation'],
+];
+
+export interface CollectionMovement {
+  id: string;
+  kind: GoodsOutcome | 'returned_to_supplier' | 'receipt_correction' | 'lost';
+  /** 'lost' only: died, sick, stolen, spoiled or other. */
+  loss_reason?: string | null;
+  cancelled_at?: string | null;
+  cancelled_by?: string | null;
+  cancel_reason?: string;
+  quantity: string;
+  occurred_on: string;
+  unit_cost: string;
+  value: string;
+  sale_id: string | null;
+  sale_number: string | null;
+  reason: string;
+  evidence: string;
+  note: string;
+  created_at: string;
+  recorded_by: string | null;
+  credit_note: SupplierCreditNote | null;
+  awaiting_credit: boolean;
+}
+
+export interface SupplierCreditNote {
+  id: string; movement_id: string; amount: string; issued_on: string; reference: string; note: string; created_at: string;
+}
+
+/** GET /ops/supplier-collections/{id}: a delivery note with its physical events (M1.6). */
+export interface DeliveryNoteDetail extends SupplierCollectionStock {
+  confirmed_by: string | null;
+  confirmed_at: string | null;
+  recorded_by: string | null;
+  sale_number: string | null;
+  movements: CollectionMovement[];
+  credit_notes: SupplierCreditNote[];
+  credited: string;
+  awaiting_credit_quantity: string;
+  awaiting_credit_value: string;
+  payable: { id: string; amount: string; paid_amount: string; status: string; balance: string } | null;
 }
 
 export interface SaleItem {
@@ -212,6 +276,7 @@ export interface Sale {
   created_by: string | null;
   cancelled_at: string | null;
   cancel_reason: string;
+  cancel_goods?: GoodsOutcome | null;
   receivable_id: string | null;
 }
 

@@ -1,0 +1,38 @@
+/* Delivery note page: physical events after receipt and the staff actions
+   (build plan M1.6). The printable note itself uses the global styles. */
+.panel { max-width: 1100px; margin: 0 auto 18px; padding: 24px 28px; border: 1px solid #dce6e1; border-radius: 18px; background: #fff; }
+.panel h2 { margin: 0 0 6px; font-size: 18px; }
+.events { width: 100%; border-collapse: collapse; margin-top: 12px; }
+.events th, .events td { padding: 9px 8px; border-bottom: 1px solid #edf1ef; text-align: left; vertical-align: top; }
+.events td small { display: block; color: var(--text-muted); }
+.numeric { text-align: right !important; white-space: nowrap; }
+.actions { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 14px; }
+.action { padding: 16px; border: 1px solid #e3ebe7; border-radius: 12px; background: #f7faf8; }
+.action h3 { margin: 0 0 4px; font-size: 15px; }
+.action > p { margin: 0 0 10px; }
+.awaiting { color: var(--warning); font-weight: 650; }
+.loss { display: grid; grid-template-columns: minmax(220px, 1fr) minmax(0, 2fr); gap: 18px; align-items: start; margin-top: 16px; padding: 16px; border: 1px solid #f0dcc0; border-radius: 12px; background: #fffaf2; }
+.loss h3 { margin: 0 0 4px; font-size: 15px; }
+.loss p { margin: 0; }
+.loss :global(.row) { flex-wrap: wrap; align-items: flex-end; }
+.loss :global(.row) > :global(.field) { flex: 1 1 140px; }
+.cancelled { color: var(--text-muted); text-decoration: line-through; }
+.cancelled small { text-decoration: none; }
+.cancelNote { color: var(--warning) !important; text-decoration: none; }
+.cancelLoss { margin-top: 6px; }
+.cancelLoss summary { color: var(--error); font-size: 12.5px; cursor: pointer; }
+.credit { margin-top: 10px; padding-top: 10px; border-top: 1px dashed #d5e1db; }
+
+@media (max-width: 900px) {
+  .actions, .loss { grid-template-columns: 1fr; }
+  .panel { padding: 16px; }
+  .events thead { display: none; }
+  .events tr { display: block; padding: 8px 0; border-bottom: 1px solid #edf1ef; }
+  .events td { display: flex; justify-content: space-between; gap: 12px; border: 0; padding: 3px 0; }
+  .events td::before { content: attr(data-label); color: var(--text-muted); }
+  .numeric { text-align: right; }
+}
+
+@media print {
+  .panel { display: none; }
+}

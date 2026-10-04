@@ -91,6 +91,27 @@ def supplier_lines_without_source(db):
         revenue=_money(sum((r['revenue'] for r in records), ZERO)))
 
 
+def batch_lines_without_receipt(db):
+    """Lines sold straight from a supplier batch before M1.6: the batch was
+    reduced, but no delivery note confirms the goods were received and the
+    cost is owed through a sale-cost debt. Convert each one with
+    `python -m app.link_batch_sales` (dry run first)."""
+    rows = db.execute(select(m.Sale.sale_number, m.Sale.sold_on, m.SaleItem.id, m.SaleItem.position,
+            m.SaleItem.description, m.SaleItem.supplier_id, m.SaleItem.supplier_batch_id, m.SaleItem.quantity,
+            m.SaleItem.cost_total)
+        .join(m.Sale, m.Sale.id == m.SaleItem.sale_id)
+        .where(m.Sale.status == 'active', m.SaleItem.supplier_batch_id.is_not(None),
+               m.SaleItem.supplier_collection_id.is_(None))
+        .order_by(m.Sale.sold_on, m.Sale.sale_number, m.SaleItem.position)).all()
+    names = _supplier_names(db, [r.supplier_id for r in rows])
+    records = [{'sale_number': r.sale_number, 'sold_on': r.sold_on, 'sale_item_id': r.id, 'line': r.position,
+                'description': r.description, 'supplier': names.get(r.supplier_id, r.supplier_id),
+                'batch_id': r.supplier_batch_id, 'quantity': r.quantity, 'cost': _money(r.cost_total)} for r in rows]
+    return _section('batch_lines_without_receipt', 'Batch sale lines without a delivery note (before M1.6)', records,
+        'supplier cost', sum((r['cost'] for r in records), ZERO),
+        'Convert each with python -m app.link_batch_sales after its dry run (R2).')
+
+
 def unresolved_transfer_allocations(db):
     """Reversed allocations of transfers whose money has no decision yet
     (from before M1.2). The money left the account; the finance owner
@@ -274,7 +295,7 @@ def ledger_payment_methods(db):
 CHECKS = (unknown_cost_lines, supplier_lines_without_source, unresolved_transfer_allocations,
           transfer_invariant_breaks, settlement_payout_problems, expenses_without_category,
           batch_movement_problems, cancelled_sale_cost_debts, unwrapped_supplier_payments,
-          supplier_credit, ledger_payment_methods)
+          batch_lines_without_receipt, supplier_credit, ledger_payment_methods)
 # Sections that give context and are never counted as exceptions.
 CONTEXT = {'supplier_credit', 'ledger_payment_methods'}
 
@@ -315,6 +336,9 @@ def _line(section, r):
         return f"{r['sale_number']} line {r['line']} ({r['sold_on']}): {r['description']} {r['quantity']} {r['unit']}, revenue {_tzs(r['revenue'])}"
     if k == 'supplier_lines_without_source':
         return f"{r['sale_number']} line {r['line']}: {r['supplier']}, {r['description']}, cost {_tzs(r['cost'])}"
+    if k == 'batch_lines_without_receipt':
+        return (f"{r['sale_number']} line {r['line']}: {r['supplier']}, {r['quantity']} from batch {r['batch_id']}, "
+                f"cost {_tzs(r['cost'])}")
     if k == 'unresolved_transfer_allocations':
         return (f"{r['supplier']} transfer {r['transfer_id']} ({r['transfer_paid_on']}, ref {r['transfer_reference'] or '-'}) "
                 f"{_tzs(r['transfer_amount'])}, active allocations {_tzs(r['transfer_active_allocations'])}; "

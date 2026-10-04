@@ -29,13 +29,14 @@ export function MobileNav({ counts, admin }: { counts: Record<string, number>; a
   // The most specific module that matches, so /finance/expenses is Expenses, not Finance.
   const current = modules.filter((module) => isActive(module.href, pathname)).sort((a, b) => b.href.length - a.href.length)[0];
   const extra = current && !PRIMARY.some((item) => item.href === current.href) ? current : null;
-  const chips: Module[] = [...PRIMARY.slice(0, 1), ...(extra ? [extra] : []), ...PRIMARY.slice(1)];
+  const production = pathname.startsWith('/batches');
+  const chips: Module[] = production ? [...PRIMARY.slice(2), ...PRIMARY.slice(0, 2)] : [...PRIMARY.slice(0, 1), ...(extra ? [extra] : []), ...PRIMARY.slice(1)];
   const waiting = Object.values(counts).reduce((sum, value) => sum + (value || 0), 0);
 
   // Keep the active chip in view after every navigation.
   useEffect(() => {
     const chip = row.current?.querySelector<HTMLElement>('[data-active="true"]');
-    if (chip && row.current) row.current.scrollTo({ left: chip.offsetLeft - (row.current.clientWidth - chip.offsetWidth) / 2 });
+    if (chip && row.current) row.current.scrollTo({ left: pathname.startsWith('/batches') ? 0 : chip.offsetLeft - (row.current.clientWidth - chip.offsetWidth) / 2 });
   }, [pathname]);
   useEffect(() => {
     if (!open) return;
@@ -46,7 +47,7 @@ export function MobileNav({ counts, admin }: { counts: Record<string, number>; a
   }, [open]);
 
   return <>
-    <nav className="mobile-nav" aria-label="Operations navigation">
+    <nav className="mobile-nav" data-production={production} aria-label="Operations navigation">
       <div className="mobile-nav-row" ref={row}>
         {chips.map((item) => {
           const active = current?.href === item.href;

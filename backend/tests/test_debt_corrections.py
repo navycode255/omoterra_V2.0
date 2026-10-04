@@ -272,8 +272,9 @@ def test_delivery_note_lines_take_the_receipt_unit_and_category(client, seeded):
         'buyer_profile_id': body['buyer_profile_id'], 'sold_on': TODAY,
         'items': [{'unit': 'kg', 'quantity': '4', 'unit_price': '9000', 'supplier_collection_id': note['id']}]})
     assert edited.status_code == 422
+    # Selling one fewer: say what happened to it (rule R2, M1.6).
     kept = client.put(API + f"/sales/{body['id']}", headers=OPS, json={
-        'buyer_profile_id': body['buyer_profile_id'], 'sold_on': TODAY,
+        'buyer_profile_id': body['buyer_profile_id'], 'sold_on': TODAY, 'goods': 'never_left',
         'items': [{'quantity': '3', 'unit_price': '9000', 'supplier_collection_id': note['id']}]})
     assert kept.status_code == 200, kept.text
     assert kept.json()['items'][0]['unit'] == 'bird'

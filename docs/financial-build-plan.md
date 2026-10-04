@@ -4,7 +4,7 @@ Plan date: 3 October 2026 (revision 3, after second review). Source: [financial 
 
 ## Progress
 
-Updated 3 October 2026 (paused here). ✅ done · 🟡 done but waiting on you · 🔄 in progress · ⬜ not started. Everything through 1.5 is committed and pushed (`090d1ee`, `d579d24`). The full backend suite passes in strict mode (373 tests, 0 skipped), and Playwright passes 3/3. **Not yet deployed. GitHub Actions is blocked:** the GitHub account is locked over billing, so CI jobs do not start until that is resolved.
+Updated 4 October 2026 (1.6 built, not committed). ✅ done · 🟡 done but waiting on you · 🔄 in progress · ⬜ not started. Everything through 1.5 is committed and pushed (`090d1ee`, `d579d24`). The full backend suite passes in strict mode (373 tests, 0 skipped), and Playwright passes 3/3. **Not yet deployed. GitHub Actions is blocked:** the GitHub account is locked over billing, so CI jobs do not start until that is resolved.
 
 | Item | Status | Evidence / what's left |
 |---|---|---|
@@ -15,33 +15,42 @@ Updated 3 October 2026 (paused here). ✅ done · 🟡 done but waiting on you �
 | 0.5 Statement consistency harness | ✅ | Playwright: the staff supplier page, Supplier payments, the Suppliers list and the supplier portal show the same bought, paid and owed figures (`ops/e2e/`). |
 | 1.1 F14 Expense totals | ✅ | `total` is the row count again, with `summary` and `by_category` following the same filters. Expenses page uses the shared footer. 30-expense, six-filter test. |
 | 1.2 F04 Transfers vs allocations | 🟡 | Committed (`d579d24`), not deployed. Every supplier payment is a transfer. "Move to supplier credit" replaces Reverse, and money out is unchanged. Use credit, refunds (separate inflow, partial allowed) and admin-only entry-error corrections. Pay supplier uses credit first. `python -m app.classify_transfers` handles history item by item, with a dry run. 14 new tests. **Waiting on you:** deploy, then classify Antonia's 19,500. |
-| 1.3 F02 Cost states and opening stock | ⬜ | Needs D3 (cost of stock held before the system) |
-| 1.4 F06 Reasoned debt corrections | 🟡 | Committed (`d579d24`), not deployed. "Reconcile debt" is replaced by four admin-only, reasoned corrections (wrong supplier, duplicate liability, free stock, cost never existed), each writing a `financial_adjustments` row (migration 034). Paid money stays with whoever received it (credit or unresolved); receipt lines are never touched; a sale edit no longer moves a paid supplier debt. D4 uses the suggested default (admins, with a reason). **Waiting on you:** D4 sign-off, commit and deploy. |
+| 1.3 F02 Cost states and opening stock | ⬜ | D3 decided (finance owner supplies opening values). Next after 1.7. |
+| 1.4 F06 Reasoned debt corrections | 🟡 | Committed (`d579d24`), not deployed. "Reconcile debt" is replaced by four admin-only, reasoned corrections (wrong supplier, duplicate liability, free stock, cost never existed), each writing a `financial_adjustments` row (migration 034). Paid money stays with whoever received it (credit or unresolved); receipt lines are never touched; a sale edit no longer moves a paid supplier debt. D4 confirmed (admins, with a reason). **Waiting on you:** deploy. |
 | 1.5 F03 Units on receipts | 🟡 | Committed (`d579d24`), not deployed. Waiting only on deploy. Delivery-note and LPO lines take the receipt's unit and category; a different one is refused (422); fractional birds and animals refused. |
-| 1.6 Batch sales become delivery notes | ⬜ | 11 unlinked supplier lines (1,040,000) in the baseline go through its dry run |
+| 1.6 Batch sales become delivery notes | 🟡 | **Built 4 October, not committed or deployed.** A "From batch" line needs "We collected these N birds from … on …" ticked (else 422); the server records a same-day delivery note (origin `sale`, confirmer recorded) whose `batch_receipt` debt is the only supplier liability, and cost paid at the sale is a transfer allocated to it. Cancelling or reducing a sale asks what happened to received goods (never left / returned and accepted back / not recovered); the note and its payable never change. The delivery note page has Correct receipt (never delivered, admin, reason + evidence), Return to supplier (stock down, payable "awaiting supplier credit") and Record supplier credit note (lowers the payable). Migration 035 (`collection_movements`, `supplier_credit_notes`). `python -m app.link_batch_sales` converts history one line at a time after a dry run. Backend 388 passed, 0 skipped (strict); Playwright 4/4 (new `batch-sale.spec.ts`; statement harness extended with a return and credit note). **Waiting on you:** review, commit, deploy backend and ops together, then link the 11 lines (below). |
 | 1.7 F01 One reporting layer | ⬜ | Needs D7 |
 | M2 to M5 | ⬜ | |
 
 ### Where we stopped, and how to resume
 
 **Your actions before the next build session:**
-1. **Deploy** the backend (cPanel) and the ops dashboard (Netlify) together. Migrations 032 to 034 apply automatically when the backend starts.
+1. ~~Deploy~~ ✅ Backend deployed: production has migrations 032 to 034 (checked 4 October).
 2. **Classify Antonia's 19,500** on the server:
    - `python -m app.classify_transfers --dry-run`
    - then `--apply <id> --as credit --evidence "…" --by "Maternus Joshua"`
    - then **Use credit** on her open invoice.
    - The dry run also lists older single payments, which you can wrap into transfers one at a time with `--wrap`.
-3. **Unlock GitHub billing** so CI runs on every push.
-4. **Decide** D3 (cost of stock held before the system), D4 (confirm admins-only corrections, with a reason) and D7 (marketplace orders recognised on delivery?). Then sign off [finance-metrics.md](finance-metrics.md).
+3. **After deploying 1.6, link the 11 historical supplier lines** (1,040,000) on the server, one at a time:
+   - `python -m app.link_batch_sales --dry-run` (changes nothing; keep the output). It proposes each line's batch (oldest open batch of the same product with enough left) and shows the receipt and how the sale-cost debt and its payments map onto it; ambiguous lines are listed as unresolved with the reason.
+   - For each proposed line, confirm with whoever collected the birds the real collection date, then `python -m app.link_batch_sales --apply <line id> --batch <batch id> --confirm-received-on <YYYY-MM-DD> --by "Maternus Joshua"` and type the line id to confirm.
+   - Run `python -m app.finance_exceptions` afterwards: section 2 (and the new "batch sale lines without a delivery note") should be empty or list only the unresolved lines.
+4. **Unlock GitHub billing** so CI runs on every push.
+5. ~~Decide D3 and D4~~ ✅ (4 October). Prepare **opening values** for stock held before the system (per batch or product). Decide D7 before M2.5. Sign off [finance-metrics.md](finance-metrics.md).
 
 **Known limits of what is built (handled by later items):**
 - A cleared cost shows as 0 margin, not "Provisional", until 1.3.
 - "Wrong supplier" corrects a whole debt, not individual lines.
 - A payment typed against the wrong supplier is fixed with Wrong supplier → unresolved → classify, then recording the real payment.
 
+**Known limits of 1.6 (handled by M2.1/M2.2):**
+- Stock checks are current-state only (R8 without dates): a correction, return or sale never takes more than is on hand now.
+- "Not recovered" is a collection movement counted as a stock loss at cost in Profit; there is no investigation workflow yet. Buyer-return condition is free text.
+- Returns do not put birds back in the supplier's batch; a receipt correction does.
+- A line sold straight from a batch before 1.6 keeps that form when the sale is edited, until it is linked.
+
 **Next build items, in order:**
-- 1.6 batch sales become confirmed delivery notes. No decision needed; it includes the dry run for the 11 unlinked supplier lines.
-- 1.3 cost states and opening stock, after D3.
+- 1.3 cost states and opening stock (D3 decided: you supply opening values), after 1.7.
 - 1.7 one reporting layer, after D7.
 - Then the M1 exit check (the 500/100/20 scenario).
 
@@ -50,8 +59,9 @@ Updated 3 October 2026 (paused here). ✅ done · 🟡 done but waiting on you �
 | D1 Finance owner | ✅ Maternus Joshua |
 | D2 Sale dates | ✅ Direct on sale date, marketplace on delivery date |
 | D5 Mistaken-allocation money | ✅ Supplier credit; refunds only with evidence |
-| D4 Who may correct supplier debts | 🟡 Built with the default (admins, with a reason); needs your confirmation |
-| D3, D6, D7, D8, D9 | ⬜ Open |
+| D4 Who may correct supplier debts | ✅ Admins only, with a reason (confirmed 4 October) |
+| D3 Stock held before the system | ✅ The finance owner supplies opening values; recorded as opening stock with no payable (4 October) |
+| D6, D7, D8, D9 | ⬜ Open |
 
 ## How this plan is organised
 
@@ -378,7 +388,7 @@ Corrects the recent `supplier_batch_id` work so that batch sales go through a re
 
 ## Decisions needed
 
-**Decided 3 October 2026:** D1: Maternus Joshua is the finance owner, with an accountant from M3. D2: direct sales count on the sale date and marketplace orders on the delivery date. D5: money a supplier keeps after a mistaken allocation becomes credit on their next invoice, refunded only with evidence.
+**Decided 3 October 2026:** D1: Maternus Joshua is the finance owner, with an accountant from M3. D2: direct sales count on the sale date and marketplace orders on the delivery date. D5: money a supplier keeps after a mistaken allocation becomes credit on their next invoice, refunded only with evidence. **Decided 4 October 2026:** D3: the finance owner gives opening values for stock held before the system; they are recorded as opening stock with no payable, and lines still without a cost stay `unknown` until a value is given. D4: admins only, with a reason (the built default).
 
 | # | Decision | Needed by | Suggested default |
 |---|---|---|---|

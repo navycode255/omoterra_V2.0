@@ -1,14 +1,18 @@
 import { businessToday, expect, memberSession, opsApi, seed, signInMember, signInOperator, test, tzs } from './fixtures';
 
 // M0.5 statement-consistency harness. One supplier: stock received on a
-// delivery note, a sale costed from their batch and one transfer to them.
-// Every screen that shows money with this supplier must agree on what was
-// bought, paid and is still owed. Later milestones extend this scenario.
+// delivery note, a sale from their batch (collected and sold together, so
+// M1.6 records a second delivery note) and one transfer to them; then 5
+// birds go back to the supplier and their agreed credit note lowers what is
+// owed. Every screen that shows money with this supplier must agree on what
+// was bought, paid and is still owed. Later milestones extend this scenario.
 
 const RECEIVED = { quantity: 50, unitCost: 6000 }; // delivery note: 300,000
-const SOLD = { quantity: 20, unitCost: 6500, unitPrice: 7000 }; // sale cost: 130,000
+const SOLD = { quantity: 20, unitCost: 6500, unitPrice: 7000 }; // same-day delivery note: 130,000
 const PAID = 200_000;
-const BOUGHT = RECEIVED.quantity * RECEIVED.unitCost + SOLD.quantity * SOLD.unitCost;
+const RETURNED = 5; // from the first note, credited at 6,000 each: 30,000
+const CREDIT = RETURNED * RECEIVED.unitCost;
+const BOUGHT = RECEIVED.quantity * RECEIVED.unitCost + SOLD.quantity * SOLD.unitCost - CREDIT;
 const OWED = BOUGHT - PAID;
 
 type Statement = { bought: string; paid: string; owed: string };
@@ -28,24 +32,39 @@ test('Supplier money agrees on the supplier page, Supplier payments, the supplie
   const batch = await api.post<{ id: string }>(`/ops/suppliers/${supplier.id}/batches`, {
     category: 'broilers', initial_quantity: '300', expected_ready_date: readyOn, region: 'Pwani', asking_price_per_unit: '6500',
   });
-  await api.post(`/ops/suppliers/${supplier.id}/collections`, {
+  const note = await api.post<{ id: string }>(`/ops/suppliers/${supplier.id}/collections`, {
     batch_id: batch.id, received_on: today, delivered_quantity: String(RECEIVED.quantity),
     accepted_quantity: String(RECEIVED.quantity), unit_cost: String(RECEIVED.unitCost),
   });
   await api.post('/ops/sales', {
     new_buyer: { business_name: 'E2E Buyer Shop', phone: '0754 000 777', region: 'dar es salaam' }, sold_on: today,
     items: [{ category: 'broilers', unit: 'bird', quantity: String(SOLD.quantity), unit_price: String(SOLD.unitPrice),
-      supplier_id: supplier.id, unit_cost: String(SOLD.unitCost), supplier_batch_id: batch.id }],
+      supplier_id: supplier.id, unit_cost: String(SOLD.unitCost), supplier_batch_id: batch.id, receipt_confirmed: true }],
   });
   await api.post(`/ops/ledger/suppliers/${supplier.id}/payments`, {
     amount: String(PAID), paid_on: today, method: 'mpesa', reference: 'E2E-TRANSFER-1',
   });
 
+  await api.post(`/ops/supplier-collections/${note.id}/returns`, {
+    quantity: String(RETURNED), returned_on: today, reason: 'Underweight birds',
+  });
+
+  await signInOperator(context, seeded.operator_token);
+
+  // 0. The delivery note: the return awaits supplier credit until the credit
+  // note is recorded on it (rule R2).
+  await page.goto(`/supplier-collections/${note.id}`);
+  await expect(page.getByText(`${RETURNED} birds returned (${tzs(CREDIT)}) awaiting supplier credit`)).toBeVisible();
+  const before = await api.get<Statement>(`/ops/ledger/suppliers/${supplier.id}/statement`);
+  expect(Number(before.bought)).toEqual(BOUGHT + CREDIT); // unchanged until the credit note
+  await page.getByLabel('Credit note reference').fill('CN-E2E-1');
+  await page.getByRole('button', { name: 'Record credit note' }).click();
+  await expect(page.getByText('No return is awaiting supplier credit.')).toBeVisible();
+  await expect(page.getByText(`Credit note CN-E2E-1: ${tzs(CREDIT)}`)).toBeVisible();
+
   // The backend's own statement is the reference every screen must match.
   const statement = await api.get<Statement>(`/ops/ledger/suppliers/${supplier.id}/statement`);
   expect([Number(statement.bought), Number(statement.paid), Number(statement.owed)]).toEqual([BOUGHT, PAID, OWED]);
-
-  await signInOperator(context, seeded.operator_token);
 
   // 1. Staff supplier page, "Money with this supplier".
   await page.goto(`/suppliers/${supplier.id}`);

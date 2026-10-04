@@ -1,4 +1,17 @@
-"""Supplier production batches, physical collection notes, and received stock."""
+"""Supplier production batches, physical collection notes, and received stock.
+
+A delivery note (`SupplierCollection`) is the record that goods were
+physically received from a supplier batch, with who confirmed it and when;
+its `batch_receipt` debt is what Omoterra owes for them. Since build plan
+M1.6, a direct sale from a batch goes through one too: staff confirm the
+collection and a same-day note (origin 'sale') is recorded and sold from.
+
+After receipt, stock moves only with a physical event (rule R2), recorded in
+`collection_movements`: goods not recovered from a cancelled sale, goods
+returned to the supplier (payable unchanged until an agreed supplier credit
+note), or a receipt correction (the supplier never delivered them: the note
+and its payable are reduced). On hand never goes below zero (R8, current
+state; dated checks arrive with M2.2)."""
 from __future__ import annotations
 
 from collections import defaultdict
@@ -8,7 +21,7 @@ from decimal import Decimal
 from fastapi import APIRouter, Depends, Header
 from sqlalchemy import func, select
 
-from . import auth, contracts as c, models as m, notifications as notes, services as s
+from . import auth, contracts as c, models as m, notifications as notes_module, services as s
 from .db import database
 from .i18n import M, fail
 
@@ -73,12 +86,20 @@ def batch_breakdown(db, batch):
 
 
 def collection_stock(db, collection_id):
+    """Accepted, sold (active sales), out by a physical event, on hand."""
     sold = db.scalar(select(func.coalesce(func.sum(m.SaleItem.quantity), 0))
         .join(m.Sale, m.Sale.id == m.SaleItem.sale_id)
         .where(m.SaleItem.supplier_collection_id == collection_id, m.Sale.status == 'active')) or ZERO
+    out = dict(db.execute(select(m.CollectionMovement.kind, func.sum(m.CollectionMovement.quantity))
+        .where(m.CollectionMovement.collection_id == collection_id,
+               m.CollectionMovement.kind.in_(m.COLLECTION_STOCK_OUT), m.CollectionMovement.cancelled_at.is_(None))
+        .group_by(m.CollectionMovement.kind)).all())
     row = db.get(m.SupplierCollection, collection_id)
     accepted = row.accepted_quantity if row and row.cancelled_at is None else ZERO
-    return {'sold': sold, 'on_hand': accepted - sold}
+    not_recovered, returned = out.get('not_recovered', ZERO), out.get('returned_to_supplier', ZERO)
+    lost = out.get('lost', ZERO)
+    return {'sold': sold, 'not_recovered': not_recovered, 'returned': returned, 'lost': lost,
+            'on_hand': accepted - sold - not_recovered - returned - lost}
 
 
 def take_collection_stock(db, collection_id, quantity, taken=ZERO):
@@ -92,20 +113,60 @@ def take_collection_stock(db, collection_id, quantity, taken=ZERO):
     return row, db.get(m.SupplierBatch, row.batch_id)
 
 
-def collection_view(db, row):
+def _operator(db, id):
+    if not id:
+        return None
+    row = db.get(m.Operator, id)
+    return row.name if row else id
+
+
+def _credit_view(row):
+    return {k: getattr(row, k) for k in ('id', 'movement_id', 'amount', 'issued_on', 'reference', 'note', 'created_at')}
+
+
+def collection_view(db, row, detail=False):
+    """A delivery note with its stock. `detail` (staff) adds its physical
+    events, credit notes, returns awaiting supplier credit and its payable."""
     batch = db.get(m.SupplierBatch, row.batch_id)
     supplier = db.get(m.User, row.supplier_id)
     stock = collection_stock(db, row.id)
-    return {**{key: getattr(row, key) for key in (
+    view = {**{key: getattr(row, key) for key in (
         'id', 'collection_number', 'supplier_id', 'batch_id', 'received_on', 'delivered_quantity',
         'accepted_quantity', 'rejected_quantity', 'average_weight_kg', 'unit_cost', 'amount',
-        'notes', 'debt_id', 'created_at', 'cancelled_at', 'cancel_reason')},
+        'notes', 'debt_id', 'created_at', 'cancelled_at', 'cancel_reason', 'origin')},
         'supplier_name': supplier.name if supplier else 'Supplier',
         'supplier_phone': supplier.phone if supplier else '',
         'category': batch.category if batch else '',
         'subtype': batch.subtype if batch else '',
         'unit': c.UNITS.get(batch.category, 'unit') if batch else 'unit',
         **stock}
+    if not detail:
+        return view
+    movements = db.scalars(select(m.CollectionMovement).where(m.CollectionMovement.collection_id == row.id)
+        .order_by(m.CollectionMovement.occurred_on, m.CollectionMovement.created_at)).all()
+    credits = db.scalars(select(m.SupplierCreditNote).where(m.SupplierCreditNote.collection_id == row.id)
+        .order_by(m.SupplierCreditNote.issued_on, m.SupplierCreditNote.created_at)).all()
+    credited = {credit.movement_id: credit for credit in credits}
+    sale_numbers = dict(db.execute(select(m.Sale.id, m.Sale.sale_number).where(m.Sale.id.in_(
+        [x for x in [row.sale_id, *(move.sale_id for move in movements)] if x]))).all())
+    debt = db.get(m.LedgerDebt, row.debt_id) if row.debt_id else None
+    awaiting = [move for move in movements if move.kind == 'returned_to_supplier' and move.id not in credited]
+    view.update(
+        confirmed_by=row.confirmed_by_name or _operator(db, row.confirmed_by), confirmed_at=row.confirmed_at,
+        recorded_by=_operator(db, row.recorded_by), sale_id=row.sale_id, sale_number=sale_numbers.get(row.sale_id),
+        movements=[{**{k: getattr(move, k) for k in ('id', 'kind', 'quantity', 'occurred_on', 'unit_cost', 'sale_id',
+            'reason', 'evidence', 'note', 'created_at', 'loss_reason', 'cancelled_at', 'cancel_reason')},
+            'value': s.money(move.quantity * move.unit_cost), 'cancelled_by': _operator(db, move.cancelled_by),
+            'sale_number': sale_numbers.get(move.sale_id), 'recorded_by': _operator(db, move.recorded_by),
+            'credit_note': _credit_view(credited[move.id]) if move.id in credited else None,
+            'awaiting_credit': move.kind == 'returned_to_supplier' and move.id not in credited} for move in movements],
+        credit_notes=[_credit_view(credit) for credit in credits],
+        credited=sum((credit.amount for credit in credits), ZERO),
+        awaiting_credit_quantity=sum((move.quantity for move in awaiting), ZERO),
+        awaiting_credit_value=s.money(sum((move.quantity * move.unit_cost for move in awaiting), ZERO)),
+        payable=None if debt is None else {k: getattr(debt, k) for k in ('id', 'amount', 'paid_amount', 'status')}
+            | {'balance': debt.balance})
+    return view
 
 
 def collections_for_batches(db, batches):
@@ -208,17 +269,10 @@ def receive_supplier_stock(supplier_id: str, data: c.SupplierCollectionInput, id
     remaining = batch.current_quantity - batch.sold_quantity - batch.externally_sold_quantity
     if data.accepted_quantity > remaining:
         fail('err.collection_exceeds_supplier_batch', 422, available=s.quantity(remaining))
-    amount = s.money(data.accepted_quantity * data.unit_cost)
-    collection_id = m.identifier()
-    row = m.SupplierCollection(id=collection_id,
-        collection_number=f'DN-{data.received_on:%Y%m%d}-{collection_id.replace("-", "")[:6].upper()}',
-        supplier_id=supplier_id, batch_id=batch.id,
-        received_on=data.received_on, delivered_quantity=data.delivered_quantity,
-        accepted_quantity=data.accepted_quantity, rejected_quantity=data.delivered_quantity - data.accepted_quantity,
-        average_weight_kg=data.average_weight_kg, unit_cost=data.unit_cost, amount=amount,
-        notes=data.notes, recorded_by=operator.id)
-    db.add(row)
-    db.flush()
+    row = record_note(db, batch, user, received_on=data.received_on, delivered=data.delivered_quantity,
+        accepted=data.accepted_quantity, unit_cost=data.unit_cost, notes=data.notes, recorded_by=operator.id,
+        average_weight_kg=data.average_weight_kg, payment_terms_days=data.payment_terms_days,
+        confirmed_by=operator.id)
     if data.accepted_quantity:
         reserved_used = min(batch.reserved_quantity, data.accepted_quantity)
         batch.reserved_quantity -= reserved_used
@@ -229,22 +283,59 @@ def receive_supplier_stock(supplier_id: str, data: c.SupplierCollectionInput, id
             batch.status = 'fully_reserved'
         elif batch.reserved_quantity:
             batch.status = 'partially_reserved'
-        debt = m.LedgerDebt(direction='payable', party_kind='supplier', supplier_id=supplier_id,
-            party_name=user.name or 'Supplier', party_phone=user.phone,
-            description=f'{row.collection_number}: {s.quantity(data.accepted_quantity)} {batch.category.replace("_", " ")} accepted',
-            amount=amount, incurred_on=data.received_on,
-            due_on=data.received_on + timedelta(days=data.payment_terms_days),
-            source='batch_receipt', created_by=operator.id)
-        db.add(debt)
-        db.flush()
-        row.debt_id = debt.id
-    notes.notify(db, supplier_id, 'supplier', 'batch_collected',
-        M('notify.batch_collected', quantity=s.quantity(data.accepted_quantity),
-          product=batch.category.replace('_', ' '), date=data.received_on.isoformat()),
-        '/account?view=stock')
     db.flush()
     s.remember(db, key, fingerprint, row.id)
     return _result(collection_view(db, row), 201)
+
+
+def record_note(db, batch, user, *, received_on, delivered, accepted, unit_cost, notes='', recorded_by=None,
+                average_weight_kg=None, payment_terms_days=0, origin='delivery', confirmed_by=None,
+                confirmed_by_name='', sale_id=None, sale_number=None, notify=True):
+    """A delivery note for goods physically received from `batch`, and its
+    batch_receipt payable for the accepted quantity: the supplier's only
+    liability for them. The caller updates the batch's quantities."""
+    amount = s.money(accepted * unit_cost)
+    collection_id = m.identifier()
+    row = m.SupplierCollection(id=collection_id,
+        collection_number=f'DN-{received_on:%Y%m%d}-{collection_id.replace("-", "")[:6].upper()}',
+        supplier_id=user.id, batch_id=batch.id, received_on=received_on, delivered_quantity=delivered,
+        accepted_quantity=accepted, rejected_quantity=delivered - accepted, average_weight_kg=average_weight_kg,
+        unit_cost=unit_cost, amount=amount, notes=notes, recorded_by=recorded_by, origin=origin,
+        confirmed_by=confirmed_by, confirmed_by_name=confirmed_by_name, confirmed_at=m.now(), sale_id=sale_id)
+    db.add(row)
+    db.flush()
+    if accepted:
+        product = batch.category.replace('_', ' ')
+        extra = f' (collected for sale {sale_number})' if sale_number else ''
+        debt = m.LedgerDebt(direction='payable', party_kind='supplier', supplier_id=user.id,
+            party_name=user.name or 'Supplier', party_phone=user.phone,
+            description=f'{row.collection_number}: {s.quantity(accepted)} {product} accepted{extra}'[:500],
+            amount=amount, incurred_on=received_on, due_on=received_on + timedelta(days=payment_terms_days),
+            source='batch_receipt', created_by=recorded_by)
+        db.add(debt)
+        db.flush()
+        row.debt_id = debt.id
+    if notify:
+        notes_module.notify(db, user.id, 'supplier', 'batch_collected',
+            M('notify.batch_collected', quantity=s.quantity(accepted),
+              product=batch.category.replace('_', ' '), date=received_on.isoformat()),
+            '/account?view=stock')
+    db.flush()
+    return row
+
+
+def collect_for_sale(db, batch_id, supplier_id, quantity, unit_cost, received_on, operator, sale):
+    """A sale line from a supplier batch whose collection staff confirmed:
+    take the birds from the batch and record the same-day delivery note the
+    line then sells from (build plan M1.6). The supplier is owed through the
+    note's payable only; the sale opens no cost debt for it."""
+    batch = take_from_batch(db, batch_id, supplier_id, quantity)
+    user = db.get(m.User, supplier_id)
+    row = record_note(db, batch, user, received_on=received_on, delivered=quantity, accepted=quantity,
+        unit_cost=unit_cost, notes=f'Collected from the batch and sold the same day (sale {sale.sale_number}).',
+        recorded_by=operator.id, origin='sale', confirmed_by=operator.id, sale_id=sale.id,
+        sale_number=sale.sale_number)
+    return row
 
 
 @router.get('/ops/supplier-batches/open')
@@ -273,7 +364,167 @@ def ops_collection(id: str, operator=Depends(auth.ops), db=Depends(database)):
     row = db.get(m.SupplierCollection, id)
     if not row:
         fail('err.supplier_collection_not_found', 404)
-    return _result(collection_view(db, row))
+    return _result(collection_view(db, row, True))
+
+
+# ---- after receipt: corrections, returns, credit notes (rule R2) -----------
+
+def _lock_note(db, id):
+    row = db.scalar(select(m.SupplierCollection).where(m.SupplierCollection.id == id).with_for_update())
+    if not row:
+        fail('err.supplier_collection_not_found', 404)
+    if row.cancelled_at is not None:
+        fail('err.delivery_note_cancelled')
+    return row
+
+
+def _within_on_hand(db, row, quantity):
+    """R8 in its current-state form: a movement out never takes more than is
+    on hand on the note now (dated checks arrive with M2.2)."""
+    if c.UNITS.get(db.get(m.SupplierBatch, row.batch_id).category) != 'kg' and quantity % 1:
+        fail('err.birds_animals_require_whole_quantities', 422)
+    on_hand = collection_stock(db, row.id)['on_hand']
+    if quantity > on_hand:
+        fail('err.more_than_on_hand_on_note', 422, available=s.quantity(max(on_hand, ZERO)))
+
+
+def _note_state(row, debt):
+    from .finance import DEBT_FIELDS, _snapshot
+    return {'note': _snapshot(row, ('id', 'delivered_quantity', 'accepted_quantity', 'amount', 'cancelled_at')),
+            'debt': _snapshot(debt, DEBT_FIELDS) if debt else None}
+
+
+@router.post('/ops/supplier-collections/{id}/corrections')
+def correct_receipt(id: str, data: c.ReceiptCorrectionInput, idempotency_key: str = Header(),
+                    operator=Depends(auth.ops_admin), db=Depends(database)):
+    """The supplier never delivered `quantity` of this note: it is removed
+    from the note and its payable, and goes back to the supplier's batch.
+    Only stock still on hand can be corrected (never what active sales
+    consumed). Money already paid above the new payable stays with the
+    supplier who received it, as credit or unresolved (R1, R6). Admin only."""
+    from .finance import record_adjustment, shrink_payable
+    key, fingerprint, prior = s.replay(db, operator.id, 'receipt-correction', idempotency_key, {'id': id, **data.model_dump()})
+    if not prior:
+        row = _lock_note(db, id)
+        _within_on_hand(db, row, data.quantity)
+        debt = db.scalar(select(m.LedgerDebt).where(m.LedgerDebt.id == row.debt_id).with_for_update()) if row.debt_id else None
+        before = _note_state(row, debt)
+        reason = data.reason.strip()
+        batch = db.scalar(select(m.SupplierBatch).where(m.SupplierBatch.id == row.batch_id).with_for_update())
+        batch.sold_quantity = max(ZERO, batch.sold_quantity - data.quantity)
+        refresh_batch_status(batch)
+        accepted = row.accepted_quantity - data.quantity
+        if accepted == 0:
+            row.cancelled_at, row.cancelled_by, row.cancel_reason = m.now(), operator.id, f'Never delivered: {reason}'[:500]
+        else:
+            row.accepted_quantity, row.delivered_quantity = accepted, row.delivered_quantity - data.quantity
+            row.amount = s.money(accepted * row.unit_cost)
+        released = {}
+        if debt is not None and debt.status != 'cancelled':
+            new_amount = max(ZERO, debt.amount - s.money(data.quantity * row.unit_cost))
+            released = shrink_payable(db, debt, new_amount, data.payments, f'Receipt corrected: {reason}', operator)
+        movement = m.CollectionMovement(collection_id=row.id, kind='receipt_correction', quantity=data.quantity,
+            occurred_on=c.business_today(), unit_cost=row.unit_cost, reason=reason, evidence=data.evidence.strip(),
+            recorded_by=operator.id)
+        db.add(movement)
+        db.flush()
+        record_adjustment(db, 'receipt_correction', row, debt, reason, before, _note_state(row, debt),
+            {'movement_id': movement.id, 'batch_id': batch.id, 'quantity': str(data.quantity),
+             'evidence': data.evidence.strip(), **released}, operator)
+        s.remember(db, key, fingerprint, row.id)
+    return _result(collection_view(db, db.get(m.SupplierCollection, id), True))
+
+
+@router.post('/ops/supplier-collections/{id}/losses', status_code=201)
+def record_delivery_loss(id: str, data: c.DeliveryLossInput, idempotency_key: str = Header(),
+                         operator=Depends(auth.ops), db=Depends(database)):
+    """Goods from this note died, were culled, stolen or spoiled before they
+    were sold. They leave stock on hand and their cost at the note's unit
+    cost counts against profit. The payable is unchanged: Omoterra received
+    them, so what it owes the supplier still stands."""
+    key, fingerprint, prior = s.replay(db, operator.id, 'delivery-loss', idempotency_key, {'id': id, **data.model_dump()})
+    if not prior:
+        row = _lock_note(db, id)
+        if data.lost_on < row.received_on:
+            fail('err.loss_before_receipt', 422)
+        _within_on_hand(db, row, data.quantity)
+        db.add(m.CollectionMovement(collection_id=row.id, kind='lost', loss_reason=data.reason, quantity=data.quantity,
+            occurred_on=data.lost_on, unit_cost=row.unit_cost, note=data.note.strip(), recorded_by=operator.id))
+        db.flush()
+        s.remember(db, key, fingerprint, row.id)
+    return _result(collection_view(db, db.get(m.SupplierCollection, id), True), 201)
+
+
+@router.post('/ops/supplier-collections/{id}/losses/{movement_id}/cancel')
+def cancel_delivery_loss(id: str, movement_id: str, data: c.ReasonInput, operator=Depends(auth.ops_admin),
+                         db=Depends(database)):
+    """A loss recorded by mistake: the goods count as on hand again. The loss
+    stays in the note's history, marked cancelled with who and why."""
+    s.commerce_lock(db)
+    movement = db.scalar(select(m.CollectionMovement).where(m.CollectionMovement.id == movement_id).with_for_update())
+    if not movement or movement.collection_id != id or movement.kind != 'lost' or movement.cancelled_at:
+        fail('err.record_unavailable', 404)
+    _lock_note(db, id)
+    movement.cancelled_at, movement.cancelled_by, movement.cancel_reason = m.now(), operator.id, data.reason.strip()
+    db.flush()
+    return _result(collection_view(db, db.get(m.SupplierCollection, id), True))
+
+
+@router.post('/ops/supplier-collections/{id}/returns', status_code=201)
+def return_to_supplier(id: str, data: c.SupplierReturnInput, idempotency_key: str = Header(),
+                       operator=Depends(auth.ops_admin), db=Depends(database)):
+    """Goods from this note went back to the supplier: stock drops when they
+    leave. The payable is unchanged and the return is listed as awaiting
+    supplier credit until their agreed credit note is recorded (R2)."""
+    key, fingerprint, prior = s.replay(db, operator.id, 'supplier-return', idempotency_key, {'id': id, **data.model_dump()})
+    if not prior:
+        row = _lock_note(db, id)
+        if data.returned_on < row.received_on:
+            fail('err.return_before_receipt', 422)
+        _within_on_hand(db, row, data.quantity)
+        db.add(m.CollectionMovement(collection_id=row.id, kind='returned_to_supplier', quantity=data.quantity,
+            occurred_on=data.returned_on, unit_cost=row.unit_cost, reason=data.reason.strip(), recorded_by=operator.id))
+        db.flush()
+        s.remember(db, key, fingerprint, row.id)
+    return _result(collection_view(db, db.get(m.SupplierCollection, id), True), 201)
+
+
+@router.post('/ops/supplier-collections/{id}/returns/{movement_id}/credit-note', status_code=201)
+def record_credit_note(id: str, movement_id: str, data: c.SupplierCreditNoteInput, idempotency_key: str = Header(),
+                       operator=Depends(auth.ops_admin), db=Depends(database)):
+    """The supplier agreed a credit for a return: it lowers the note's
+    payable. Money already paid above the new payable becomes that
+    supplier's credit (R1): it stays with them for their next invoice."""
+    from .finance import record_adjustment, shrink_payable
+    key, fingerprint, prior = s.replay(db, operator.id, 'supplier-credit-note', idempotency_key,
+        {'id': id, 'movement_id': movement_id, **data.model_dump()})
+    if not prior:
+        row = db.scalar(select(m.SupplierCollection).where(m.SupplierCollection.id == id).with_for_update())
+        movement = db.get(m.CollectionMovement, movement_id)
+        if not row or not movement or movement.collection_id != row.id or movement.kind != 'returned_to_supplier':
+            fail('err.return_not_found', 404)
+        if db.scalar(select(m.SupplierCreditNote.id).where(m.SupplierCreditNote.movement_id == movement.id)):
+            fail('err.credit_note_already_recorded')
+        if data.issued_on < movement.occurred_on:
+            fail('err.credit_note_before_return', 422)
+        value = s.money(movement.quantity * movement.unit_cost)
+        if data.amount > value:
+            fail('err.credit_note_more_than_return', 422, value=f'{value:,.2f}')
+        debt = db.scalar(select(m.LedgerDebt).where(m.LedgerDebt.id == row.debt_id).with_for_update()) if row.debt_id else None
+        if debt is None or debt.status == 'cancelled' or data.amount > debt.amount:
+            fail('err.credit_note_more_than_payable', 422)
+        before = _note_state(row, debt)
+        reason = f'Supplier credit note {data.reference}'
+        released = shrink_payable(db, debt, debt.amount - data.amount, 'credit', reason, operator)
+        credit = m.SupplierCreditNote(supplier_id=row.supplier_id, collection_id=row.id, movement_id=movement.id,
+            debt_id=debt.id, amount=data.amount, issued_on=data.issued_on, reference=data.reference.strip(),
+            note=data.note.strip(), recorded_by=operator.id)
+        db.add(credit)
+        db.flush()
+        record_adjustment(db, 'supplier_credit_note', row, debt, f'{reason}: {data.note.strip() or "agreed"}',
+            before, _note_state(row, debt), {'movement_id': movement.id, 'credit_note_id': credit.id, **released}, operator)
+        s.remember(db, key, fingerprint, row.id)
+    return _result(collection_view(db, db.get(m.SupplierCollection, id), True), 201)
 
 
 @router.get('/supplier/collections')

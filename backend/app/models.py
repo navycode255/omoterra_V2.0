@@ -288,11 +288,86 @@ class SupplierCollection(Entity, Base):
     cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     cancelled_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
     cancel_reason: Mapped[str] = mapped_column(Text, default='')
+    # 'delivery' (Receive stock), 'sale' (collected and sold together, build
+    # plan M1.6) or 'historical' (an old sale line linked by link_batch_sales).
+    origin: Mapped[str] = mapped_column(String(16), default='delivery')
+    # Who confirmed the goods were physically received, and when (rule R2).
+    confirmed_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    confirmed_by_name: Mapped[str] = mapped_column(Text, default='')
+    confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    sale_id: Mapped[Optional[str]] = mapped_column(ForeignKey('sales.id', use_alter=True), index=True)
     __table_args__ = (
+        CheckConstraint("origin IN ('delivery','sale','historical')", name='supplier_collections_origin_check'),
         CheckConstraint('delivered_quantity > 0', name='supplier_collections_delivered_positive'),
         CheckConstraint('accepted_quantity >= 0 AND rejected_quantity >= 0', name='supplier_collections_quantities_nonnegative'),
         CheckConstraint('accepted_quantity + rejected_quantity = delivered_quantity', name='supplier_collections_counts_add_up'),
         CheckConstraint('unit_cost > 0 AND amount >= 0', name='supplier_collections_cost_valid'),
+    )
+
+
+COLLECTION_MOVEMENT_KINDS = ('never_left', 'buyer_return_accepted', 'not_recovered', 'returned_to_supplier',
+    'receipt_correction', 'lost')
+# Kinds that take goods out of a delivery note's stock (unless cancelled).
+# receipt_correction lowers the note's accepted quantity itself; the other
+# two are history.
+COLLECTION_STOCK_OUT = ('not_recovered', 'returned_to_supplier', 'lost')
+# Kinds whose cost counts against profit as lost stock.
+COLLECTION_LOSSES = ('not_recovered', 'lost')
+
+
+class CollectionMovement(Entity, Base):
+    """A physical event on a delivery note after it was received (rule R2),
+    shaped to move into M2.1's lot movements. On hand = accepted - active
+    sales - not_recovered - returned_to_supplier - lost (uncancelled)."""
+    __tablename__ = 'collection_movements'
+    collection_id: Mapped[str] = mapped_column(ForeignKey('supplier_collections.id'), index=True)
+    kind: Mapped[str] = mapped_column(String(24))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    occurred_on: Mapped[date] = mapped_column(Date, index=True)
+    unit_cost: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    sale_id: Mapped[Optional[str]] = mapped_column(ForeignKey('sales.id'), index=True)
+    reason: Mapped[str] = mapped_column(Text, default='')
+    evidence: Mapped[str] = mapped_column(Text, default='')
+    note: Mapped[str] = mapped_column(Text, default='')
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    # 'lost' only: why the goods were lost (LOSS_REASONS). A loss recorded by
+    # mistake is cancelled with a reason, never deleted (migration 036).
+    loss_reason: Mapped[Optional[str]] = mapped_column(String(16))
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    cancelled_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    cancel_reason: Mapped[str] = mapped_column(Text, default='')
+    __table_args__ = (
+        CheckConstraint(f"kind IN ({', '.join(repr(v) for v in COLLECTION_MOVEMENT_KINDS)})",
+            name='collection_movements_kind_check'),
+        CheckConstraint('quantity > 0', name='collection_movements_quantity_check'),
+        CheckConstraint('unit_cost >= 0', name='collection_movements_unit_cost_check'),
+        CheckConstraint("(kind NOT IN ('returned_to_supplier','receipt_correction') OR length(btrim(reason)) >= 3)"
+            " AND (kind <> 'receipt_correction' OR length(btrim(evidence)) >= 3)"
+            " AND (kind <> 'buyer_return_accepted' OR length(btrim(note)) >= 3)",
+            name='collection_movement_has_reason'),
+        CheckConstraint("(kind = 'lost') = (loss_reason IS NOT NULL) AND (loss_reason IS NULL OR "
+            "loss_reason IN ('died','sick','stolen','spoiled','other'))", name='collection_movement_loss_reason'),
+        CheckConstraint("cancelled_at IS NULL OR (kind = 'lost' AND length(btrim(cancel_reason)) >= 3)",
+            name='collection_movement_cancel'),
+    )
+
+
+class SupplierCreditNote(Entity, Base):
+    """A supplier's agreed credit for goods returned to them: the only thing
+    that lowers a delivery note's payable after a return (rule R2)."""
+    __tablename__ = 'supplier_credit_notes'
+    supplier_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    collection_id: Mapped[str] = mapped_column(ForeignKey('supplier_collections.id'), index=True)
+    movement_id: Mapped[str] = mapped_column(ForeignKey('collection_movements.id'), unique=True)
+    debt_id: Mapped[str] = mapped_column(ForeignKey('ledger_debts.id'), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    issued_on: Mapped[date] = mapped_column(Date)
+    reference: Mapped[str] = mapped_column(Text)
+    note: Mapped[str] = mapped_column(Text, default='')
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint('amount > 0', name='supplier_credit_notes_amount_check'),
+        CheckConstraint('length(btrim(reference)) >= 1', name='supplier_credit_notes_reference_check'),
     )
 
 
@@ -752,8 +827,12 @@ class Sale(Entity, Base):
     cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
     cancelled_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
     cancel_reason: Mapped[str] = mapped_column(Text, default='')
+    # What staff said happened to received goods when cancelling (rule R2).
+    cancel_goods: Mapped[Optional[str]] = mapped_column(String(24))
     __table_args__ = (
         CheckConstraint('total_amount > 0', name='sales_total_amount_check'),
+        CheckConstraint("cancel_goods IS NULL OR cancel_goods IN ('never_left','buyer_return_accepted','not_recovered')",
+            name='sales_cancel_goods_check'),
         CheckConstraint('cost_amount >= 0', name='sales_cost_amount_check'),
         CheckConstraint("status IN ('active','cancelled')", name='sales_status_check'),
     )
@@ -1140,7 +1219,8 @@ class StockLoss(Entity, Base):
 
 
 
-ADJUSTMENT_KINDS = ('wrong_supplier', 'duplicate_liability', 'free_stock', 'cost_never_existed')
+ADJUSTMENT_KINDS = ('wrong_supplier', 'duplicate_liability', 'free_stock', 'cost_never_existed',
+    'receipt_correction', 'supplier_credit_note', 'historical_batch_link')
 
 
 class FinancialAdjustment(Entity, Base):
@@ -1152,7 +1232,11 @@ class FinancialAdjustment(Entity, Base):
       (`related_debt_id`); payments stay with whoever received them (R1).
     - duplicate_liability: cancelled as a copy of `related_debt_id`.
     - free_stock: the stock cost nothing; its lines carry unit_cost 0.
-    - cost_never_existed: the lines' cost is unknown again (R5)."""
+    - cost_never_existed: the lines' cost is unknown again (R5).
+    - receipt_correction, supplier_credit_note: a delivery note and its
+      payable reduced (never delivered; agreed credit for a return), M1.6.
+    - historical_batch_link: an old sale line linked to a delivery note by
+      `python -m app.link_batch_sales` (entity: the sale line)."""
     __tablename__ = 'financial_adjustments'
     kind: Mapped[str] = mapped_column(String(32))
     entity_type: Mapped[str] = mapped_column(String(32))

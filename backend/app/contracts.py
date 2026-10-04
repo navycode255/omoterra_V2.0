@@ -955,6 +955,10 @@ class TransferEntryErrorInput(Input):
     evidence: str = Field(min_length=3, max_length=2000)
 
 
+# What happened to received goods taken off a sale (cancel or edit), rule R2.
+GoodsOutcome = Literal['never_left', 'buyer_return_accepted', 'not_recovered']
+
+
 class SaleItemInput(Input):
     category: Optional[Category] = None
     description: str = Field(default='', max_length=200)
@@ -973,13 +977,18 @@ class SaleItemInput(Input):
     # Stock received on an LPO: its cost and supplier come from the LPO.
     lpo_line_id: Optional[str] = Field(default=None, max_length=36)
     supplier_collection_id: Optional[str] = Field(default=None, max_length=36)
-    # The registered supplier's batch these came from (reduces that batch).
+    # The registered supplier's batch these came from. Staff must confirm the
+    # goods were physically collected (`receipt_confirmed`): the server then
+    # records a same-day delivery note and the line sells from it (M1.6, R2).
     supplier_batch_id: Optional[str] = Field(default=None, max_length=36)
+    receipt_confirmed: bool = False
 
     @model_validator(mode='after')
     def complete(self):
         # The form sends "" for "not from a registered batch".
         self.supplier_batch_id = self.supplier_batch_id or None
+        if not self.supplier_batch_id:
+            self.receipt_confirmed = False
         if self.supplier_batch_id and not self.supplier_id:
             raise ValueError(M('err.batch_needs_registered_supplier'))
         if self.lpo_line_id and self.supplier_collection_id:
@@ -1012,6 +1021,10 @@ class DirectSaleInput(Input):
     notes: str = Field(default='', max_length=2000)
     # Money the buyer paid there and then, if any.
     payment: Optional[LedgerPaymentInput] = None
+    # Editing only: what happened to received goods (delivery note or LPO)
+    # when a line sells fewer of them than before (rule R2).
+    goods: Optional[GoodsOutcome] = None
+    goods_note: str = Field(default='', max_length=500)
 
     @field_validator('sold_on')
     @classmethod
@@ -1056,6 +1069,66 @@ class LedgerDebtInput(Input):
 
 class ReasonInput(Input):
     reason: str = Field(min_length=3, max_length=500)
+
+
+class SaleCancelInput(ReasonInput):
+    """Cancel a sale. When it sold received stock (a delivery note or an
+    LPO), staff say what happened to those goods (rule R2): they never left
+    or the buyer returned them and they were accepted back (condition noted
+    in `goods_note`): back on hand; or they were not recovered: out of
+    stock, a loss pending investigation."""
+    goods: Optional[GoodsOutcome] = None
+    goods_note: str = Field(default='', max_length=500)
+
+
+class ReceiptCorrectionInput(Input):
+    """Correct a delivery note: the supplier never delivered `quantity` of
+    it. Admin only, with a reason and evidence. `payments` says what money
+    already paid above the corrected payable is (rules R1, R6)."""
+    quantity: Quantity
+    reason: str = Field(min_length=3, max_length=500)
+    evidence: str = Field(min_length=3, max_length=2000)
+    payments: Optional[Literal['credit', 'unresolved']] = None
+
+
+class DeliveryLossInput(Input):
+    """Received goods on a delivery note that died, were culled, stolen or
+    spoiled before they were sold. Stock drops; the payable does not."""
+    quantity: Quantity
+    lost_on: date
+    reason: Literal['died', 'sick', 'stolen', 'spoiled', 'other']
+    note: str = Field(default='', max_length=500)
+
+    @field_validator('lost_on')
+    @classmethod
+    def not_future(cls, value):
+        return _not_future(value)
+
+
+class SupplierReturnInput(Input):
+    """Goods from a delivery note sent back to the supplier. Stock drops;
+    the payable waits for the supplier's agreed credit note."""
+    quantity: Quantity
+    returned_on: date
+    reason: str = Field(min_length=3, max_length=500)
+
+    @field_validator('returned_on')
+    @classmethod
+    def not_future(cls, value):
+        return _not_future(value)
+
+
+class SupplierCreditNoteInput(Input):
+    """The supplier's agreed credit for a return: lowers the payable."""
+    amount: Money
+    issued_on: date
+    reference: str = Field(min_length=1, max_length=150)
+    note: str = Field(default='', max_length=500)
+
+    @field_validator('issued_on')
+    @classmethod
+    def not_future(cls, value):
+        return _not_future(value)
 
 
 class DebtCorrectionInput(Input):

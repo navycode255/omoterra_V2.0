@@ -30,6 +30,12 @@ existed), which keeps or changes the buying cost accordingly and writes a
 `financial_adjustments` row with the state before and after (M1.4). Stock
 from a delivery note or LPO is sold in the receipt's unit and category (M1.5).
 
+A line from a supplier batch is sold through a delivery note (M1.6): staff
+confirm the goods were physically collected, a same-day note is recorded and
+its payable is the supplier's only debt for them. Cancelling or editing a
+sale never changes a receipt or its payable; staff say what happened to the
+received goods it no longer sells (rule R2).
+
 The overview also counts the marketplace's own buyer payments and supplier
 settlements, so the totals owed either way are complete.
 """
@@ -110,7 +116,7 @@ def sale_view(db, sale, detail=False):
     payables = [d for d in debts if d.direction == 'payable']
     view = {**{k: getattr(sale, k) for k in ('id', 'sale_number', 'sold_on', 'buyer_profile_id', 'buyer_user_id',
         'buyer_name', 'buyer_phone', 'total_amount', 'cost_amount', 'notes', 'status', 'created_at',
-        'cancelled_at', 'cancel_reason')},
+        'cancelled_at', 'cancel_reason', 'cancel_goods')},
         'created_by': _operator_name(db, sale.created_by),
         'received_amount': receivable.paid_amount if receivable else ZERO,
         'balance': receivable.balance if receivable and receivable.status != 'cancelled' else ZERO,
@@ -234,6 +240,36 @@ def _receipt_line(line, unit, category):
     return unit, category or line.category or ''
 
 
+def _batch_item(db, sale_id, position, line, subtotal):
+    """A sale line from a supplier batch (build plan M1.6, rule R2). Only
+    when staff confirm the goods were physically collected: the line then
+    sells from a same-day delivery note (recorded by _collect_batch_lines),
+    in the batch's unit and category, and opens no sale-cost debt."""
+    if not line.receipt_confirmed:
+        fail('err.confirm_batch_collection', 422)
+    batch = db.get(m.SupplierBatch, line.supplier_batch_id)
+    if not batch:
+        fail('err.supplier_batch_not_found', 404)
+    unit, category = _receipt_line(line, c.UNITS.get(batch.category), batch.category)
+    return m.SaleItem(sale_id=sale_id, position=position, category=category,
+        description=line.description or batch.subtype or batch.category.replace('_', ' '), unit=unit,
+        quantity=line.quantity, unit_price=line.unit_price, subtotal=subtotal, supplier_id=line.supplier_id,
+        unit_cost=line.unit_cost, cost_total=s.money(line.quantity * line.unit_cost))
+
+
+def _collect_batch_lines(db, collected, sale, operator):
+    """Record the delivery note each confirmed batch line sells from: taken
+    from the batch, received on the sale date, confirmed by this operator."""
+    from .batch_stock import collect_for_sale
+    receipts = []
+    for item, line in collected:
+        note = collect_for_sale(db, line.supplier_batch_id, line.supplier_id, item.quantity, item.unit_cost,
+            sale.sold_on, operator, sale)
+        item.supplier_collection_id = note.id
+        receipts.append((note, item, line))
+    return receipts
+
+
 @router.post('/sales', status_code=201)
 def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operator=Depends(auth.ops), db=Depends(database)):
     key, fingerprint, prior = s.replay(db, operator.id, 'sale', idempotency_key, data.model_dump())
@@ -244,6 +280,7 @@ def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operat
     number = 'SL-' + sale_id.replace('-', '')[:8].upper()
     items, costs = [], defaultdict(lambda: {'amount': ZERO, 'lines': []})
     taken = defaultdict(lambda: ZERO)
+    collected = []
     for position, line in enumerate(data.items, 1):
         subtotal = s.money(line.quantity * line.unit_price)
         if line.supplier_collection_id:
@@ -270,17 +307,20 @@ def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operat
                 unit_price=line.unit_price, subtotal=subtotal, supplier_id=lpo.supplier_id,
                 unit_cost=stock.unit_price, cost_total=s.money(line.quantity * stock.unit_price), lpo_line_id=stock.id))
             continue
-        _whole(line.unit, line.quantity)
         if line.unit_cost == 0:
             fail('err.free_cost_only_by_correction', 422)
-        cost_total = s.money(line.quantity * line.unit_cost) if line.unit_cost is not None else None
         if line.supplier_batch_id:
-            from .batch_stock import take_from_batch
-            take_from_batch(db, line.supplier_batch_id, line.supplier_id, line.quantity)
+            # Collected from the batch and sold together: a delivery note is
+            # recorded once the sale exists, and the line sells from it.
+            items.append(_batch_item(db, sale_id, position, line, subtotal))
+            collected.append((items[-1], line))
+            continue
+        _whole(line.unit, line.quantity)
+        cost_total = s.money(line.quantity * line.unit_cost) if line.unit_cost is not None else None
         items.append(m.SaleItem(sale_id=sale_id, position=position, category=line.category or '',
             description=line.description or '', unit=line.unit, quantity=line.quantity, unit_price=line.unit_price,
             subtotal=subtotal, supplier_id=line.supplier_id, supplier_name=line.supplier_name,
-            unit_cost=line.unit_cost, cost_total=cost_total, supplier_batch_id=line.supplier_batch_id))
+            unit_cost=line.unit_cost, cost_total=cost_total))
         if cost_total:  # free stock (0) is owed to no one
             if line.supplier_id:
                 party = ('supplier', line.supplier_id)
@@ -300,6 +340,7 @@ def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operat
         total_amount=total, cost_amount=cost, notes=data.notes, created_by=operator.id)
     db.add(sale)
     db.flush()
+    receipts = _collect_batch_lines(db, collected, sale, operator)
     db.add_all(items)
     receivable = m.LedgerDebt(direction='receivable', party_kind='buyer', buyer_profile_id=profile.id,
         party_name=name, party_phone=profile.phone or '', description=f'Sale {number}', amount=total,
@@ -323,6 +364,12 @@ def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operat
             details[payment_key] = payment
         for payment_key, amount in grouped.items():
             record_payment(db, debt, c.LedgerPaymentInput(amount=amount, **details[payment_key].model_dump()), operator)
+    for note, item, line in receipts:
+        if line.cost_payment and note.debt_id:
+            # Paid there and then: a transfer allocated to the delivery note's
+            # payable, the supplier's only debt for these goods (M1.2).
+            record_payment(db, _lock_debt(db, note.debt_id), c.LedgerPaymentInput(amount=item.cost_total,
+                **line.cost_payment.model_dump()), operator)
     if data.payment:
         record_payment(db, receivable, data.payment, operator)
     s.remember(db, key, fingerprint, sale.id)
@@ -352,18 +399,26 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
     # Birds the old version took from supplier batches go back first, so
     # the edited lines can take them again.
     from .batch_stock import return_to_batch
+    # Lines sold straight from a batch before delivery notes (M1.6) keep
+    # that form when edited; link_batch_sales converts them.
+    legacy_batches = set()
     for item in old_items:
         if item.supplier_batch_id:
             return_to_batch(db, item.supplier_batch_id, item.quantity)
+            legacy_batches.add(item.supplier_batch_id)
     free = {_party_key(item) for item in old_items if item.unit_cost == 0}
+    unit_costs = {}
     for item in old_items:
         if item.lpo_line_id:
             old_lpo[item.lpo_line_id] += item.quantity
+            unit_costs[item.lpo_line_id] = item.unit_cost
         if item.supplier_collection_id:
             old_collections[item.supplier_collection_id] += item.quantity
+            unit_costs[item.supplier_collection_id] = item.unit_cost
 
     items, costs = [], defaultdict(lambda: {'amount': ZERO, 'lines': []})
     taken = defaultdict(lambda: ZERO)
+    collected = []
     for position, line in enumerate(data.items, 1):
         subtotal = s.money(line.quantity * line.unit_price)
         if line.supplier_collection_id:
@@ -389,11 +444,17 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
                 unit_price=line.unit_price, subtotal=subtotal, supplier_id=lpo.supplier_id,
                 unit_cost=stock.unit_price, cost_total=s.money(line.quantity * stock.unit_price), lpo_line_id=stock.id))
             continue
-        _whole(line.unit, line.quantity)
         # A cost of 0 (free stock) is kept by an edit, never introduced by one.
         if line.unit_cost == 0 and (('supplier', line.supplier_id) if line.supplier_id
                 else ('other', line.supplier_name.casefold())) not in free:
             fail('err.free_cost_only_by_correction', 422)
+        if line.supplier_batch_id and (line.receipt_confirmed or line.supplier_batch_id not in legacy_batches):
+            if line.unit_cost == 0:
+                fail('err.free_cost_only_by_correction', 422)
+            items.append(_batch_item(db, id, position, line, subtotal))
+            collected.append((items[-1], line))
+            continue
+        _whole(line.unit, line.quantity)
         cost_total = s.money(line.quantity * line.unit_cost) if line.unit_cost is not None else None
         if line.supplier_batch_id:
             from .batch_stock import take_from_batch
@@ -457,9 +518,17 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
     receivable.amount, receivable.incurred_on = total, data.sold_on
     receivable.status = 'settled' if receivable.paid_amount == total else 'open'
 
+    # Received goods this edit no longer sells: staff say what happened to
+    # them (rule R2). Nothing on the receipt or its payable changes.
+    reductions = [(source, quantity - taken[source], unit_costs[source], kind)
+        for kind, old in (('collection', old_collections), ('lpo', old_lpo))
+        for source, quantity in old.items() if quantity > taken[source]]
+    _goods_taken_off(db, sale, reductions, data.goods, data.goods_note, 'Sale edited: fewer sold', operator)
+
     for item in old_items:
         db.delete(item)
     db.flush()
+    _collect_batch_lines(db, collected, sale, operator)
     db.add_all(items)
 
     for key, debt in existing.items():
@@ -488,9 +557,43 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
     return _result(sale_view(db, sale, True))
 
 
+def _goods_taken_off(db, sale, reductions, goods, note, reason, operator):
+    """Received goods a sale no longer sells (cancelled, or edited to fewer):
+    `reductions` is [(delivery note or LPO line id, quantity, unit cost,
+    'collection' | 'lpo')]. Staff say what happened (rule R2):
+
+    - never_left / buyer_return_accepted (condition noted): back on hand on
+      their receipt; recorded as history;
+    - not_recovered: out of stock as a loss pending investigation (a
+      collection movement, or an LPO stock loss).
+
+    The receipt and its payable are never changed here."""
+    if not reductions:
+        return
+    if goods is None:
+        fail('err.say_what_happened_to_goods', 422)
+    note = (note or '').strip()
+    if goods == 'buyer_return_accepted' and len(note) < 3:
+        fail('err.describe_returned_goods_condition', 422)
+    today = c.business_today()
+    for source, quantity, unit_cost, kind in reductions:
+        if kind == 'collection':
+            db.add(m.CollectionMovement(collection_id=source, kind=goods, quantity=quantity, occurred_on=today,
+                unit_cost=unit_cost or ZERO, sale_id=sale.id, reason=reason[:500], note=note, recorded_by=operator.id))
+        elif goods == 'not_recovered':
+            db.add(m.StockLoss(lpo_line_id=source, lost_on=today, quantity=quantity, reason='other',
+                note=f'Not recovered from sale {sale.sale_number}: {reason}'[:1000], unit_cost=unit_cost or ZERO,
+                recorded_by=operator.id))
+    db.flush()
+
+
 @router.post('/sales/{id}/cancel')
-def cancel_sale(id: str, data: c.ReasonInput, idempotency_key: str = Header(), operator=Depends(auth.ops_admin),
+def cancel_sale(id: str, data: c.SaleCancelInput, idempotency_key: str = Header(), operator=Depends(auth.ops_admin),
                 db=Depends(database)):
+    """Cancel a sale and its own debts. Received goods it sold go back on
+    hand only when staff confirm they never left or were returned and
+    accepted; otherwise they are recorded as not recovered (rule R2). A
+    delivery note and its payable are never touched."""
     key, fingerprint, prior = s.replay(db, operator.id, 'sale-cancel', idempotency_key, {'id': id, **data.model_dump()})
     sale = db.scalar(select(m.Sale).where(m.Sale.id == id).with_for_update())
     if not sale:
@@ -503,8 +606,19 @@ def cancel_sale(id: str, data: c.ReasonInput, idempotency_key: str = Header(), o
             fail('err.reverse_payments_before_cancelling')
         at = m.now()
         from .batch_stock import return_to_batch
-        for item in db.scalars(select(m.SaleItem).where(m.SaleItem.sale_id == id, m.SaleItem.supplier_batch_id.is_not(None))):
-            return_to_batch(db, item.supplier_batch_id, item.quantity)
+        items = db.scalars(select(m.SaleItem).where(m.SaleItem.sale_id == id).order_by(m.SaleItem.position)).all()
+        for item in items:
+            if item.supplier_batch_id:
+                return_to_batch(db, item.supplier_batch_id, item.quantity)
+        received = defaultdict(lambda: [ZERO, ZERO, ''])
+        for item in items:
+            source = item.supplier_collection_id or item.lpo_line_id
+            if source:
+                received[source][0] += item.quantity
+                received[source][1:] = [item.unit_cost, 'collection' if item.supplier_collection_id else 'lpo']
+        _goods_taken_off(db, sale, [(source, *values) for source, values in received.items()], data.goods,
+            data.goods_note, f'Sale cancelled: {data.reason}', operator)
+        sale.cancel_goods = data.goods if received else None
         sale.status, sale.cancelled_at, sale.cancelled_by, sale.cancel_reason = 'cancelled', at, operator.id, data.reason
         for debt in debts:
             debt.status, debt.cancelled_at, debt.cancelled_by, debt.cancel_reason = 'cancelled', at, operator.id, data.reason
@@ -952,6 +1066,56 @@ def _move_to_supplier(db, debt, sale, lines, data, operator):
     return target, before
 
 
+# ---- receipt payables (build plan M1.6) --------------------------------------
+
+def shrink_payable(db, debt, new_amount, how, reason, operator):
+    """Lower a delivery note's payable to `new_amount` (0 cancels it): a
+    receipt correction or an agreed supplier credit note. Money already paid
+    above it stays with the supplier who received it (rule R1): taken off
+    the invoice newest first, as their credit (`how` 'credit') or unresolved
+    until classified with evidence (R6). When the last allocation taken off
+    was larger than needed, its surplus credit goes straight back on this
+    invoice (a re-allocation: no money moves, R4). Returns the ids to keep
+    on the adjustment record."""
+    released, transfers, last = [], set(), None
+    excess = debt.paid_amount - new_amount
+    if excess > 0:
+        if how is None:
+            fail('err.say_what_paid_money_is', 422)
+        active = sorted((row for row in _payments(db, debt.id) if row.reversed_at is None),
+            key=lambda row: (row.paid_on, row.created_at), reverse=True)
+        for row in active:
+            if excess <= 0:
+                break
+            last = _take_off_invoice(db, debt, row, reason, operator, credit=how == 'credit')
+            released.append(row.id)
+            if last is not None:
+                transfers.add(last.id)
+            excess -= row.amount
+    if new_amount <= 0:
+        debt.status, debt.cancelled_at, debt.cancelled_by, debt.cancel_reason = (
+            'cancelled', m.now(), operator.id if operator else None, reason[:500])
+    else:
+        debt.amount, debt.status = new_amount, 'open'
+        db.flush()
+        if how == 'credit' and excess < 0 and last is not None:
+            _apply_credit(db, debt.supplier_id, -excess, [debt], operator, f'Kept on this invoice: {reason}'[:500], last.id)
+        debt.status = 'settled' if debt.paid_amount == debt.amount else 'open'
+    db.flush()
+    return {'payment_ids': released, 'transfer_ids': sorted(transfers), 'payments_as': how if released else None}
+
+
+def record_adjustment(db, kind, note, debt, reason, before, after, linked, operator, sale_id=None,
+                      entity_type='supplier_collection', entity_id=None):
+    """One financial_adjustments row for a receipt change (M1.6)."""
+    row = m.FinancialAdjustment(kind=kind, entity_type=entity_type, entity_id=entity_id or note.id, sale_id=sale_id,
+        related_debt_id=debt.id if debt is not None else None, reason=reason[:500], before=before, after=after,
+        linked_ids=linked, recorded_by=operator.id if operator else None)
+    db.add(row)
+    db.flush()
+    return row
+
+
 # ---- reads ------------------------------------------------------------------
 
 def adjustment_view(db, row):
@@ -977,8 +1141,12 @@ def _debt_detail(db, debt):
     adjustments = db.scalars(select(m.FinancialAdjustment).where(or_(m.FinancialAdjustment.entity_id == debt.id,
         m.FinancialAdjustment.related_debt_id == debt.id)).order_by(m.FinancialAdjustment.created_at)).all()
     correctable = debt.source == 'sale_cost' and debt.direction == 'payable' and debt.status != 'cancelled'
+    # A receipt's payable is corrected on its delivery note (M1.6).
+    note = db.scalar(select(m.SupplierCollection).where(m.SupplierCollection.debt_id == debt.id)) \
+        if debt.source == 'batch_receipt' else None
     return {**debt_view(debt), 'created_by': _operator_name(db, debt.created_by),
         'sale_number': sale.sale_number if sale else None,
+        'collection_id': note.id if note else None, 'collection_number': note.collection_number if note else None,
         'payments': [payment_view(db, p) for p in _payments(db, debt.id)],
         'adjustments': [adjustment_view(db, row) for row in adjustments],
         'duplicate_candidates': _duplicate_candidates(db, debt) if correctable else []}
@@ -1555,6 +1723,13 @@ def profit_between(db, start, end):
     # Received stock that died or was lost before it was sold, at cost.
     lost = by_day(select(m.StockLoss.lost_on, func.sum(m.StockLoss.quantity * m.StockLoss.unit_cost))
         .where(m.StockLoss.cancelled_at.is_(None)), m.StockLoss.lost_on)
+    # Delivery-note goods lost before they were sold (died, culled, stolen,
+    # spoiled) or not recovered from a cancelled or reduced sale (rule R2), at cost.
+    for day_, value in by_day(select(m.CollectionMovement.occurred_on,
+            func.sum(m.CollectionMovement.quantity * m.CollectionMovement.unit_cost))
+            .where(m.CollectionMovement.kind.in_(m.COLLECTION_LOSSES), m.CollectionMovement.cancelled_at.is_(None)),
+            m.CollectionMovement.occurred_on).items():
+        lost[day_] = lost.get(day_, ZERO) + value
     categories = db.execute(select(m.LedgerDebt.expense_category, func.sum(m.LedgerDebt.amount))
         .where(EXPENSE, m.LedgerDebt.incurred_on >= start, m.LedgerDebt.incurred_on <= end)
         .group_by(m.LedgerDebt.expense_category)).all()
@@ -1635,7 +1810,7 @@ def financial_report(start: date, end: date,
         notes = [
             'Management report of recorded activity, not reconciled statutory accounts. Missing expenses, opening stock costs and historical corrections can change these results.',
             'Revenue covers active direct sales and delivered/completed marketplace orders. Marketplace activity is grouped by order creation date under the existing reporting policy.',
-            'Expenses include recorded expense debts, whether paid or unpaid, plus recorded LPO stock losses. Collection losses, depreciation, tax and financing are not comprehensively captured.',
+            'Expenses include recorded expense debts, whether paid or unpaid, plus recorded LPO stock losses and delivery-note goods recorded as not recovered. Other collection losses (mortality), depreciation, tax and financing are not comprehensively captured.',
             'Product analysis covers direct sales only. Unknown costs are never shown as a final product margin.',
             'Forecasts are conditional operating scenarios, not cash forecasts. They assume constant selling prices, product mix and stock-cost ratios, with enough supply and delivery capacity.',
             'Investment recovery means future cumulative operating earnings reach the entered unrecovered amount; it is not a cash payback or guaranteed date.',

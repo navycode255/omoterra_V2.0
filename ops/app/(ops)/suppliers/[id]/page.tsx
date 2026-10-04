@@ -41,8 +41,9 @@ function Field({ label, name, children }: { label: string; name: string; childre
   return <div className="field"><label htmlFor={`edit_${name}`}>{label}</label>{children}</div>;
 }
 
-export default async function SupplierDetailPage({ params }: { params: Promise<{ id: string }> }) {
+export default async function SupplierDetailPage({ params, searchParams }: { params: Promise<{ id: string }>; searchParams: Promise<{ new_batch?: string }> }) {
   const { id } = await params;
+  const createBatch = (await searchParams).new_batch === '1';
   let supplier: SupplierDetail;
   try { supplier = await get<SupplierDetail>(`/ops/suppliers/${id}`); }
   catch (error) { if (error instanceof ApiError && error.status === 404) notFound(); throw error; }
@@ -132,7 +133,7 @@ export default async function SupplierDetailPage({ params }: { params: Promise<{
       </div>
       <section className="supplier-lower-section" id="production">
         <div className="between"><div><h2>Supplier batches and received stock</h2><p className="meta">A batch is the supplier&apos;s production. Only quantities recorded on a delivery note become saleable Omoterra stock.</p></div>
-          <details className="batch-action-panel"><summary className="button">Register supplier batch</summary>
+          <details className="batch-action-panel" open={createBatch}><summary className="button">Register supplier batch</summary>
             <ActionForm action={registerSupplierBatch} label="Register batch" hidden={{ supplier_id: supplier.id }}>
               <div className="grid-3">
                 <div className="field"><label htmlFor="batch-category">Product</label><select id="batch-category" name="category" className="input" defaultValue={supplier.primary_category ?? 'broilers'} required>{CATEGORY_KEYS.map((key) => <option key={key} value={key}>{category(key)}</option>)}</select></div>

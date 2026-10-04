@@ -84,7 +84,7 @@ def _settlement(db, seeded, key, **kw):
 def test_empty_database_reports_nothing(sessions, engine):
     report = fx.build_report(engine)
     assert all(s['count'] == 0 for s in report['sections'])
-    assert 'Sections with exceptions: 0 of 9' in fx.to_text(report)
+    assert 'Sections with exceptions: 0 of 10' in fx.to_text(report)
 
 
 def test_unknown_cost_and_unsourced_supplier_lines(sessions, seeded, engine):
@@ -106,6 +106,10 @@ def test_unknown_cost_and_unsourced_supplier_lines(sessions, seeded, engine):
     assert unsourced['count'] == 1 and unsourced['amount'] == Decimal('24000.00')
     assert unsourced['records'][0]['supplier'] == 'Private Supplier'
     assert unsourced['revenue'] == Decimal('30000.00')
+    # Sold straight from the batch before M1.6: no delivery note yet.
+    legacy = sections['batch_lines_without_receipt']
+    assert legacy['count'] == 1 and legacy['amount'] == Decimal('4000.00')
+    assert legacy['records'][0]['batch_id'] == batch.id
 
 
 def test_reversed_allocations_and_unallocated_transfers(sessions, seeded, engine):

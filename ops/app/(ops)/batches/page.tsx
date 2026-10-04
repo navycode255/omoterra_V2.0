@@ -1,34 +1,40 @@
-import { ActionForm } from '@/components/form';
-import { Card, Empty, Notice, PageHeader, Status } from '@/components/ui';
+import Link from 'next/link';
+import { DesktopBatches } from '@/components/production/desktop-batches';
+import { BatchSummary } from '@/components/production/batch-summary';
+import { SearchBox, FilterMenu } from '@/components/list-toolbar';
+import { Icons } from '@/components/icons';
+import { Empty, Notice } from '@/components/ui';
 import { ApiError, get } from '@/lib/api';
-import { date, quantity, titleCase, tzs } from '@/lib/format';
-import { verifyBatch } from '@/lib/actions';
+import { batchStatus, batchTitle, type Batch } from '@/lib/production';
+import { param, type ListParams } from '@/lib/paging';
+import { titleCase } from '@/lib/format';
+import styles from '@/components/production/production.module.css';
 
 export const metadata = { title: 'Production batches · Omoterra Operations' };
-type Batch = { id: string; supplier_id: string; supplier_name: string; category: string; subtype: string; initial_quantity: string; current_quantity: string; reserved_quantity: string; available_to_commit: string; current_age: string | null; age_unit: string; expected_ready_date: string | null; expected_min_weight_kg: string | null; expected_max_weight_kg: string | null; actual_average_weight_kg: string | null; form: string; region: string; private_pickup_location: string; asking_price_per_unit: string | null; status: string; approved_at: string | null };
-export default async function Batches() {
+export default async function Batches({ searchParams }: { searchParams: Promise<ListParams> }) {
+  const params = await searchParams;
   let batches: Batch[];
   try { batches = await get<Batch[]>('/ops/batches'); }
-  catch (error) { return <><div className="topbar"><PageHeader title="Production batches" /></div><div className="workspace"><Notice tone="error">{error instanceof ApiError ? error.message : 'Production batches could not be loaded.'}</Notice></div></>; }
+  catch (error) { return <main className={styles.page}><h1>Production batches</h1><Notice tone="error">{error instanceof ApiError ? error.message : 'Production batches could not be loaded.'}</Notice></main>; }
+  const q = param(params, 'q').toLowerCase();
+  const status = param(params, 'status');
+  const category = param(params, 'category');
+  const filtered = batches.filter((batch) => (!q || `${batchTitle(batch)} ${batch.supplier_name} ${batch.id}`.toLowerCase().includes(q)) && (!status || batchStatus(batch).tone === status || batch.status === status) && (!category || batch.category === category));
+  const pages = Math.max(1, Math.ceil(filtered.length / 20));
+  const page = Math.min(pages, Math.max(1, Math.floor(Number(param(params, 'page')) || 1)));
+  const items = filtered.slice((page - 1) * 20, page * 20);
+  const href = (next: number) => { const query = new URLSearchParams(); for (const key of ['q', 'status', 'category']) if (param(params, key)) query.set(key, param(params, key)); query.set('page', String(next)); return `/batches?${query}`; };
   return <>
-    <div className="topbar"><PageHeader title="Production batches" subtitle="Review future supplier capacity, readiness and quantity before allocating it to buyer demand." /></div>
-    <div className="workspace">
-      {batches.length === 0 ? <Empty>No supplier batches have been registered.</Empty> : <div className="stack">{batches.map((batch) => <Card key={batch.id} title={`${titleCase(batch.category)}${batch.subtype ? ` · ${batch.subtype}` : ''}`} action={<Status tone={batch.approved_at ? 'positive' : 'neutral'}>{batch.approved_at ? 'Reviewed' : 'Needs review'}</Status>}>
-        <div className="grid-2" style={{ alignItems: 'start' }}>
-          <div><p className="small">Supplier: <strong>{batch.supplier_name}</strong></p><p className="small">General region: {batch.region} · Private pickup: {batch.private_pickup_location || 'not recorded'}</p><p className="small">Total: {quantity(batch.current_quantity)} · Reserved: {quantity(batch.reserved_quantity)} · Available to commit: {quantity(batch.available_to_commit)}</p><p className="small">Age: {batch.current_age ?? '—'} {batch.age_unit} · Expected ready: {date(batch.expected_ready_date)}</p><p className="small">Expected weight: {batch.expected_min_weight_kg ?? '—'}–{batch.expected_max_weight_kg ?? '—'} kg · Form: {titleCase(batch.form)}</p><p className="meta">Asking price: {batch.asking_price_per_unit ? tzs(batch.asking_price_per_unit) : 'not entered'} · Batch {batch.id.slice(0,8)}</p></div>
-          <ActionForm action={verifyBatch} label={batch.approved_at ? 'Record new verification' : 'Verify batch'} hidden={{ id: batch.id }}>
-            <div className="field"><label htmlFor={`verified-${batch.id}`}>Verified quantity</label><input className="input" id={`verified-${batch.id}`} name="verified_quantity" inputMode="decimal" defaultValue={batch.current_quantity} required /></div>
-            <div className="field"><label htmlFor={`rejected-${batch.id}`}>Rejected quantity</label><input className="input" id={`rejected-${batch.id}`} name="rejected_quantity" inputMode="decimal" defaultValue="0" /></div>
-            <div className="field"><label htmlFor={`weight-${batch.id}`}>Sample average weight (kg)</label><input className="input" id={`weight-${batch.id}`} name="sampled_average_weight_kg" inputMode="decimal" defaultValue={batch.actual_average_weight_kg ?? ''} /></div>
-            <div className="field"><label htmlFor={`asking-${batch.id}`}>Agreed supplier asking price per unit (TZS)</label><input className="input" id={`asking-${batch.id}`} name="supplier_asking_price_per_unit" inputMode="decimal" defaultValue={batch.asking_price_per_unit ?? ''} required /></div>
-            <div className="field"><label htmlFor={`buyer-price-${batch.id}`}>Buyer price per unit (TZS)</label><input className="input" id={`buyer-price-${batch.id}`} name="buyer_price_per_unit" inputMode="decimal" required /></div>
-            <div className="field"><label htmlFor={`payout-${batch.id}`}>Supplier payout per unit (TZS)</label><input className="input" id={`payout-${batch.id}`} name="supplier_payout_price_per_unit" inputMode="decimal" defaultValue="" /></div>
-            <label className="row"><input type="checkbox" name="readiness_confirmed" /> Readiness confirmed</label>
-            <label className="row"><input type="checkbox" name="location_confirmed" /> Location confirmed</label>
-            <div className="field"><label htmlFor={`notes-${batch.id}`}>Inspection notes</label><textarea className="input" id={`notes-${batch.id}`} name="notes" /></div>
-          </ActionForm>
-        </div>
-      </Card>)}</div>}
-    </div>
+    <div className={styles.desktop}><DesktopBatches batches={items}/></div>
+    <main className={`${styles.page} ${styles.mobile}`} data-production-list>
+      <h1>Production batches</h1>
+      <div className={styles.controls}>
+        <SearchBox placeholder="Search batches..."/>
+        <FilterMenu label={<span className="sr-only">Filter batches</span>}><label>Status<select name="status" defaultValue={status}><option value="">All</option>{[['reviewed','Reviewed'],['review','Needs review'],['pending','Pending'],['rejected','Rejected'],['draft','Draft']].map(([key,label]) => <option key={key} value={key}>{label}</option>)}</select></label><label>Product<select name="category" defaultValue={category}><option value="">All</option>{[...new Set(batches.map(b => b.category))].map(value => <option key={value} value={value}>{titleCase(value)}</option>)}</select></label></FilterMenu>
+        <Link href="/batches/new" className={styles.primary}><Icons.plus size={20}/>New batch</Link>
+      </div>
+      {items.length ? <div className={styles.list}>{items.map(batch => <Link key={batch.id} href={`/batches/${batch.id}`} className={styles.batchCard}><BatchSummary batch={batch}/></Link>)}</div> : <Empty>No production batches found.</Empty>}
+    </main>
+    {pages > 1 && <nav className={styles.pagination} aria-label="Batch pages">{page > 1 && <Link href={href(page - 1)}>Previous</Link>}<span>{page} / {pages}</span>{page < pages && <Link href={href(page + 1)}>Next</Link>}</nav>}
   </>;
 }

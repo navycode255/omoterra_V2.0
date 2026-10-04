@@ -229,8 +229,12 @@ export async function correctTransferEntry(_: ActionResult | null, formData: For
 
 export async function cancelSale(_: ActionResult | null, formData: FormData) {
   const id = text(formData, 'sale_id');
-  return run(() => post(`/ops/sales/${id}/cancel`, { reason: text(formData, 'reason') }, key(formData)),
-    [...FINANCE, `/sales/${id}`]);
+  // Received goods (delivery note or LPO): staff say what happened to them (rule R2).
+  const goods = text(formData, 'goods');
+  return run(() => post(`/ops/sales/${id}/cancel`, {
+    reason: text(formData, 'reason'),
+    ...(goods ? { goods, goods_note: text(formData, 'goods_note') } : {}),
+  }, key(formData)), [...FINANCE, `/sales/${id}`, '/suppliers', '/supplier-collections']);
 }
 
 export async function cancelDebt(_: ActionResult | null, formData: FormData) {

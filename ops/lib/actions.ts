@@ -272,7 +272,7 @@ export async function verifyBatch(_: ActionResult | null, formData: FormData) {
     buyer_price_per_unit: String(formData.get('buyer_price_per_unit')),
     supplier_asking_price_per_unit: String(formData.get('supplier_asking_price_per_unit') || '') || null,
     supplier_payout_price_per_unit: String(formData.get('supplier_payout_price_per_unit') || '') || null,
-  }, randomUUID()), ['/batches', '/sourcing', '/manage']);
+  }, randomUUID()), ['/batches', `/batches/${id}`, '/sourcing', '/manage']);
 }
 
 function buyerPreferences(formData: FormData) {

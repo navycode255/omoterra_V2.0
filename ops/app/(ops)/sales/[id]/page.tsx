@@ -8,7 +8,7 @@ import { DebtSummary, PartyLink, PaymentForm, PaymentsTable, debtStatus, debtTon
 import { categoryImage } from '@/components/portal/supplier-format';
 import { ApiError, get } from '@/lib/api';
 import { cancelSale } from '@/lib/finance-actions';
-import { UNITS, day, today, type SaleDetail } from '@/lib/finance';
+import { GOODS_OUTCOMES, UNITS, day, today, type SaleDetail } from '@/lib/finance';
 import { category, dateTime, phone, quantity, tzs } from '@/lib/format';
 import { requireSession } from '@/lib/session';
 import styles from '@/components/finance/finance.module.css';
@@ -32,6 +32,9 @@ export default async function SaleWorkspace({ params, searchParams }: {
   const receivable = sale.debts.find((debt) => debt.direction === 'receivable');
   const payables = sale.debts.filter((debt) => debt.direction === 'payable' && debt.status !== 'cancelled');
   const anyPaid = sale.debts.some((debt) => Number(debt.paid_amount) > 0);
+  // Received goods (delivery note or LPO): cancelling asks what happened to them (rule R2).
+  const received = sale.items.filter((item) => item.supplier_collection_id || item.lpo_line_id);
+  const goodsLabel = GOODS_OUTCOMES.find(([id]) => id === sale.cancel_goods)?.[1];
   const unitLabel = (value: string) => UNITS.find(([key]) => key === value)?.[1].toLowerCase() ?? value;
 
   return <div className={styles.saleDetailPage}>
@@ -51,7 +54,7 @@ export default async function SaleWorkspace({ params, searchParams }: {
     <div className={`workspace ${styles.saleDetailWorkspace}`}>
       {created && <div className="notice" role="status">Sale saved.</div>}
       {updated && <div className="notice" role="status">Sale changes saved.</div>}
-      {sale.status === 'cancelled' && <Notice>Cancelled {dateTime(sale.cancelled_at)}: {sale.cancel_reason}</Notice>}
+      {sale.status === 'cancelled' && <Notice>Cancelled {dateTime(sale.cancelled_at)}: {sale.cancel_reason}{goodsLabel ? ` · Received goods: ${goodsLabel.split(':')[0].toLowerCase()}.` : ''}</Notice>}
 
       <div className={styles.saleDetailGrid}>
         <div className={styles.saleDetailColumn}>
@@ -79,7 +82,7 @@ export default async function SaleWorkspace({ params, searchParams }: {
                     <td>{quantity(item.quantity)} {unitLabel(item.unit)}</td>
                     <td>{tzs(item.unit_price)}</td>
                     <td><b>{tzs(item.subtotal)}</b></td>
-                    <td>{item.supplier_collection_id ? <><Link href={`/supplier-collections/${item.supplier_collection_id}`}>Received batch stock</Link><small>{supplier} · cost {tzs(item.unit_cost)} each</small></>
+                    <td>{item.supplier_collection_id ? <><Link href={`/supplier-collections/${item.supplier_collection_id}`}>Delivery note</Link><small>{supplier} · cost {tzs(item.unit_cost)} each</small></>
                       : item.lpo_line_id ? <>LPO stock<small>cost {tzs(item.unit_cost)} each</small></>
                       : item.unit_cost ? <>{supplier}<small>cost {tzs(item.unit_cost)} each</small></> : 'Own stock'}</td>
                   </tr>;
@@ -121,9 +124,16 @@ export default async function SaleWorkspace({ params, searchParams }: {
         <header className={styles.saleCardHeader}><h2>Cancel sale</h2></header>
         {anyPaid ? <p className="small muted">Reverse recorded payments before cancelling this sale.</p>
           : <ActionForm action={cancelSale} label="Cancel sale" variant="danger"
-              confirm="Cancel this sale? Its debts are cancelled too. It stays in the history."
+              confirm="Cancel this sale? Its own debts are cancelled too. It stays in the history."
               hidden={{ sale_id: sale.id, idempotency_key: randomUUID() }}>
               <div className="field"><label htmlFor="reason">Reason</label><input id="reason" name="reason" className="input" required minLength={3} /></div>
+              {received.length > 0 && <fieldset className="field">
+                <legend>What happened to the received goods ({received.map((item) => `${quantity(item.quantity)} ${unitLabel(item.unit)}`).join(', ')})?</legend>
+                {GOODS_OUTCOMES.map(([id, label]) => <label key={id} className="row"><input type="radio" name="goods" value={id} required />{label}</label>)}
+                <label htmlFor="goods-note">Condition of returned goods (if returned)</label>
+                <input id="goods-note" name="goods_note" className="input" placeholder="e.g. All alive, checked by Juma" />
+                <span className="meta">The delivery note or LPO and what is owed to the supplier do not change. To reduce what was received, correct the delivery note.</span>
+              </fieldset>}
             </ActionForm>}
       </section>}
     </div>

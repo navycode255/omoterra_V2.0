@@ -362,6 +362,10 @@ a.summaryCard:hover { border-color: #c9dccf; box-shadow: 0 10px 26px rgba(31, 83
 .deleteLine:disabled { opacity: 1; cursor: default; }
 .lineGrid { padding: 4px 18px 0; grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .sourceField { grid-column: span 2; }
+/* "We collected these birds…": a batch line's receipt confirmation (M1.6). */
+.receiptConfirm { grid-column: span 2; }
+.confirmCheck { display: flex; align-items: flex-start; gap: 10px; font-weight: 600; cursor: pointer; }
+.confirmCheck input { width: 18px; height: 18px; margin-top: 2px; flex: none; accent-color: var(--forest); }
 
 .addLine {
   min-height: 38px;
@@ -496,6 +500,7 @@ a.summaryCard:hover { border-color: #c9dccf; box-shadow: 0 10px 26px rgba(31, 83
   .paymentGrid { grid-template-columns: 1fr; margin-left: 0; margin-right: 0; }
   .saleLine { margin-left: 0; }
   .sourceField,
+  .receiptConfirm,
   .notesField { grid-column: auto; }
   .addLine { margin-left: 0; }
   .saleSummary { grid-template-columns: 1fr; }
