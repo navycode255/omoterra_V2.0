@@ -121,6 +121,8 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   return <>
     {header(<DateRangePicker start={period.start} end={period.end} today={today}/>)}
     <main className="dashboard" data-mobile-reference>
+      <BusinessPosition data={financeResult.status === 'fulfilled' ? financeResult.value : null}/>
+
       <div className="kpi-row">
         {kpis.map((kpi) => <Link key={kpi.label} href={kpi.href} className="kpi-card">
           <span className="kpi-icon">{kpi.icon}</span>
@@ -132,8 +134,6 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           <Icons.chevron size={20}/>
         </Link>)}
       </div>
-
-      <BusinessPosition data={financeResult.status === 'fulfilled' ? financeResult.value : null}/>
 
       {attention.length > 0 && <section className="attention-strip" aria-label="Needs attention">
         <span className="attention-title"><Icons.alert size={18}/>Needs attention</span>
