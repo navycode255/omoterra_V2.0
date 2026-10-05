@@ -95,14 +95,14 @@ export default async function Sales({ searchParams }: { searchParams: Promise<Li
     </div>
 
     <div className={styles.tableWrap}>
-      <table className={styles.table} data-phone-show="1 5" data-sales-table>
+      <table className={styles.table} data-phone-show="2 5" data-sales-table>
         <thead><tr><th>Sale</th><th>Buyer</th><th>Total (TZS)</th><th>Received (TZS)</th><th>Buyer owes (TZS)</th><th>Supplier owed (TZS)</th><th>Status</th><th aria-label="Open" /></tr></thead>
         <tbody>{data.items.map((sale) => {
           const tone = sale.status === 'cancelled' ? 'cancelled' : Number(sale.balance) > 0 ? 'open' : 'settled';
           return <tr key={sale.id}>
-            <td data-label="Sale"><div><Link className={styles.name} href={`/sales/${sale.id}`}>{sale.sale_number}</Link><small>{day(sale.sold_on)}</small>
-              {sale.status === 'active' && sale.cost_state === 'unknown' && <small className={costStyles.unknown}>Cost unknown</small>}</div></td>
-            <td data-label="Buyer"><div>{sale.buyer_name}<small>{sale.buyer_phone ? phone(sale.buyer_phone) : '—'}</small></div></td>
+            <td data-label="Sale"><div><Link className={styles.name} href={`/sales/${sale.id}`}>{sale.sale_number}</Link><small className={styles.wideLabel}>{day(sale.sold_on)}</small><small className={styles.phoneLabel}>{sale.buyer_phone ? phone(sale.buyer_phone) : '—'}</small>
+              {sale.status === 'active' && sale.cost_state === 'unknown' && <small className={`${costStyles.unknown} ${styles.wideLabel}`}>Cost unknown</small>}</div></td>
+            <td data-label="Buyer"><div><span className={styles.wideLabel}>{sale.buyer_name}</span><Link className={`${styles.name} ${styles.phoneLabel}`} href={`/sales/${sale.id}`}>{sale.buyer_name}</Link><small className={styles.wideLabel}>{sale.buyer_phone ? phone(sale.buyer_phone) : '—'}</small><small className={styles.phoneLabel}>{day(sale.sold_on)}</small>{sale.status === 'active' && sale.cost_state === 'unknown' && <small className={`${costStyles.unknown} ${styles.phoneLabel}`}>Cost unknown</small>}</div></td>
             <td data-label="Total" className={styles.balance}>{tzs(sale.total_amount)}</td>
             <td data-label="Received" className={styles.money}>{tzs(sale.received_amount)}</td>
             <td data-label="Buyer owes" className={styles.balance}>{tzs(sale.balance)}</td>

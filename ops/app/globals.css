@@ -2884,3 +2884,7 @@ button:disabled:has(.busy-label) { opacity: .85; cursor: progress; }
   .dash-head .range-button span { white-space: normal; text-align: left; }
   .dash-head .range-button svg { flex: none; }
 }
+
+@media (max-width: 720px) {
+  .shell [data-sales-table][data-phone-table] tr[data-open] td[data-phone-toggle] > div { justify-items: start; text-align: left; }
+}
