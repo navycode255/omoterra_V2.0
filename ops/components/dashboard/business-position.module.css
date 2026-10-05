@@ -8,8 +8,8 @@
 .main span,.debts span { color:#667286; font-size:13px; }
 .amount { font-size:30px; font-weight:800; letter-spacing:-.035em; line-height:1.2; overflow-wrap:anywhere; }
 .amount:hover { text-decoration:underline; text-underline-offset:4px; }
-.amount[data-tone='negative'],small[data-tone='negative'] { color:#d93848; }
-.amount[data-tone='positive'],small[data-tone='positive'] { color:#08704b; }
+.amount[data-tone='negative'],.result small[data-tone='negative'] { color:#d93848; }
+.amount[data-tone='positive'],.result small[data-tone='positive'] { color:#08704b; }
 .main small { font-size:11px; color:#788597; }
 .result small { padding:4px 9px; border-radius:6px; background:#eaf5ee; }
 .result small[data-tone='negative'] { background:#fff0f1; }.result small[data-tone='provisional'] { color:#93621d; background:#fff5e4; }
