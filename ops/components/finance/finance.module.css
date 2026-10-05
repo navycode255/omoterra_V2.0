@@ -672,3 +672,26 @@ a.summaryCard:hover { border-color: #c9dccf; box-shadow: 0 10px 26px rgba(31, 83
   .saleProduct { gap:12px; align-items:center; }.saleProduct > div { min-width:0; gap:3px; }.saleProduct b { font-size:15px; line-height:1.4; }.saleProduct small { line-height:1.4; }
   .saleDialog { padding:18px; }
 }
+
+.financeTools { position:relative; }
+.financeTools svg { display:block; color:#08744b; }
+.financeTools > summary { display:flex; align-items:center; gap:8px; min-height:46px; padding:10px 16px; border:1px solid #dce6df; border-radius:10px; background:#fff; color:#315b46; cursor:pointer; list-style:none; }
+.financeTools > summary::-webkit-details-marker { display:none; }
+.financeTools > div { position:absolute; right:0; top:54px; z-index:40; min-width:200px; display:grid; gap:3px; padding:8px; border:1px solid #dce6df; border-radius:12px; background:#fff; box-shadow:0 12px 35px #183c2920; }
+.financeTools :global(.button) { min-width:0; min-height:42px; height:auto; padding:10px 12px; justify-content:flex-start; border:0; background:#fff !important; color:#315b46 !important; font-size:13px; box-shadow:none !important; }
+.financeTools :global(.button:hover) { background:#f0f6f2 !important; }
+.financePeriodNote { display:flex; align-items:center; gap:8px; font-size:13px; color:#728394; }
+.financePage .oweIcon { color:#08744b; }.financePage .negativeCard strong { color:#b64b58; }.financePage .positiveCard strong { color:#08744b; }
+.financePage .summaryIcon { padding:8px; width:42px; height:42px; border-radius:50%; background:#e8f4ec; color:#08744b; }
+@media(min-width:1000px) {
+  .financeHeader { min-height:124px; padding:34px 40px 22px; align-items:center; }.financeContent { padding:0 40px 48px; gap:24px; }.financeHeader h1 { font-size:38px; }
+  .headerActions :global(.button) { height:46px; min-width:120px; font-size:14px; }.summaryCard { min-height:160px; padding:22px; }.summaryCard span { font-size:14px; }.summaryCard strong { font-size:28px; }
+  .financePage .panel { padding:24px; }.financePage .panelHeader h2 { font-size:21px; }.financePage .tableWrap table { font-size:14px; }
+}
+@media(max-width:767px) {
+  .financePage .financeHeader { gap:16px; }.financePage .headerActions { justify-content:flex-end; flex-wrap:nowrap; width:100%; }.financePage .headerActions > :global(.button) { width:auto; min-width:110px; }
+  .financePage .financeTools summary { min-height:44px; font-size:13px; }.financeTools span::before { content:none; }.financeTools svg { display:block; }
+  .financePage .financeContent { gap:18px; }.financePage .summaryCard span { font-size:12px; }.financePage .summaryCard strong { font-size:clamp(17px,4.5vw,26px); }.financePage .summaryIcon { width:36px; height:36px; padding:8px; }
+  .financePage .partyHead,.financePage .partyRow summary { font-size:12px; }.financePage .partyRow strong { font-size:clamp(11px,2.8vw,15px); }.financePage .allLink { font-size:12px; }.financePage .panelHeader h2 { font-size:17px; white-space:normal; }
+  .financePeriodNote :global(.info-tip-panel) { position:fixed; top:auto; bottom:88px; left:16px; right:16px; width:auto; }
+}

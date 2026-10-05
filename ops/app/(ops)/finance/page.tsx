@@ -3,10 +3,11 @@ import type { CSSProperties } from 'react';
 import { Icons } from '@/components/icons';
 import { Empty, Notice, PageHeader, Status } from '@/components/ui';
 import { ApiError, get } from '@/lib/api';
-import { PROVISIONAL, day, methodLabel, today, type FinanceSummary, type Party } from '@/lib/finance';
+import { day, methodLabel, today, type FinanceSummary, type Party } from '@/lib/finance';
 import { phone, tzs } from '@/lib/format';
 import styles from '@/components/finance/finance.module.css';
-import costStyles from '@/components/finance/cost-states.module.css';
+import { BusinessPosition } from '@/components/dashboard/business-position';
+import { InfoTip } from '@/components/info-tip';
 import { Sparkline } from '@/components/finance/sparkline';
 
 export const metadata = { title: 'Finance · Omoterra Operations' };
@@ -68,7 +69,6 @@ export default async function Finance({ searchParams }: { searchParams: Promise<
   const end = period === 'custom' ? params.end || now : period === 'last_month' ? previousEnd : now;
   const range = new URLSearchParams({ start, end }).toString();
   const periodLabel = period === 'custom' ? 'Custom period' : PERIODS.find(([key]) => key === period)![1];
-  const suffix = period === 'custom' ? 'for selected period' : periodLabel.toLowerCase();
   let data: FinanceSummary;
   try {
     data = await get<FinanceSummary>(`/ops/finance/summary?${range}`);
@@ -95,45 +95,23 @@ export default async function Finance({ searchParams }: { searchParams: Promise<
           </details>
         </div>
         <div className={styles.headerActions}>
+          <details className={styles.financeTools}><summary><Icons.more size={18}/>Manage</summary><div>
           <Link href="/finance/expenses" className="button" data-variant="secondary"><Icons.plus size={20}/><span>Expense</span></Link>
           <Link href="/finance/debts" className="button" data-variant="secondary"><Icons.plus size={20}/><span>Other debt</span></Link>
           <Link href="/finance/opening-stock" className="button" data-variant="secondary"><Icons.box size={20}/><span>Opening stock</span></Link>
+          </div></details>
           <Link href="/sales/new" className="button"><Icons.plus size={20}/><span>New sale</span></Link>
         </div>
       </div>
 
       <div className={styles.financeContent}>
-        <p className="small muted">{day(start)} – {day(end)} · Sales, collections and profit for this period. Debt balances are current.</p>
+        <div className={styles.financePeriodNote}><span>{day(start)} – {day(end)}</span><InfoTip label="About finance figures">Sales, collections and profit follow these dates. Debt balances and recorded cash position are current. Undelivered app orders ({tzs(data.commitments.total)}) are not sales or debt. Disputed payouts: {tzs(data.i_owe.disputed)}. Unresolved supplier money: {tzs(data.i_owe.unresolved)}.</InfoTip></div>
+        <BusinessPosition data={data}/>
         <section className={styles.summaryGrid} aria-label="Finance summary">
-          <Link href="/finance/debts?status=owed_to_me" className={styles.summaryCard} aria-label="Money owed to me">
-            <Icons.users className={styles.summaryIcon} size={34} />
-            <div><span>Owed to me</span><Amount value={tzs(data.owed_to_me.total)}/>
-              {/* Undelivered app orders: beside the debt, never inside it (D2). */}
-              {Number(data.commitments.total) > 0 && <Amount cash value={`Not delivered yet: ${tzs(data.commitments.total)}`}/>}</div>
-            <Sparkline className={styles.spark} values={data.trends.owed_to_me} />
-          </Link>
-          <Link href="/finance/debts?status=i_owe" className={styles.summaryCard} aria-label="Money I owe">
-            <Icons.card className={`${styles.summaryIcon} ${styles.oweIcon}`} size={34} />
-            <div><span>I owe</span><Amount value={tzs(data.i_owe.total)}/>
-              {Number(data.i_owe.disputed) > 0 && <Amount cash value={`Payouts disputed: ${tzs(data.i_owe.disputed)}`}/>}
-              {Number(data.i_owe.unresolved) > 0 && <Amount cash value={`Unresolved supplier money: ${tzs(data.i_owe.unresolved)}`}/>}</div>
-            <Sparkline className={styles.spark} values={data.trends.i_owe} tone="red" />
-          </Link>
-          <Link href={`/sales?${range}`} className={styles.summaryCard} aria-label="Sales">
-            <Icons.chart className={styles.summaryIcon} size={34} />
-            <div><span>{`Sales ${suffix}`}</span><Amount value={tzs(data.selected.sales)}/>
-              <Amount cash value={`Collected: ${tzs(data.selected.money_in)}`}/></div>
-            <Sparkline className={styles.spark} values={data.selected_trends.revenue} />
-          </Link>
-          <Link href={`/finance/profit?${range}`} className={styles.summaryCard} aria-label="Profit">
-            <Icons.trend className={styles.summaryIcon} size={34} />
-            {/* Rule R5: an unknown buying cost leaves no final figure to show. */}
-            {data.profit_selected.provisional
-              ? <div><span>{`Operating profit ${suffix}`}</span><strong className={costStyles.provisional}>{PROVISIONAL}</strong>
-                <Amount cash value={`${data.profit_selected.unknown_cost.sales} ${data.profit_selected.unknown_cost.sales === 1 ? 'sale' : 'sales'} · ${tzs(data.profit_selected.unknown_cost.revenue)} revenue affected`}/></div>
-              : <><div><span>{`Operating profit ${suffix}`}</span><Amount value={signed(data.profit_selected.net_profit)}/></div>
-                <Sparkline className={styles.spark} values={data.selected_trends.net_profit} tone={Number(data.profit_selected.net_profit) < 0 ? 'red' : 'green'} /></>}
-          </Link>
+          <Link href={`/sales?${range}`} className={styles.summaryCard} aria-label="Sales"><Icons.chart className={styles.summaryIcon} size={28}/><div><span>Sales</span><Amount value={tzs(data.selected.sales)}/></div><Sparkline className={styles.spark} values={data.selected_trends.revenue}/></Link>
+          <Link href={`/finance/cash-book?status=in&${range}`} className={styles.summaryCard}><Icons.arrowDown className={styles.summaryIcon} size={28}/><div><span>Money in</span><Amount value={tzs(data.selected.money_in)}/></div></Link>
+          <Link href={`/finance/cash-book?status=out&${range}`} className={styles.summaryCard}><Icons.arrowUp className={styles.summaryIcon} size={28}/><div><span>Money out</span><Amount value={tzs(data.selected.money_out)}/></div></Link>
+          <Link href={`/finance/cash-book?${range}`} className={`${styles.summaryCard} ${Number(data.selected.net)<0?styles.negativeCard:styles.positiveCard}`}><Icons.wallet className={styles.summaryIcon} size={28}/><div><span>Net movement</span><Amount value={signed(data.selected.net)}/></div></Link>
         </section>
 
         <div className={styles.twoColumn}>
@@ -143,7 +121,7 @@ export default async function Finance({ searchParams }: { searchParams: Promise<
               <Link href="/finance/debts?status=owed_to_me" className={styles.allLink}>View all <Icons.chevron size={15} /></Link>
             </div>
             <PartyTable parties={data.debtors} empty="Nobody owes you anything recorded here." />
-            {data.debtors.length > 5 && <p className={styles.previewNote}>The 5 largest of {data.debtors.length}. View all lists every debt and delivered app order.</p>}
+            {data.debtors.length > 5 && <InfoTip label="About debtor list">The five largest of {data.debtors.length}. View all shows every debt and delivered app order.</InfoTip>}
           </section>
           <section className={styles.panel}>
             <div className={styles.panelHeader}>
@@ -154,14 +132,14 @@ export default async function Finance({ searchParams }: { searchParams: Promise<
               </div>
             </div>
             <PartyTable parties={data.creditors} empty="You owe nothing recorded here." />
-            {data.creditors.length > 5 && <p className={styles.previewNote}>The 5 largest of {data.creditors.length}. All lists every debt and pending app payout.</p>}
+            {data.creditors.length > 5 && <InfoTip label="About creditor list">The five largest of {data.creditors.length}. All shows every debt and pending app payout.</InfoTip>}
           </section>
         </div>
 
         <div className={styles.twoColumn}>
           <section className={styles.panel}>
             <div className={styles.panelHeader}>
-              <h2><span className={styles.headingIcon}><Icons.card size={27} /></span>Money by method (all time)</h2>
+              <h2><span className={styles.headingIcon}><Icons.card size={27} /></span>Money by method · all time</h2>
             </div>
             {data.by_method.length === 0 ? <Empty>No money recorded yet.</Empty> : (
               <div className={styles.tableWrap}>

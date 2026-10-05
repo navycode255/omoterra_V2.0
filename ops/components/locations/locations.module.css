@@ -64,3 +64,10 @@
   .locationDetail { padding:20px 14px; }.detailHeading { padding:18px; border-radius:12px; gap:18px; }.detailHeading h1 { font-size:27px; }.detailHeading .filters { width:100%; }.detailHeading .filters button { width:100%; }.detailMetrics { gap:10px; }.detailMetrics article { padding:14px; }.detailMetrics strong { font-size:clamp(17px,4.5vw,25px); }.detailMetrics .metricIcon { width:36px; height:36px; }.detailMetrics article > span:not(.metricIcon) { font-size:12px; }
   .locationDetail .panel { padding:16px; }.sectionTitle h2 { font-size:17px; }.detailNav { margin-bottom:18px; }.detailNav a { flex:1; text-align:center; padding:10px 8px; }.locationDetail :global(.info-tip-panel) { position:fixed; top:auto; bottom:88px; left:16px; right:16px; width:auto; z-index:60; }
 }
+
+@media(min-width:1000px) {
+  .locationDetail { width:100%; max-width:none; padding:36px 40px 48px; }
+  .detailHeading { padding:30px; min-height:160px; }.detailHeading h1 { font-size:38px; }.detailHeading p { font-size:15px; }
+  .detailMetrics article { padding:24px; min-height:180px; }.detailMetrics strong { font-size:30px; }.detailMetrics article > span:not(.metricIcon) { font-size:15px; }.detailMetrics small { font-size:13px; }
+  .locationDetail .panel { padding:26px; }.sectionTitle h2 { font-size:22px; }.locationDetail .table { font-size:14px; }.locationDetail .table thead th { font-size:12px; }.locationDetail details > summary { font-size:16px; min-height:44px; }
+}
