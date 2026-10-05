@@ -3,9 +3,10 @@ import type { CSSProperties } from 'react';
 import { Icons } from '@/components/icons';
 import { Empty, Notice, PageHeader, Status } from '@/components/ui';
 import { ApiError, get } from '@/lib/api';
-import { day, methodLabel, today, type FinanceSummary, type Party } from '@/lib/finance';
+import { PROVISIONAL, day, methodLabel, today, type FinanceSummary, type Party } from '@/lib/finance';
 import { phone, tzs } from '@/lib/format';
 import styles from '@/components/finance/finance.module.css';
+import costStyles from '@/components/finance/cost-states.module.css';
 import { Sparkline } from '@/components/finance/sparkline';
 
 export const metadata = { title: 'Finance · Omoterra Operations' };
@@ -96,6 +97,7 @@ export default async function Finance({ searchParams }: { searchParams: Promise<
         <div className={styles.headerActions}>
           <Link href="/finance/expenses" className="button" data-variant="secondary"><Icons.plus size={20}/><span>Expense</span></Link>
           <Link href="/finance/debts" className="button" data-variant="secondary"><Icons.plus size={20}/><span>Other debt</span></Link>
+          <Link href="/finance/opening-stock" className="button" data-variant="secondary"><Icons.box size={20}/><span>Opening stock</span></Link>
           <Link href="/sales/new" className="button"><Icons.plus size={20}/><span>New sale</span></Link>
         </div>
       </div>
@@ -113,7 +115,8 @@ export default async function Finance({ searchParams }: { searchParams: Promise<
           <Link href="/finance/debts?status=i_owe" className={styles.summaryCard} aria-label="Money I owe">
             <Icons.card className={`${styles.summaryIcon} ${styles.oweIcon}`} size={34} />
             <div><span>I owe</span><Amount value={tzs(data.i_owe.total)}/>
-              {Number(data.i_owe.disputed) > 0 && <Amount cash value={`Payouts disputed: ${tzs(data.i_owe.disputed)}`}/>}</div>
+              {Number(data.i_owe.disputed) > 0 && <Amount cash value={`Payouts disputed: ${tzs(data.i_owe.disputed)}`}/>}
+              {Number(data.i_owe.unresolved) > 0 && <Amount cash value={`Unresolved supplier money: ${tzs(data.i_owe.unresolved)}`}/>}</div>
             <Sparkline className={styles.spark} values={data.trends.i_owe} tone="red" />
           </Link>
           <Link href={`/sales?${range}`} className={styles.summaryCard} aria-label="Sales">
@@ -124,8 +127,12 @@ export default async function Finance({ searchParams }: { searchParams: Promise<
           </Link>
           <Link href={`/finance/profit?${range}`} className={styles.summaryCard} aria-label="Profit">
             <Icons.trend className={styles.summaryIcon} size={34} />
-            <div><span>{`Operating profit ${suffix}`}</span><Amount value={signed(data.profit_selected.net_profit)}/></div>
-            <Sparkline className={styles.spark} values={data.selected_trends.net_profit} tone={Number(data.profit_selected.net_profit) < 0 ? 'red' : 'green'} />
+            {/* Rule R5: an unknown buying cost leaves no final figure to show. */}
+            {data.profit_selected.provisional
+              ? <div><span>{`Operating profit ${suffix}`}</span><strong className={costStyles.provisional}>{PROVISIONAL}</strong>
+                <Amount cash value={`${data.profit_selected.unknown_cost.sales} ${data.profit_selected.unknown_cost.sales === 1 ? 'sale' : 'sales'} · ${tzs(data.profit_selected.unknown_cost.revenue)} revenue affected`}/></div>
+              : <><div><span>{`Operating profit ${suffix}`}</span><Amount value={signed(data.profit_selected.net_profit)}/></div>
+                <Sparkline className={styles.spark} values={data.selected_trends.net_profit} tone={Number(data.profit_selected.net_profit) < 0 ? 'red' : 'green'} /></>}
           </Link>
         </section>
 

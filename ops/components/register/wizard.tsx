@@ -4,6 +4,7 @@ import Link from 'next/link';
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { sendCode, setPin, verifyCode, type Role, type Verified } from '@/lib/registration';
 import { Busy } from '@/components/spinner';
+import { SecretInput } from '@/components/secret-input';
 
 export type Errors = Record<string, string>;
 
@@ -31,7 +32,9 @@ export function Text({ id, label, value, onChange, error, optional, multiline, .
     <Field id={id} label={label} error={error} optional={optional}>
       {multiline
         ? <textarea {...common} rows={3} onChange={(event) => onChange(event.target.value)} />
-        : <input {...common} {...rest} onChange={(event) => onChange(event.target.value)} />}
+        : rest.type === 'password'
+          ? <SecretInput {...common} {...rest} label={label} onChange={(event) => onChange(event.target.value)} />
+          : <input {...common} {...rest} onChange={(event) => onChange(event.target.value)} />}
     </Field>
   );
 }

@@ -1020,7 +1020,39 @@ textarea.input {
   font-size: 15px;
 }
 .signin-input-wrap input::placeholder { color: #a1aba5; }
-.signin-eye { margin-left: auto; }
+/* Passphrase / PIN with a show-hide eye (components/secret-input.tsx). */
+.secret-field { position: relative; display: block; flex: 1; min-width: 0; }
+.signin-input-wrap .secret-field { height: 100%; }
+.secret-field > input[data-secret] { padding-right: 48px; }
+.secret-toggle {
+  position: absolute;
+  top: 50%;
+  right: 6px;
+  transform: translateY(-50%);
+  display: grid;
+  place-items: center;
+  width: 40px;
+  height: 40px;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #839089;
+  cursor: pointer;
+}
+.signin-input-wrap .secret-toggle { right: -10px; }
+.secret-toggle:hover, .secret-toggle[aria-pressed='true'] { color: #0e6f50; }
+.secret-toggle:focus-visible { outline: 2px solid #16805e; outline-offset: 1px; }
+.secret-toggle svg,
+.signin-input-wrap .secret-toggle svg {
+  width: 21px;
+  height: 21px;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.7;
+}
 .signin-hint { margin: 0 0 12px; color: #5f6b64; }
 .signin-alt { display: block; margin-top: 14px; text-align: center; color: #0e6f50; font-weight: 600; }
 .signin-admin-link { display: block; margin-top: 18px; text-align: center; font-size: 12px; color: #8a948e; text-decoration: none; }
@@ -2825,4 +2857,22 @@ button:disabled:has(.busy-label) { opacity: .85; cursor: progress; }
   .mobile-nav[data-production='true'] .mobile-chip-count { display: none; }
   .mobile-nav[data-production='true'] .mobile-chip svg { width: 4vw; height: 4vw; }
   .shell:has(.mobile-nav[data-production='true']) .ops-alerts-count { top: 1vw; right: .8vw; width: 1.8vw; min-width: 7px; height: 1.8vw; padding: 0; overflow: hidden; font-size: 0; border: 2px solid white; background: #0b6b47; }
+}
+
+/* Offline notice served by the service worker (public/sw.js). */
+.offline-page { min-height: 100vh; display: grid; place-content: center; justify-items: center; gap: 12px; padding: 24px 16px; text-align: center; background: #f6f8f7; color: #17231e; }
+.offline-page h1 { margin: 8px 0 0; font-size: 24px; }
+.offline-page p { max-width: 340px; margin: 0; color: #5f6b64; line-height: 1.5; }
+.offline-retry { margin-top: 8px; padding: 12px 22px; border-radius: 10px; background: #0e6f50; color: #fff; font-weight: 700; text-decoration: none; }
+
+/* Pin the visible sales cells above the expanded, full-width details. */
+@media (max-width: 720px) {
+  .shell [data-sales-table][data-phone-table] tbody tr > td:not([data-phone-hidden]) { grid-row:1; }
+  .shell [data-sales-table][data-phone-table] tbody tr > td[data-phone-toggle] { grid-column:1; }
+  .shell [data-sales-table][data-phone-table] tbody tr > td:not([data-phone-hidden]):not([data-phone-toggle]) { grid-column:2; text-align:right; padding-right:14px !important; }
+  .shell [data-sales-table][data-phone-table] tr[data-open] td[data-phone-hidden] { align-items:flex-start; }
+  .shell [data-sales-table][data-phone-table] tr[data-open] td[data-phone-hidden]::before { flex:0 1 45%; }
+  .shell [data-sales-table][data-phone-table] tr[data-open] td[data-phone-hidden] > div { min-width:0; }
+  .shell [data-sales-table][data-phone-table] tr[data-open] td[data-phone-hidden] > div small { overflow-wrap:anywhere; }
+  .shell [data-sales-table][data-phone-table] tr[data-open] td:last-child { justify-content:flex-end; }
 }

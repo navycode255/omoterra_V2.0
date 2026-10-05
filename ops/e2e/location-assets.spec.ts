@@ -4,7 +4,7 @@ test('Kitchen assets, stock, sales and costs reconcile with business profit on p
   const seeded=seed('operator');const api=opsApi(seeded.operator_token);const now=businessToday();
   await signInOperator(context,seeded.operator_token);
   await page.goto('/locations');
-  await page.getByText('Add a location',{exact:true}).click();
+  await page.getByRole('button',{name:'Add a location',exact:true}).first().click();
   await page.getByLabel('Location name',{exact:true}).fill('Kitchen A');
   await page.getByRole('button',{name:'Create location',exact:true}).click();
   await page.getByRole('link',{name:'Kitchen A',exact:true}).click();

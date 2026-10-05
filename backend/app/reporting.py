@@ -55,6 +55,8 @@ PROVISIONAL = 'Provisional: buying costs incomplete'
 # never counted again); cancelled or failed ones count for nothing.
 RECOGNISED = ('delivered', 'completed')
 DEAD = ('cancelled', 'payment_failed')
+# App payouts are due this many days after the order is delivered (finance owner, 5 October 2026).
+PAYOUT_DAYS = 7
 
 
 # ---- rows -------------------------------------------------------------------
@@ -146,8 +148,8 @@ def _ledger_row(debt, today):
 def receivables(db):
     """Owed to Omoterra now (metric 1): open ledger receivables plus the
     unpaid balance of delivered app orders. Undelivered orders are
-    commitments, never here. Only ledger debts have due dates; an app
-    order is never counted overdue until the finance owner sets a rule."""
+    commitments, never here. A delivered app order is due on its delivery
+    day and overdue from the next day (finance owner, 5 October 2026)."""
     today = c.business_today()
     rows = [_ledger_row(debt, today) for debt in db.scalars(select(m.LedgerDebt).where(
         m.LedgerDebt.direction == 'receivable', m.LedgerDebt.status == 'open'))]
@@ -159,7 +161,8 @@ def receivables(db):
         rows.append(_row('marketplace', 'payments', payment.id, on, payment.amount - payment.received_amount,
             party=names[order.id], party_phone='', party_kind='buyer', party_key=order.buyer_id or f'order:{order.id}',
             buyer_profile_id=None, supplier_id=None, buyer_user_id=order.buyer_id, order_id=order.id,
-            description=f'App order {order.id[:8].upper()}', due_on=None, overdue=False, href=f'/orders/{order.id}'))
+            description=f'App order {order.id[:8].upper()}', due_on=on, overdue=on is not None and on < today,
+            href=f'/orders/{order.id}'))
     rows = dedupe(rows)
     return {**_split(rows), 'overdue': total(r for r in rows if r['overdue']),
             'overdue_count': sum(1 for r in rows if r['overdue']), 'rows': rows}
@@ -193,7 +196,8 @@ def payables(db, supplier_ids=None):
     or not yet classified (unresolved)."""
     today = c.business_today()
     query = select(m.LedgerDebt).where(m.LedgerDebt.direction == 'payable', m.LedgerDebt.status == 'open')
-    settlements = select(m.Settlement).where(m.Settlement.status == 'pending')
+    settlements = (select(m.Settlement, delivered_on()).join(m.OrderItem, m.OrderItem.id == m.Settlement.order_item_id)
+        .join(m.Order, m.Order.id == m.OrderItem.order_id).where(m.Settlement.status == 'pending'))
     disputed = select(m.Settlement).where(m.Settlement.status == 'paid', m.Settlement.supplier_confirmation == 'not_received')
     if supplier_ids is not None:
         supplier_ids = list(supplier_ids)
@@ -201,10 +205,10 @@ def payables(db, supplier_ids=None):
         settlements = settlements.where(m.Settlement.supplier_id.in_(supplier_ids))
         disputed = disputed.where(m.Settlement.supplier_id.in_(supplier_ids))
     rows = [_ledger_row(debt, today) for debt in db.scalars(query)]
-    pending = db.scalars(settlements).all()
-    names = _supplier_names(db, [row.supplier_id for row in pending])
-    for row in pending:
-        rows.append(_settlement_row(row, names, local_day_of(row.created_at)))
+    pending = db.execute(settlements).all()
+    names = _supplier_names(db, [row.supplier_id for row, _on in pending])
+    for row, delivered in pending:
+        rows.append(_settlement_row(row, names, local_day_of(row.created_at), delivered, today))
     rows = dedupe(rows)
     held = tr.by_supplier(db, supplier_ids)
     disputes = db.scalars(disputed).all()
@@ -215,11 +219,14 @@ def payables(db, supplier_ids=None):
             'unresolved': sum((row['unresolved'] for row in held.values()), ZERO), 'rows': rows}
 
 
-def _settlement_row(row, names, on):
+def _settlement_row(row, names, on, delivered=None, today=None):
+    """An app payout, due PAYOUT_DAYS after its order was delivered; an
+    undelivered order's payout has no due date yet."""
+    due = delivered + timedelta(days=PAYOUT_DAYS) if delivered else None
     return _row('marketplace', 'settlements', row.id, on, row.total_payable,
         party=names.get(row.supplier_id, 'Supplier'), party_phone='', party_kind='supplier', party_key=row.supplier_id,
-        buyer_profile_id=None, supplier_id=row.supplier_id, description='App order payout', due_on=None,
-        overdue=False, order_item_id=row.order_item_id, href='/settlements')
+        buyer_profile_id=None, supplier_id=row.supplier_id, description='App order payout', due_on=due,
+        overdue=due is not None and today is not None and due < today, order_item_id=row.order_item_id, href='/settlements')
 
 
 def settlement_totals(db):
@@ -457,7 +464,7 @@ def stock_lost(db, start=None, end=None):
     if end:
         opening = opening.where(m.OpeningStockMovement.occurred_on <= end)
     rows += [_row('ledger', 'opening_stock_movements', row.id, row.occurred_on, money(row.quantity * row.unit_cost),
-        description=row.reason or 'Opening stock not recovered', href=f'/finance/opening-stock/{row.opening_stock_id}')
+        description=row.reason or 'Opening stock not recovered', href='/finance/opening-stock')
         for row in db.scalars(opening)]
     location_losses = select(m.LocationStockEvent, m.LocationAllocation).join(m.LocationAllocation).where(m.LocationStockEvent.kind == 'lost')
     if start:
@@ -541,7 +548,7 @@ def stock_on_hand(db):
         if left > 0:
             rows.append(_row('ledger', 'opening_stock', entry.id, entry.as_of, left * entry.unit_cost,
                 quantity=left, unit_cost=entry.unit_cost, description=f'Opening stock {entry.receipt_number}',
-                href=f'/finance/opening-stock/{entry.id}'))
+                href=f'/finance/opening-stock?q={entry.receipt_number}'))
     from .locations import allocation_views, opening_return_stock
     allocations = list(db.scalars(select(m.LocationAllocation)))
     for allocation, balance in zip(allocations, allocation_views(db, allocations)):
@@ -665,6 +672,17 @@ def moved(db, *conditions):
         .where(COUNTED, *conditions).group_by(CASH.c.flow)).all()
     totals = {flow: amount for flow, amount in rows}
     return totals.get('in', ZERO), totals.get('out', ZERO)
+
+
+def disputed_out(db, *conditions):
+    """App payouts inside the matching money out that the supplier says
+    never arrived. They stay money out (rule R3: a recorded outflow is never
+    removed) and are shown beside it until payout attempts (M2.7) settle
+    whether the debit happened."""
+    disputed = select(m.Settlement.id).where(m.Settlement.supplier_confirmation == 'not_received')
+    amount, count = db.execute(select(func.coalesce(func.sum(CASH.c.amount), 0), func.count())
+        .where(COUNTED, CASH.c.source_table == 'settlements', CASH.c.id.in_(disputed), *conditions)).one()
+    return {'amount': amount, 'count': count}
 
 
 def cash_movements(db, start=None, end=None, *conditions):

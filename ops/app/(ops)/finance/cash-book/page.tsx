@@ -11,7 +11,8 @@ import { dateTime, tzs } from '@/lib/format';
 import { listPath, param, type ListParams, type Page } from '@/lib/paging';
 
 export const metadata = { title: 'Cash book · Omoterra Operations' };
-type CashBook = Page<CashMovement> & { summary: { money_in: string; money_out: string; net: string; recorded_net_cash: string } };
+type CashBook = Page<CashMovement> & { summary: { money_in: string; money_out: string; net: string; recorded_net_cash: string;
+  disputed_out: string; disputed_out_count: number } };
 const tabs = [['', 'All'], ['in', 'Money in'], ['out', 'Money out'], ['reversed', 'Reversed']];
 const plain = (value: string) => Number(value).toLocaleString('en-US', { maximumFractionDigits: 2 });
 const signed = (value: string) => `${Number(value) < 0 ? '-' : ''}${tzs(String(Math.abs(Number(value))))}`;
@@ -70,7 +71,9 @@ export default async function CashBookPage({ searchParams }: { searchParams: Pro
       <Link href={href({ status: 'in', page: '' })} className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.arrowUp size={26} /></span>
         <div><span>Money in</span><strong>{tzs(total.money_in)}</strong></div></Link>
       <Link href={href({ status: 'out', page: '' })} className={styles.stat} data-tone="red"><span className={styles.statIcon}><Icons.arrowDown size={26} /></span>
-        <div><span>Money out</span><strong>{tzs(total.money_out)}</strong></div></Link>
+        <div><span>Money out</span><strong>{tzs(total.money_out)}</strong>
+          {/* Still money out (R3) until payout attempts (M2.7) show whether the debit happened. */}
+          {total.disputed_out_count > 0 && <small>Includes {tzs(total.disputed_out)} in {total.disputed_out_count === 1 ? 'a payout' : `${total.disputed_out_count} payouts`} the supplier says never arrived</small>}</div></Link>
       <article className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.chart size={26} /></span>
         <div><span>Net for period</span><strong>{signed(total.net)}</strong></div></article>
     </section>

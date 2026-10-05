@@ -2,6 +2,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { redirect } from 'next/navigation';
 import { pendingChallenge, pendingSignIn, setupState, signedIn } from '@/lib/session';
+import { SecretInput } from '@/components/secret-input';
 
 export const metadata = { title: 'Sign in · Omoterra Operations' };
 
@@ -39,14 +40,14 @@ function PinFields({ label, confirm, autoComplete }: { label: string; confirm?: 
     <label htmlFor="pin">{label}</label>
     <div className="signin-input-wrap">
       {LOCK_ICON}
-      <input id="pin" name="pin" type="password" inputMode="numeric" autoComplete={autoComplete} autoFocus
+      <SecretInput label={label} id="pin" name="pin" inputMode="numeric" autoComplete={autoComplete} autoFocus
         pattern="[0-9]{4,6}" maxLength={6} placeholder="4 to 6 digits" required />
     </div>
     {confirm && <>
       <label htmlFor="confirm" className="signin-label-gap">Confirm PIN</label>
       <div className="signin-input-wrap">
         {LOCK_ICON}
-        <input id="confirm" name="confirm" type="password" inputMode="numeric" autoComplete="new-password"
+        <SecretInput label="Confirm PIN" id="confirm" name="confirm" inputMode="numeric" autoComplete="new-password"
           pattern="[0-9]{4,6}" maxLength={6} placeholder="Repeat the PIN" required />
       </div>
     </>}
@@ -122,7 +123,7 @@ export default async function SignIn({
     <label htmlFor="passphrase">Staff passphrase</label>
     <div className="signin-input-wrap">
       {LOCK_ICON}
-      <input id="passphrase" name="passphrase" type="password" autoComplete="off" autoFocus placeholder="Enter the passphrase" required />
+      <SecretInput label="passphrase" id="passphrase" name="passphrase" autoComplete="off" autoFocus placeholder="Enter the passphrase" required />
     </div>
     <div className="signin-label-gap" />
     <PhoneField label="Phone number" focus={false} />
@@ -179,7 +180,7 @@ export default async function SignIn({
         <label htmlFor="passphrase">Setup passphrase</label>
         <div className="signin-input-wrap">
           {LOCK_ICON}
-          <input id="passphrase" name="passphrase" type="password" autoComplete="off" autoFocus
+          <SecretInput label="passphrase" id="passphrase" name="passphrase" autoComplete="off" autoFocus
             placeholder="Enter the passphrase" required />
         </div>
       </>;

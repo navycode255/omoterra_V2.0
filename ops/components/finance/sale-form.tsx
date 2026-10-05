@@ -4,7 +4,8 @@ import { useActionState, useMemo, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { createSale, updateSale } from '@/lib/finance-actions';
 import { Icons } from '@/components/icons';
-import { DEFAULT_UNIT, GOODS_OUTCOMES, METHODS, PRODUCTS, UNITS, type OpenBatch, type Parties, type SaleDetail, type SupplierCollectionStock } from '@/lib/finance';
+import { InfoTip } from '@/components/info-tip';
+import { DEFAULT_UNIT, GOODS_OUTCOMES, METHODS, PRODUCTS, UNITS, type OpenBatch, type OpeningStock, type Parties, type SaleDetail, type SupplierCollectionStock } from '@/lib/finance';
 import type { LpoStockRow } from '@/lib/lpo';
 import { tanzanianMobile } from '@/lib/phone';
 import styles from './finance.module.css';
@@ -17,8 +18,12 @@ type Line = {
   unit: string;
   quantity: string;
   unit_price: string;
-  source: 'own' | 'supplier' | 'named' | 'lpo' | 'collection';
+  source: 'own' | 'supplier' | 'named' | 'lpo' | 'collection' | 'opening';
   lpo_line_id: string;
+  // Stock held before the system (M1.3), sold at its opening value.
+  opening_stock_id: string;
+  // Own stock: its cost, or said explicitly to be unknown (rule R5).
+  cost_unknown: boolean;
   supplier_collection_id: string;
   supplier_batch_id: string;
   // Staff confirm the goods were physically collected from the batch (M1.6).
@@ -39,6 +44,7 @@ const BUYER_TYPES = ['personal', 'restaurant', 'butchery', 'hotel', 'retailer', 
 function blank(key: number): Line {
   return { key, category: 'local_chicken', description: '', unit: 'bird', quantity: '', unit_price: '',
     source: 'own', supplier_id: '', supplier_name: '', unit_cost: '', lpo_line_id: '', supplier_collection_id: '', supplier_batch_id: '',
+    opening_stock_id: '', cost_unknown: false,
     receipt_confirmed: false, legacy_batch_id: '', cost_status: 'owed', cost_method: 'cash', cost_reference: '', cost_paid_on: '' };
 }
 
@@ -58,7 +64,7 @@ function StepTitle({ number, children }: { number: number; children: React.React
   return <h2 className={styles.stepTitle}><span>{number}</span>{children}</h2>;
 }
 
-export function SaleForm({ parties, today, stock = [], supplierStock = [], batches = [], sale }: { parties: Parties; today: string; stock?: LpoStockRow[]; supplierStock?: SupplierCollectionStock[]; batches?: OpenBatch[]; sale?: SaleDetail }) {
+export function SaleForm({ parties, today, stock = [], supplierStock = [], batches = [], openingStock = [], sale }: { parties: Parties; today: string; stock?: LpoStockRow[]; supplierStock?: SupplierCollectionStock[]; batches?: OpenBatch[]; openingStock?: OpeningStock[]; sale?: SaleDetail }) {
   const editing = Boolean(sale);
   const [state, action] = useActionState(editing ? updateSale : createSale, null);
   // One key per filled-in form: a double click or retry records one sale.
@@ -71,8 +77,9 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
   const [lines, setLines] = useState<Line[]>(sale ? sale.items.map((item, index) => ({
     key: index + 1, category: item.category, description: item.description, unit: item.unit,
     quantity: item.quantity, unit_price: item.unit_price,
-    source: item.supplier_collection_id ? 'collection' : item.lpo_line_id ? 'lpo' : item.supplier_id ? 'supplier' : item.supplier_name ? 'named' : 'own',
+    source: item.opening_stock_id ? 'opening' : item.supplier_collection_id ? 'collection' : item.lpo_line_id ? 'lpo' : item.supplier_id ? 'supplier' : item.supplier_name ? 'named' : 'own',
     lpo_line_id: item.lpo_line_id ?? '', supplier_collection_id: item.supplier_collection_id ?? '', supplier_batch_id: item.supplier_batch_id ?? '',
+    opening_stock_id: item.opening_stock_id ?? '', cost_unknown: item.cost_state === 'unknown' && !item.supplier_id && !item.supplier_name,
     receipt_confirmed: false, legacy_batch_id: item.supplier_batch_id ?? '',
     supplier_id: item.supplier_id ?? '', supplier_name: item.supplier_name,
     unit_cost: item.unit_cost ?? '', cost_status: 'owed', cost_method: 'cash', cost_reference: '', cost_paid_on: sale.sold_on,
@@ -81,7 +88,7 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
   const [notes, setNotes] = useState(sale?.notes ?? '');
   // Editing: what happened to received goods the sale now sells fewer of (rule R2).
   const [goods, setGoods] = useState({ outcome: '', note: '' });
-  const soldReceived = Boolean(sale?.items.some((item) => item.supplier_collection_id || item.lpo_line_id));
+  const soldReceived = Boolean(sale?.items.some((item) => item.supplier_collection_id || item.lpo_line_id || item.opening_stock_id));
 
   const matches = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -90,7 +97,9 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
   }, [search, parties.buyers]);
 
   const total = lines.reduce((sum, l) => sum + (num(l.quantity) * num(l.unit_price) || 0), 0);
-  const cost = lines.reduce((sum, l) => sum + (l.source !== 'own' ? num(l.quantity) * num(l.unit_cost) || 0 : 0), 0);
+  // Rule R5: a line whose cost is unknown has no margin, so neither has the sale.
+  const costUnknown = lines.some((l) => l.source === 'own' && l.cost_unknown);
+  const cost = lines.reduce((sum, l) => sum + (l.source === 'own' && l.cost_unknown ? 0 : num(l.quantity) * num(l.unit_cost) || 0), 0);
   const supplierCost = lines.reduce((sum, l) => sum + ((l.source === 'supplier' || l.source === 'named') ? num(l.quantity) * num(l.unit_cost) || 0 : 0), 0);
   const alreadyPaidToSuppliers = sale?.debts.filter((d) => d.direction === 'payable' && d.status !== 'cancelled')
     .reduce((sum, debt) => sum + Number(debt.paid_amount), 0) ?? 0;
@@ -118,9 +127,9 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
       items: lines.map((l) => ({
         // Received stock (delivery note or LPO) is sold in the receipt's unit
         // and category: the server fills them in and refuses a different one.
-        ...(l.source === 'collection' ? {} : { category: l.category || null }),
+        ...(l.source === 'collection' || l.source === 'opening' ? {} : { category: l.category || null }),
         description: l.description,
-        ...(l.source === 'lpo' || l.source === 'collection' ? {} : { unit: l.unit }),
+        ...(l.source === 'lpo' || l.source === 'collection' || l.source === 'opening' ? {} : { unit: l.unit }),
         quantity: clean(l.quantity),
         unit_price: clean(l.unit_price),
         ...(l.source === 'supplier' ? { supplier_id: l.supplier_id || null, unit_cost: clean(l.unit_cost), supplier_batch_id: l.supplier_batch_id || null,
@@ -130,6 +139,8 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
           ...(!editing && l.cost_status === 'paid' ? { cost_payment: { paid_on: l.cost_paid_on || soldOn, method: l.cost_method, reference: l.cost_reference } } : {}) } : {}),
         ...(l.source === 'lpo' ? { lpo_line_id: l.lpo_line_id || null } : {}),
         ...(l.source === 'collection' ? { supplier_collection_id: l.supplier_collection_id || null } : {}),
+        ...(l.source === 'opening' ? { opening_stock_id: l.opening_stock_id || null } : {}),
+        ...(l.source === 'own' ? (l.cost_unknown ? { cost_unknown: true } : { unit_cost: clean(l.unit_cost) }) : {}),
       })),
       ...(!editing && paidNow > 0 ? { payment: { amount: clean(paid.amount), method: paid.method, reference: paid.reference, paid_on: paid.paid_on } } : {}),
       ...(editing && goods.outcome ? { goods: goods.outcome, goods_note: goods.note } : {}),
@@ -213,8 +224,8 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
         <div className={styles.stepHeader}><StepTitle number={2}>What was sold</StepTitle></div>
         {lines.map((line, index) => {
           // Fixed by the receipt the stock was received on.
-          const receiptUnit = line.source === 'lpo' || line.source === 'collection';
-          const receiptCategory = line.source === 'collection'
+          const receiptUnit = line.source === 'lpo' || line.source === 'collection' || line.source === 'opening';
+          const receiptCategory = line.source === 'collection' || line.source === 'opening'
             || (line.source === 'lpo' && Boolean(stock.find((row) => row.lpo_line_id === line.lpo_line_id)?.category));
           return (
             <fieldset key={line.key} className={styles.saleLine}>
@@ -265,7 +276,8 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
                   <label htmlFor={`src-${line.key}`}>Stock came from</label>
                   <select id={`src-${line.key}`} className="input" value={line.source}
                     onChange={(e) => update(line.key, { source: e.target.value as Line['source'] })}>
-                    <option value="own">Stock I already owned (no buying cost for this sale)</option>
+                    <option value="own">Stock I already owned</option>
+                    {(openingStock.length > 0 || line.source === 'opening') && <option value="opening">Opening stock (held before the system)</option>}
                     <option value="supplier">Bought for this sale · registered supplier</option>
                     <option value="named">Bought for this sale · other supplier</option>
                     {supplierStock.length > 0 && <option value="collection">Stock collected from a supplier batch</option>}
@@ -291,6 +303,44 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
                         ))}
                       </select>
                       {chosen && <span className="meta">Received {chosen.received_on} from batch {chosen.batch_id.slice(0, 8)} · cost TZS {Number(chosen.unit_cost).toLocaleString('en-US')} each. Supplier debt was recorded on collection.</span>}
+                    </div>
+                  );
+                })()}
+                {line.source === 'own' && (
+                  <div className="field">
+                    <label htmlFor={`own-cost-${line.key}`}>Buying cost per unit (TZS)</label>
+                    <input id={`own-cost-${line.key}`} className="input" inputMode="decimal" required={!line.cost_unknown} disabled={line.cost_unknown}
+                      value={line.cost_unknown ? '' : line.unit_cost} onChange={(e) => update(line.key, { unit_cost: e.target.value })} />
+                    <label htmlFor={`own-unknown-${line.key}`} className={styles.confirmCheck}>
+                      <input id={`own-unknown-${line.key}`} type="checkbox" checked={line.cost_unknown}
+                        onChange={(e) => update(line.key, { cost_unknown: e.target.checked })} />
+                      <span>Cost unknown</span>
+                    </label>
+                    <span className="meta">{line.cost_unknown
+                      ? 'Profit for this sale stays provisional until an admin gives this line its cost.'
+                      : 'What this stock cost Omoterra. Nobody is owed for it.'}</span>
+                  </div>
+                )}
+                {line.source === 'opening' && (() => {
+                  const chosen = openingStock.find((row) => row.id === line.opening_stock_id);
+                  return (
+                    <div className="field">
+                      <label htmlFor={`opening-${line.key}`}>Opening stock</label>
+                      <select id={`opening-${line.key}`} className="input" required value={line.opening_stock_id}
+                        onChange={(e) => {
+                          const row = openingStock.find((item) => item.id === e.target.value);
+                          update(line.key, { opening_stock_id: e.target.value,
+                            ...(row ? { unit: row.unit, category: row.category, unit_cost: row.unit_cost } : {}) });
+                        }}>
+                        {line.opening_stock_id && !chosen && <option value={line.opening_stock_id}>Opening stock on this sale</option>}
+                        <option value="">Choose opening stock…</option>
+                        {openingStock.map((row) => (
+                          <option key={row.id} value={row.id}>
+                            {(row.category || row.description).replaceAll('_', ' ')} · {row.receipt_number} · {Number(row.on_hand)} {row.unit}s on hand
+                          </option>
+                        ))}
+                      </select>
+                      {chosen && <span className="meta">Valued as of {chosen.as_of} by {chosen.valued_by} · cost TZS {Number(chosen.unit_cost).toLocaleString('en-US')} each. Nobody is owed for it.</span>}
                     </div>
                   );
                 })()}
@@ -340,7 +390,7 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
                   const short = chosen && !editing && qty > Number(chosen.remaining);
                   return (
                     <div className="field">
-                      <label htmlFor={`batch-${line.key}`}>From batch</label>
+                      <div className={styles.fieldLabel}><label htmlFor={`batch-${line.key}`}>From batch</label><InfoTip label="About batch stock">{chosen ? `This sale reduces the batch to ${Math.max(Number(chosen.remaining) - qty, 0)} left.` : line.supplier_batch_id ? 'Sold from this batch before delivery notes; finance links it to one.' : own.length ? 'The batch will not change.' : 'This supplier has no open batch registered.'}</InfoTip></div>
                       <select id={`batch-${line.key}`} className="input" value={line.supplier_batch_id}
                         onChange={(e) => update(line.key, { supplier_batch_id: e.target.value, receipt_confirmed: false })}>
                         {line.supplier_batch_id && !chosen && <option value={line.supplier_batch_id}>Batch used on this sale</option>}
@@ -351,11 +401,7 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
                         ))}
                         <option value="">Not from a registered batch</option>
                       </select>
-                      <span className="meta" style={short ? { color: 'var(--error)' } : undefined}>
-                        {chosen ? (short ? `Only ${Number(chosen.remaining)} left in this batch.` : `This sale reduces the batch to ${Math.max(Number(chosen.remaining) - qty, 0)} left.`)
-                          : line.supplier_batch_id ? 'Sold from this batch before delivery notes; finance links it to one.'
-                          : own.length ? 'The batch will not change.' : 'This supplier has no open batch registered.'}
-                      </span>
+                      {short && <span className="meta" role="alert" style={{ color: 'var(--error)' }}>Only {Number(chosen.remaining)} left in this batch.</span>}
                     </div>
                   );
                 })()}
@@ -365,11 +411,11 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
                   return (
                     <div className={`field ${styles.receiptConfirm}`}>
                       <label htmlFor={`received-${line.key}`} className={styles.confirmCheck}>
-                        <input id={`received-${line.key}`} type="checkbox" required checked={line.receipt_confirmed}
+                        <input id={`received-${line.key}`} aria-label={`We collected these ${line.quantity.trim() || 'N'} ${unit} from ${supplierName} on ${soldOn}.`} type="checkbox" required checked={line.receipt_confirmed}
                           onChange={(e) => update(line.key, { receipt_confirmed: e.target.checked })} />
-                        <span>We collected these {line.quantity.trim() || 'N'} {unit} from {supplierName} on {soldOn}.</span>
+                        <span>Collected {line.quantity.trim() || 'N'} {unit} from this supplier</span>
                       </label>
-                      <span className="meta">Required. A delivery note is recorded for them with you as the confirmer, and the supplier is owed through it.</span>
+                      <InfoTip label="About collection confirmation">Confirm you collected {line.quantity.trim() || 'N'} {unit} from {supplierName} on {soldOn}. Required: a delivery note is recorded with you as the confirmer, and the supplier is owed through it.</InfoTip>
                     </div>
                   );
                 })()}
@@ -382,12 +428,10 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
                 )}
                 {(line.source === 'supplier' || line.source === 'named') && (
                   <div className="field">
-                    <label htmlFor={`cost-${line.key}`}>Buying cost per unit (TZS)</label>
+                    <div className={styles.fieldLabel}><label htmlFor={`cost-${line.key}`}>Buying cost per unit (TZS)</label><InfoTip label="About purchase total">Purchase total: {Number.isFinite(num(line.quantity) * num(line.unit_cost)) ? tzs(num(line.quantity) * num(line.unit_cost)) : '—'}</InfoTip></div>
                     <input id={`cost-${line.key}`} className="input" inputMode="decimal" required value={line.unit_cost}
                       onChange={(e) => update(line.key, { unit_cost: e.target.value })} />
-                    <span className="meta">
-                      Purchase total: {Number.isFinite(num(line.quantity) * num(line.unit_cost)) ? tzs(num(line.quantity) * num(line.unit_cost)) : '—'}
-                    </span>
+
                   </div>
                 )}
                 {(line.source === 'supplier' || line.source === 'named') && !editing && (
@@ -482,8 +526,8 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
       </div>}
       <section className={styles.saleSummary}>
         <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.cubes size={24} /></span><div><span>Sale total</span><strong>{tzs(total)}</strong></div></div>
-        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.card size={24} /></span><div><span>Stock buying cost</span><strong>{tzs(cost)}</strong></div></div>
-        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.users size={24} /></span><div><span>Gross profit</span><strong>{tzs(total - cost)}</strong></div></div>
+        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.card size={24} /></span><div><span>Stock buying cost</span><strong>{costUnknown ? `${tzs(cost)} + cost unknown` : tzs(cost)}</strong></div></div>
+        <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.users size={24} /></span><div><span>Gross profit</span><strong>{costUnknown ? 'Provisional: cost unknown' : tzs(total - cost)}</strong></div></div>
         <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.card size={24} /></span><div><span>Buyer will owe</span><strong>{tzs(Math.max(total - recordedReceived, 0))}</strong></div></div>
         <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.box size={24} /></span><div><span>Supplier balance</span><strong>{tzs(supplierDue)}</strong></div></div>
         <Submit editing={editing} disabled={phoneProblem || paymentProblem || total <= 0} />

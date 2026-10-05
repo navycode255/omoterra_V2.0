@@ -325,7 +325,7 @@ export interface DashboardActivity {
 export interface Dashboard {
   period: { start: string; end: string };
   kpis: { active_suppliers: number; approved_suppliers: number; active_batches: number; open_orders: number; pending_settlements: string; pending_settlement_count: number };
-  trading: { orders: number; sales: string; gross_margin: string };
+  trading: { orders: number; sales: string; gross_margin: string | null; provisional_label: string | null };
   supply_trend: { year: number; months: number[] };
   batch_status: { live: number; pending: number; completed: number };
   recent_suppliers: { id: string; name: string; region: string; district: string; status: SupplierRow['status']; joined_at: string }[];

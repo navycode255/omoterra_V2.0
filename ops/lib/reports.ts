@@ -3,6 +3,8 @@ export type ForecastMonth = { month: string; revenue: string; variable_cost: str
 export type FinancialReport = {
   generated_at: string; model_version: string; actual: ProfitReport; previous: ProfitReport;
   history_days: number; active_sales_days: number; unknown_cost_lines: number;
+  /** Rule R5: any unknown buying cost leaves the result "Provisional: buying costs incomplete". */
+  provisional: boolean; provisional_label: string | null; unknown_cost: { lines: number; sales: number; revenue: string };
   products: { category: string; revenue: string; known_cost: string; gross_margin: string | null; unknown_lines: number; lines: number }[];
   limitations: string[]; forecast_blockers: string[];
   forecast: null | { contribution_pct: string; monthly_break_even_revenue: string | null;

@@ -293,7 +293,7 @@ def _opening_item(db, sale_id, position, line, subtotal, taken=ZERO):
     unit, category = _receipt_line(line, row.unit, row.category)
     return m.SaleItem(sale_id=sale_id, position=position, category=category,
         description=line.description or row.description or category.replace('_', ' '), unit=unit,
-        quantity=line.quantity, unit_price=line.unit_price, subtotal=subtotal, opening_stock_id=row.id,
+        quantity=line.quantity, unit_price=line.unit_price, subtotal=subtotal, supplier_name='', opening_stock_id=row.id,
         unit_cost=row.unit_cost, cost_total=s.money(line.quantity * row.unit_cost))
 
 
@@ -1511,7 +1511,9 @@ def _cash_totals(db, where, q):
     moved to supplier credit is still money out (rule R4)."""
     chosen = [*where, PAYMENTS.search(q)] if q else list(where)
     money_in, money_out = rp.moved(db, *chosen)
+    disputed = rp.disputed_out(db, *chosen)
     return {'money_in': money_in, 'money_out': money_out, 'net': money_in - money_out,
+            'disputed_out': disputed['amount'], 'disputed_out_count': disputed['count'],
             'recorded_net_cash': rp.recorded_net_cash(db)}
 
 

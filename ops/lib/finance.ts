@@ -276,6 +276,40 @@ export interface SaleItem {
   lpo_line_id: string | null;
   supplier_collection_id: string | null;
   supplier_batch_id?: string | null;
+  /** Stock held before the system (M1.3), sold at its opening value. */
+  opening_stock_id?: string | null;
+  opening_stock_number?: string | null;
+  /** Rule R5: an unknown cost has no margin ("cost unknown"), never 0. */
+  cost_state: CostState;
+  margin: string | null;
+}
+
+export type CostState = 'known' | 'free' | 'unknown';
+
+/** What keeps a period from being final (rule R5). */
+export interface UnknownCost { lines: number; sales: number; revenue: string }
+
+export const PROVISIONAL = 'Provisional: buying costs incomplete';
+
+/** Stock held before the system, valued by the finance owner (M1.3, D3). No payable. */
+export interface OpeningStock {
+  id: string; receipt_number: string; label: 'Opening stock'; category: string; description: string;
+  unit: string; quantity: string; unit_cost: string; amount: string; as_of: string; evidence: string;
+  valued_by: string; recorded_by: string | null; created_at: string; cancelled_at: string | null;
+  cancelled_by: string | null; cancel_reason: string; sold: string; not_recovered: string; on_hand: string;
+  value_on_hand: string;
+}
+
+export interface OpeningStockDetail extends OpeningStock {
+  sales: { sale_id: string; sale_number: string; sold_on: string; status: string; quantity: string; unit: string; revenue: string; cost: string | null }[];
+  movements: { id: string; kind: string; quantity: string; occurred_on: string; unit_cost: string; sale_id: string | null; reason: string; note: string }[];
+  adjustments: { id: string; kind: string; reason: string; created_at: string; recorded_by: string | null }[];
+}
+
+/** An active sale line whose buying cost is unknown (GET /ops/finance/unknown-costs). */
+export interface UnknownCostLine {
+  sale_item_id: string; sale_id: string; sale_number: string; sold_on: string; buyer_name: string; position: number;
+  category: string; description: string; unit: string; quantity: string; revenue: string; supplier_name: string; href: string;
 }
 
 // A supplier batch with birds still to take (GET /ops/supplier-batches/open).
@@ -291,6 +325,8 @@ export interface SalesSummary {
   marketplace_total: string; marketplace_count: number; received: string;
   buyer_owes: string; buyer_owes_count: number; supplier_owed: string; supplier_owed_count: number;
   expenses_owed: string; expenses_owed_count: number; commitments: Commitments;
+  /** Direct sales in the list with an unknown buying cost (rule R5). */
+  unknown_cost: UnknownCost; provisional: boolean;
 }
 
 /** App orders not delivered yet: never revenue or money owed to Omoterra. */
@@ -307,7 +343,10 @@ export interface Sale {
   buyer_phone: string;
   total_amount: string;
   cost_amount: string;
-  margin: string;
+  /** null while any line's buying cost is unknown (rule R5). */
+  margin: string | null;
+  cost_state: 'known' | 'unknown';
+  unknown_cost_lines: number;
   received_amount: string;
   balance: string;
   supplier_balance: string;
@@ -324,6 +363,7 @@ export interface Sale {
 export interface SaleDetail extends Sale {
   items: SaleItem[];
   debts: (Debt & { payments: LedgerPayment[] })[];
+  cost_adjustments: { id: string; kind: string; reason: string; before: Record<string, unknown>; after: Record<string, unknown>; linked_ids: Record<string, unknown>; created_at: string; recorded_by: string | null }[];
 }
 
 export interface Party {
@@ -382,9 +422,11 @@ export interface ProfitTotals {
   marketplace_count: number;
   /** Delivered app orders with no recorded delivery date: in no period. */
   unresolved_marketplace: { count: number; amount: string };
-  /** Sale lines with no buying cost (M1.3 makes the period provisional). */
-  unknown_cost: { lines: number; sales: number; revenue: string };
+  /** Sale lines with an unknown buying cost: the period is provisional (R5). */
+  unknown_cost: UnknownCost;
   provisional: boolean;
+  /** "Provisional: buying costs incomplete" when provisional. */
+  provisional_label: string | null;
   expenses_by_category: { category: string; amount: string }[];
 }
 
@@ -392,7 +434,7 @@ type DayFigures = 'sales' | 'stock_cost' | 'marketplace_sales' | 'marketplace_co
   | 'gross_profit' | 'expenses' | 'stock_lost' | 'expenses_and_losses' | 'net_profit';
 
 export interface ProfitReport extends ProfitTotals {
-  days: (Pick<ProfitTotals, DayFigures> & { date: string })[];
+  days: (Pick<ProfitTotals, DayFigures> & { date: string; provisional: boolean; unknown_cost_lines: number })[];
 }
 
 export const EXPENSE_CATEGORIES: [string, string][] = [

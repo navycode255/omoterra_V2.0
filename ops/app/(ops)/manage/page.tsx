@@ -1,4 +1,6 @@
 import Link from 'next/link';
+import { BusinessPosition } from '@/components/dashboard/business-position';
+import type { FinanceSummary } from '@/lib/finance';
 import { BatchDonut, SupplyTrendChart } from '@/components/dashboard-charts';
 import { DateRangePicker, YearSelect } from '@/components/dashboard-controls';
 import { Icons } from '@/components/icons';
@@ -72,9 +74,10 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
   const currentYear = Number(today.slice(0, 4));
   const year = Number(query.year) >= 2020 && Number(query.year) <= currentYear ? Number(query.year) : currentYear;
 
-  const [summaryResult, dashboardResult] = await Promise.allSettled([
+  const [summaryResult, dashboardResult, financeResult] = await Promise.allSettled([
     get<Summary>('/ops/summary'),
     get<DashboardData>(`/ops/dashboard?start=${from}&end=${to}&year=${year}`),
+    get<FinanceSummary>(`/ops/finance/summary?start=${from}&end=${to}`),
   ]);
 
   const header = (picker: React.ReactNode) => <div className="dash-head">
@@ -129,6 +132,8 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
           <Icons.chevron size={20}/>
         </Link>)}
       </div>
+
+      <BusinessPosition data={financeResult.status === 'fulfilled' ? financeResult.value : null}/>
 
       {attention.length > 0 && <section className="attention-strip" aria-label="Needs attention">
         <span className="attention-title"><Icons.alert size={18}/>Needs attention</span>
@@ -185,11 +190,13 @@ export default async function Dashboard({ searchParams }: { searchParams: Promis
         <Panel icon={<Icons.chart size={24}/>} title="Demand and fulfilment" subtitle="Buyer demand against expected supply, right now">
           <dl className="metric-grid">{demand.map((metric) => <div key={metric.label}><dt>{metric.label}</dt><dd>{metric.value}</dd></div>)}</dl>
         </Panel>
-        <Panel icon={<Icons.card size={24}/>} title="Trading" subtitle={`Orders placed ${period.start === period.end ? 'on' : 'from'} ${date(period.start)}${period.start === period.end ? '' : ` to ${date(period.end)}`}`}>
+        {/* Orders: placed in the period. Sales and margin: the Finance figures
+            (direct sales by sale date, app orders by delivery date). */}
+        <Panel icon={<Icons.card size={24}/>} title="Trading" subtitle={`${period.start === period.end ? 'On' : 'From'} ${date(period.start)}${period.start === period.end ? '' : ` to ${date(period.end)}`}, as in Finance`}>
           <dl className="metric-grid metric-grid-3">
-            <div><dt>Orders</dt><dd>{data.trading.orders}</dd></div>
+            <div><dt>Orders placed</dt><dd>{data.trading.orders}</dd></div>
             <div><dt>Sales</dt><dd>{tzs(data.trading.sales)}</dd></div>
-            <div><dt>Gross margin</dt><dd>{tzs(data.trading.gross_margin)}</dd></div>
+            <div><dt>Gross margin</dt><dd>{data.trading.gross_margin === null ? (data.trading.provisional_label ?? 'Cost unknown') : tzs(data.trading.gross_margin)}</dd></div>
           </dl>
         </Panel>
       </div>

@@ -9,13 +9,13 @@ import type { Allocation } from '@/lib/locations';
 import { Busy } from '@/components/spinner';
 import styles from './locations.module.css';
 
-export function LocationForm({kind,id='',label,children}:{kind:string;id?:string;label:string;children:ReactNode}) {
+export function LocationForm({kind,id='',label,children,onSaved}:{kind:string;id?:string;label:string;children:ReactNode;onSaved?:()=>void}) {
   const key=useRef('');const router=useRouter();const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [saved,setSaved]=useState(false);
   return <form className={styles.form} onSubmit={async event=>{
     event.preventDefault();if(busy)return;const form=event.currentTarget;const data=new FormData(form);
     if(!key.current)key.current=crypto.randomUUID();data.set('idempotency_key',key.current);setBusy(true);setError('');setSaved(false);
     try {const result=await saveLocationForm(kind,id,data);if(!result.ok){setError(result.error);return;}
-      key.current='';if(kind!=='settings')form.reset();setSaved(true);router.refresh();
+      key.current='';if(kind!=='settings')form.reset();setSaved(true);onSaved?.();router.refresh();
     }catch{setError('Could not save. Please try again.');}finally{setBusy(false);}
   }}>
     <fieldset disabled={busy}>{children}</fieldset>

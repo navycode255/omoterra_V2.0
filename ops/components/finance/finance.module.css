@@ -637,3 +637,14 @@ a.summaryCard:hover { border-color: #c9dccf; box-shadow: 0 10px 26px rgba(31, 83
 
 /* A preview of the 5 largest parties says so (metric dictionary, rule 8). */
 .previewNote { margin: 10px 2px 0; color: #8492a6; font-size: 12.5px; }
+
+.fieldLabel { display:flex; align-items:center; justify-content:space-between; gap:8px; }
+.fieldLabel label { min-width:0; }
+.receiptConfirm { position:relative; }
+.receiptConfirm > :global(.info-tip) { position:absolute; right:0; top:0; }
+.receiptConfirm .confirmCheck { padding-right:34px; }
+@media(max-width:720px) {
+  .lineGrid { row-gap:16px; }
+  .fieldLabel :global(.info-tip-panel), .receiptConfirm :global(.info-tip-panel) { position:fixed; top:auto; bottom:88px; left:16px; right:16px; width:auto; z-index:60; }
+  .confirmCheck { font-size:13px; line-height:1.5; font-weight:500; }
+}

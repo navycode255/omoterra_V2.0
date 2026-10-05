@@ -4,7 +4,7 @@ Plan date: 3 October 2026 (revision 3, after second review). Source: [financial 
 
 ## Progress
 
-Updated 4 October 2026 (1.6 built, not committed). ✅ done · 🟡 done but waiting on you · 🔄 in progress · ⬜ not started. Everything through 1.5 is committed and pushed (`090d1ee`, `d579d24`). The full backend suite passes in strict mode (373 tests, 0 skipped), and Playwright passes 3/3. **Not yet deployed. GitHub Actions is blocked:** the GitHub account is locked over billing, so CI jobs do not start until that is resolved.
+Updated 4 October 2026 (1.3 built, not committed). ✅ done · 🟡 done but waiting on you · 🔄 in progress · ⬜ not started. Everything through 1.5 is committed and pushed (`090d1ee`, `d579d24`). The full backend suite passes in strict mode (373 tests, 0 skipped), and Playwright passes 3/3. **Not yet deployed. GitHub Actions is blocked:** the GitHub account is locked over billing, so CI jobs do not start until that is resolved.
 
 | Item | Status | Evidence / what's left |
 |---|---|---|
@@ -15,16 +15,24 @@ Updated 4 October 2026 (1.6 built, not committed). ✅ done · 🟡 done but wai
 | 0.5 Statement consistency harness | ✅ | Playwright: the staff supplier page, Supplier payments, the Suppliers list and the supplier portal show the same bought, paid and owed figures (`ops/e2e/`). |
 | 1.1 F14 Expense totals | ✅ | `total` is the row count again, with `summary` and `by_category` following the same filters. Expenses page uses the shared footer. 30-expense, six-filter test. |
 | 1.2 F04 Transfers vs allocations | 🟡 | Committed (`d579d24`), not deployed. Every supplier payment is a transfer. "Move to supplier credit" replaces Reverse, and money out is unchanged. Use credit, refunds (separate inflow, partial allowed) and admin-only entry-error corrections. Pay supplier uses credit first. `python -m app.classify_transfers` handles history item by item, with a dry run. 14 new tests. **Waiting on you:** deploy, then classify Antonia's 19,500. |
-| 1.3 F02 Cost states and opening stock | ⬜ | D3 decided (finance owner supplies opening values). Next after 1.7. |
+| 1.3 F02 Cost states and opening stock | 🟡 | **Built 4 October, not committed or deployed.** `sale_items.cost_state` (known / free / unknown) and opening stock (`opening_stock`, no payable) in migration 038 (`backend/app/opening_stock.py`). "Stock I already owned" needs a cost, opening stock, or "Cost unknown" ticked (else 422). An unknown line adds nothing to cost of goods; any period with one shows profit as **"Provisional: buying costs incomplete"** with the sales and revenue affected, on Finance, Profit, Sales, Reports, the PDF and the CSV; a sale's margin shows "cost unknown". Free is admin-only with a reason (debt correction, or on the sale line). An admin gives an unknown line a cost later on its sale page (opening stock, evidenced cost or free), writing a `cost_resolved` adjustment. New page Finance → Opening stock (button on the Finance overview) lists entries and unknown-cost lines. Backfill: cost > 0 known; 0 with a recorded free-stock correction free; everything else unknown. Backend 424 passed, 0 skipped (strict; new `tests/test_cost_states.py`, 12 tests); Playwright 7/7 (new `cost-states.spec.ts`; the uncommitted location spec is the other new one). **Waiting on you:** review, commit, deploy backend and ops together, then enter opening values and resolve SL-837D20E3 (below). |
 | 1.4 F06 Reasoned debt corrections | 🟡 | Committed (`d579d24`), not deployed. "Reconcile debt" is replaced by four admin-only, reasoned corrections (wrong supplier, duplicate liability, free stock, cost never existed), each writing a `financial_adjustments` row (migration 034). Paid money stays with whoever received it (credit or unresolved); receipt lines are never touched; a sale edit no longer moves a paid supplier debt. D4 confirmed (admins, with a reason). **Waiting on you:** deploy. |
 | 1.5 F03 Units on receipts | 🟡 | Committed (`d579d24`), not deployed. Waiting only on deploy. Delivery-note and LPO lines take the receipt's unit and category; a different one is refused (422); fractional birds and animals refused. |
 | 1.6 Batch sales become delivery notes | 🟡 | **Built 4 October, not committed or deployed.** A "From batch" line needs "We collected these N birds from … on …" ticked (else 422); the server records a same-day delivery note (origin `sale`, confirmer recorded) whose `batch_receipt` debt is the only supplier liability, and cost paid at the sale is a transfer allocated to it. Cancelling or reducing a sale asks what happened to received goods (never left / returned and accepted back / not recovered); the note and its payable never change. The delivery note page has Correct receipt (never delivered, admin, reason + evidence), Return to supplier (stock down, payable "awaiting supplier credit") and Record supplier credit note (lowers the payable). Migration 035 (`collection_movements`, `supplier_credit_notes`). `python -m app.link_batch_sales` converts history one line at a time after a dry run. Backend 388 passed, 0 skipped (strict); Playwright 4/4 (new `batch-sale.spec.ts`; statement harness extended with a return and credit note). **Waiting on you:** review, commit, deploy backend and ops together, then link the 11 lines (below). |
 | 1.7 F01 One reporting layer | 🟡 | **Built 4 October; committed (`6141ac8`), not deployed.** Needs D1 and D2 (both decided). `backend/app/reporting.py` (receivables, payables, commitments, revenue, cost_of_goods, expenses, stock_lost, profit, cash_movements, supplier_totals, stock_on_hand); every row carries its source table and id and is counted once. Finance overview, Profit, Cash book, Debts, Supplier payments, Sales, Reports, Suppliers list, Settlements and the portal invoice totals read it; `GET /ops/finance/rows` is the drilldown. App orders count on their delivery date; undelivered ones are commitments; "Cash in hand" is now "Recorded net cash movement (unverified)". New `tests/test_reporting.py` (headline = drilldown for direct, app and mixed data; double counting; D2; M1 exit scenario passes). Backend 403 passed, 0 skipped (strict); Playwright 5/5 (new `finance-headlines.spec.ts`). **Waiting on you:** commit the e2e selector fix, deploy backend and ops together; finance-owner points in the 1.7 report (app-order overdue rule, supplier figures without app payouts). |
+| M1 exit check | 🟡 | **Code side passes (5 October).** Backend 424 passed, 0 skipped (strict); `tsc` and lint clean; Playwright 7/7. Audit scenario: `test_reporting.py::test_m1_exit_scenario`. Rules: see [M1 exit check: rule coverage](#m1-exit-check-rule-coverage). Gap fixed: unresolved supplier transfer money was only on each supplier's statement; Finance overview and Debts now show "Unresolved supplier money" beside I owe (test in `test_historical_reversal_stays_unresolved_until_classified`). **Waiting on you:** commit 1.3 and this, deploy, then the data steps below (opening values, SL-837D20E3, Antonia's 19,500, the 11 batch lines) and a clean `python -m app.finance_exceptions` run on production. |
+| 1.7 follow-ups (finance owner, 5 October) | 🟡 | Built, not committed or deployed. **Overdue app orders:** a buyer owes on the delivery day and is overdue from the next; a payout is due 7 days after delivery (`reporting.PAYOUT_DAYS`). **Manage → Trading:** Sales and Gross margin are now the Finance figures (direct by sale date, app orders by delivery date; margin hidden while provisional); "Orders" renamed "Orders placed". **Disputed payouts:** stay money out (R3); the Cash book's Money out now says how much of it suppliers say never arrived. **Supplier screens:** pending app payouts stay beside "Owed", not added in (decided: they are paid through Settlements, not Supplier payments, so adding them would invite paying twice). |
 | M2 to M5 | ⬜ | |
 
 ### Where we stopped, and how to resume
 
 **Your actions before the next build session:**
+0. **After deploying 1.3 (migration 038), opening values and unknown costs** (Maternus Joshua, as admin):
+   - Before deploying, keep the read-only exception report: `python -m app.finance_exceptions` (section 1 lists unknown-cost lines; production had 1, SL-837D20E3). After 038 the same section reads `cost_state`; it should list the same line.
+   - **Opening stock:** Finance → Opening stock → Record opening stock. One entry per product and unit you held before the system: quantity on hand, cost per unit *or* total value, the date it is valued as of, who gave the value, and the evidence (count, purchase receipts, M-Pesa statement). No supplier debt is opened. A mistaken entry is cancelled there with a reason while nothing is sold from it.
+   - **Sales from opening stock:** on New sale, choose "Opening stock (held before the system)" and the entry; the margin is known. "Stock I already owned" now needs a cost or "Cost unknown".
+   - **SL-837D20E3** (3 complimentary birds from Antonia, TZS 21,000): open the sale, and under the line choose **Free (it cost nothing)** with a reason such as "Complimentary birds from Antonia, confirmed by …". If they were in fact your own stock, choose **Sold from opening stock** (record the opening stock first) or **An evidenced cost**. Each writes a financial adjustment with the line before and after.
+   - Finance → Opening stock → "Sale lines with an unknown buying cost" lists every line still provisional; Profit shows its figure again once none remain in the period.
 1. ~~Deploy~~ ✅ Backend deployed: production has migrations 032 to 034 (checked 4 October).
 2. **Classify Antonia's 19,500** on the server:
    - `python -m app.classify_transfers --dry-run`
@@ -39,7 +47,6 @@ Updated 4 October 2026 (1.6 built, not committed). ✅ done · 🟡 done but wai
 5. ~~Decide D3 and D4~~ ✅ (4 October). Prepare **opening values** for stock held before the system (per batch or product). Decide D7 before M2.5. Sign off [finance-metrics.md](finance-metrics.md).
 
 **Known limits of what is built (handled by later items):**
-- A cleared cost shows as 0 margin, not "Provisional", until 1.3.
 - "Wrong supplier" corrects a whole debt, not individual lines.
 - A payment typed against the wrong supplier is fixed with Wrong supplier → unresolved → classify, then recording the real payment.
 
@@ -49,10 +56,14 @@ Updated 4 October 2026 (1.6 built, not committed). ✅ done · 🟡 done but wai
 - Returns do not put birds back in the supplier's batch; a receipt correction does.
 - A line sold straight from a batch before 1.6 keeps that form when the sale is edited, until it is linked.
 
+**Known limits of 1.3 (handled by M2.1/M2.2):**
+- Opening stock is checked against what is on hand now, not as of the sale date: a sale dated before the opening stock's "valued as of" date is accepted (R8 with dates is M2.2).
+- Opening stock is not yet a lot for kitchen allocations (Locations keep their own typed-cost opening stock); it joins the lot model in M2.1.
+- An evidenced cost given to an unknown line opens no supplier debt; if a supplier is still owed, record that debt separately.
+
 **Next build items, in order:**
-- 1.3 cost states and opening stock (D3 decided: you supply opening values), after 1.7.
-- 1.7 one reporting layer, after D7.
-- Then the M1 exit check (the 500/100/20 scenario).
+- ~~The M1 exit check (code side)~~ ✅ 5 October. M2 starts once the production data steps above are done and the exception report shows nothing unexplained.
+- M2.1 F09: one stock-movement model for received lots.
 
 | Decision | Status |
 |---|---|
@@ -61,7 +72,9 @@ Updated 4 October 2026 (1.6 built, not committed). ✅ done · 🟡 done but wai
 | D5 Mistaken-allocation money | ✅ Supplier credit; refunds only with evidence |
 | D4 Who may correct supplier debts | ✅ Admins only, with a reason (confirmed 4 October) |
 | D3 Stock held before the system | ✅ The finance owner supplies opening values; recorded as opening stock with no payable (4 October) |
-| D6, D7, D8, D9 | ⬜ Open |
+| D6 Money accounts | 🟡 Accounts named (5 October): Petty cash, Bank, M-Pesa, Selcom wallet. **Still needed:** each one's verified balance at the cutoff (suggested end of 31 October 2026) |
+| D7 Recognition event | ✅ Delivered (5 October). Proposal to confirm: staff can record a buyer's order before delivery; it becomes a sale on its delivery day (see M2.5) |
+| D8, D9 | ⬜ Open |
 
 ## How this plan is organised
 
@@ -211,6 +224,21 @@ Corrects the recent `supplier_batch_id` work so that batch sales go through a re
 - **Rules R1–R8 each have a passing test.**
 - **Unknowns are visible:** every unknown cost and unresolved allocation appears on the exception page and in the relevant report. No period containing them is shown as final.
 
+### M1 exit check: rule coverage
+
+Checked 5 October 2026. Each rule's M1 scope has a passing test; the parts that need M2 or M3 models are listed with the item that adds their test.
+
+| Rule | Passing tests (backend unless noted) | Still to come |
+|---|---|---|
+| R1 Payment stays with its receiver | `test_debt_corrections::test_wrong_supplier_moves_the_whole_obligation_and_payment_stays_with_receiver`, `test_transfers::test_a_payment_typed_with_the_sale_stays_with_its_supplier_when_corrected`, `test_batch_sales::test_correcting_a_paid_receipt_keeps_the_money_with_the_supplier`; Playwright `debt-corrections.spec.ts` | |
+| R2 Stock moves only with a physical event | `test_batch_sales`: receipt confirmation required, cancel never left / not recovered, buyer return needs condition, return to supplier awaits a credit note | Lot movements per date (M2.1) |
+| R3 Outflows are permanent | `test_transfers::test_reversal_moves_money_to_supplier_credit_and_cash_is_unchanged`, `test_refund_is_a_separate_inflow_partial_allowed_never_more_than_credit`, `test_two_identical_pay_requests_and_a_retry_create_one_transfer` | Unconfirmed payout attempts (M2.7) |
+| R4 Re-allocation moves no money | `test_transfers::test_reallocating_credit_moves_no_money`, `test_reporting::test_m1_exit_scenario` | |
+| R5 Unknown is not zero | `test_cost_states::test_an_unknown_cost_is_never_a_final_margin`, `test_debt_corrections::test_cost_never_existed_is_unknown_not_zero`; Playwright `cost-states.spec.ts` | |
+| R6 Evidence before classification | `test_transfers::test_historical_reversal_stays_unresolved_until_classified`, `test_migration_032_leaves_history_unresolved`, `test_link_batch_sales::test_unresolved_lines_are_listed_with_their_reason` | Account mapping (M2.3) |
+| R7 Approval is not evidence | `test_cost_states::test_an_evidenced_cost_needs_evidence_and_opens_no_debt`, `test_free_needs_an_admin_and_a_reason` (an admin's "cost never existed" leaves the line unknown and profit provisional) | Locked periods stay qualified (M3.1) |
+| R8 No timeline goes negative | Current stock only: `test_batch_sales::test_cannot_sell_more_than_is_left_or_from_another_suppliers_batch`, `test_delivery_losses::test_cannot_lose_more_than_is_on_hand_or_before_receipt`, `test_inventory_history::test_two_simultaneous_sales_cannot_oversell`, opening stock never below zero (`test_cost_states`) | Every date from the change onward (M2.2) |
+
 ---
 
 ## M2 Real money and stock (18–24 days)
@@ -257,6 +285,8 @@ Corrects the recent `supplier_batch_id` work so that batch sales go through a re
 - **Change:** the sale detail links "Stock from DN-…: supplier invoice X, paid Y", without adding to the sale's own supplier balance.
 
 ### 2.5 F07: Recognition date (1.5 days) **D7**
+- **Decided (5 October):** an order counts as a sale when it is delivered, for app orders and for orders staff record on a buyer's behalf.
+- **Proposed addition (finance owner's request, to confirm before building):** staff record a buyer order taken by phone or in person (buyer, items, agreed price, expected delivery day) without the buyer using the app. Until delivered it is a commitment: not a sale, not owed, no stock taken. "Mark delivered" turns it into a direct sale dated the delivery day, taking stock and cost then.
 - **Data:** `orders.recognized_on`, set at the agreed event. Revenue and cost both use it.
 - **Backfill:** from activity timestamps. Orders with ambiguous history stay unresolved.
 - **Tests:** an order made in September and delivered in October counts in October; a return or reopen reverses in the period it happens.

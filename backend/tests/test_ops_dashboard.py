@@ -1,4 +1,6 @@
 from decimal import Decimal
+
+from sqlalchemy import select
 from test_commerce import headers, order, reserve
 
 OPS = {'X-Ops-Token': 'test-operator-secret', 'X-Operator-Session': 'ops-admin'}
@@ -125,12 +127,28 @@ def test_dashboard_aggregates_kpis_trend_batches_and_activity(client, sessions, 
     # Supplies recorded this month: the seeded listing plus the four batches.
     assert body['supply_trend']['months'][today.month - 1] == 5
     assert body['trading']['orders'] == 1
-    assert Decimal(body['trading']['gross_margin']) == Decimal('12000.00')
+    # Sales and margin are the Finance figures: an undelivered app order is
+    # an order placed, not yet a sale.
+    assert Decimal(body['trading']['sales']) == 0 and Decimal(body['trading']['gross_margin']) == 0
+    assert body['trading']['provisional_label'] is None
     assert body['recent_orders'][0]['buyer'] == 'Buyer Test'
     assert body['recent_suppliers'][0]['name'] == 'Green Pastures'
     kinds = [row['kind'] for row in body['recent_activity']]
     assert 'order_created' in kinds and 'batch_created' in kinds
     assert len(body['recent_activity']) <= 6
+    # Delivered today: now a sale, matching Finance → Profit.
+    from app import contracts as c, services as s
+    with sessions.begin() as db:
+        row = db.scalar(select(m.Order))
+        quantity = db.scalar(select(m.OrderItem.quantity).where(m.OrderItem.order_id == row.id))
+        for status in ['pickup_scheduled', 'collected', 'quality_checked', 'in_transit', 'delivered']:
+            s.advance(db, row, c.Progress(internal_status=status, actual_quantity=quantity, rejected_quantity=0))
+    trading = ops(client, '/dashboard').json()['trading']
+    profit = client.get('/api/v1/ops/finance/profit', params={'start': today.replace(day=1).isoformat(),
+        'end': today.isoformat()}, headers=OPS).json()
+    assert Decimal(trading['sales']) == Decimal('48000.00') == Decimal(profit['revenue'])
+    # Buyer price less supplier payout, never the asking price.
+    assert Decimal(trading['gross_margin']) == Decimal('12000.00') == Decimal(profit['gross_profit'])
 
 
 def test_dashboard_period_excludes_older_records_and_rejects_reversed_range(client, sessions, seeded):

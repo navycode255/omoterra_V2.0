@@ -1,13 +1,15 @@
 import Link from 'next/link';
 import { Notice, PageHeader } from '@/components/ui';
 import { Icons } from '@/components/icons';
+import { InfoTip } from '@/components/info-tip';
 import { FilterMenu, SearchBox } from '@/components/list-toolbar';
 import { ListFooter } from '@/components/finance/list-footer';
 import { SourceRows } from '@/components/finance/source-rows';
 import ui from '@/components/finance/expenses.module.css';
 import styles from '@/components/finance/finance-list.module.css';
+import costStyles from '@/components/finance/cost-states.module.css';
 import { ApiError, get } from '@/lib/api';
-import { day, thisMonth, today, type ReportRows, type Sale, type SalesSummary } from '@/lib/finance';
+import { PROVISIONAL, day, thisMonth, today, type ReportRows, type Sale, type SalesSummary } from '@/lib/finance';
 import { phone, tzs } from '@/lib/format';
 import { listPath, param, type ListParams, type Page } from '@/lib/paging';
 
@@ -53,22 +55,28 @@ export default async function Sales({ searchParams }: { searchParams: Promise<Li
     return `/sales${query.size ? `?${query}` : ''}`;
   }
 
-  return <div className={`${ui.workspace} ${styles.page}`}>
+  return <div className={`${ui.workspace} ${styles.page} ${styles.salesPage}`}>
     <div className={ui.heading}><h1>Sales</h1><Link href="/sales/new" className={ui.primary}><Icons.plus size={19} />New sale</Link></div>
 
-    <section className={styles.stats} data-count="4" aria-label="Sales summary">
+    <section className={`${styles.stats} ${styles.salesStats}`} data-count="4" aria-label="Sales summary">
       <article className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.chart size={26} /></span>
         <div><span>Sales total</span><strong>{tzs(total.sales_total)}</strong>
           <small>{sales(total.sales_count)}{total.marketplace_count ? ` · ${total.marketplace_count} app ${total.marketplace_count === 1 ? 'order' : 'orders'} ${tzs(total.marketplace_total)}` : ''}</small>
-          {Number(total.commitments.total) > 0 && <small>App orders not delivered yet (not sales): {tzs(total.commitments.total)}</small>}</div></article>
+          {Number(total.commitments.total) > 0 && <small>App orders not delivered yet (not sales): {tzs(total.commitments.total)}</small>}</div><span className={styles.statInfo}><InfoTip label="About sales total">{sales(total.sales_count)}. {total.marketplace_count ? `${total.marketplace_count} delivered app orders (${tzs(total.marketplace_total)}) are included. ` : ''}{Number(total.commitments.total) > 0 ? `Undelivered app orders (${tzs(total.commitments.total)}) are not sales.` : ''}</InfoTip></span></article>
       <article className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.wallet size={26} /></span>
-        <div><span>Paid on these sales{toDate ? ' to date' : ` by ${day(end)}`}</span><strong>{tzs(total.received)}</strong><small>{share}% of direct sales</small></div></article>
-      <Link href={href({ status: 'unpaid', page: '' })} className={styles.stat} data-tone="late"><span className={styles.statIcon}><Icons.users size={26} /></span>
-        <div><span>Buyer owes</span><strong>{tzs(total.buyer_owes)}</strong><small>{sales(total.buyer_owes_count)}</small></div></Link>
-      <Link href="/finance/supplier-payments" className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.truck size={26} /></span>
-        <div><span>I owe suppliers</span><strong>{tzs(total.supplier_owed)}</strong><small>{sales(total.supplier_owed_count)}</small>
-          {Number(total.expenses_owed) > 0 && <small>Unpaid sale expenses: {tzs(total.expenses_owed)}</small>}</div></Link>
+        <div><span><span className={styles.desktopStatLabel}>Paid on these sales{toDate ? ' to date' : ` by ${day(end)}`}</span><span className={styles.mobileStatLabel}>Received</span></span><strong>{tzs(total.received)}</strong><small>{share}% of direct sales</small></div><span className={styles.statInfo}><InfoTip label="About payments received">Payments on these direct sales{toDate ? ' to date' : ` by ${day(end)}`}. {share}% of direct sales.</InfoTip></span></article>
+      <article className={styles.stat} data-tone="late"><span className={styles.statIcon}><Icons.users size={26} /></span>
+        <div><Link href={href({ status: 'unpaid', page: '' })} className={styles.statLabelLink}>Buyer owes</Link><strong>{tzs(total.buyer_owes)}</strong><small>{sales(total.buyer_owes_count)}</small></div><span className={styles.statInfo}><InfoTip label="About buyer balances">Amount still unpaid on {sales(total.buyer_owes_count)} in this view.</InfoTip></span></article>
+      <article className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.truck size={26} /></span>
+        <div><Link href="/finance/supplier-payments" className={styles.statLabelLink}>I owe suppliers</Link><strong>{tzs(total.supplier_owed)}</strong><small>{sales(total.supplier_owed_count)}</small>
+          {Number(total.expenses_owed) > 0 && <small>Unpaid sale expenses: {tzs(total.expenses_owed)}</small>}</div><span className={styles.statInfo}><InfoTip label="About supplier balances">Supplier balances from {sales(total.supplier_owed_count)}. {Number(total.expenses_owed) > 0 ? `Unpaid sale expenses: ${tzs(total.expenses_owed)}.` : ''}</InfoTip></span></article>
     </section>
+
+    {/* Rule R5: sales with an unknown buying cost have no final margin. */}
+    {total.provisional && <p className={costStyles.provisionalNote} role="note">
+      {PROVISIONAL}: {sales(total.unknown_cost.sales)} in this view ({tzs(total.unknown_cost.revenue)}) {total.unknown_cost.sales === 1 ? 'has' : 'have'} a line
+      whose buying cost is unknown, so their margin and the profit for these dates are not final.{' '}
+      <Link href={`/finance/opening-stock${start ? `?start=${start}&end=${end}` : ''}#unknown-costs`}>See the lines</Link>.</p>}
 
     <nav className={styles.tabs} aria-label="Sale status">
       {tabs.map(([key, label]) => <Link key={key} href={href({ status: key, page: '', app_page: '' })} data-active={status === key} aria-current={status === key ? 'page' : undefined}>
@@ -87,12 +95,13 @@ export default async function Sales({ searchParams }: { searchParams: Promise<Li
     </div>
 
     <div className={styles.tableWrap}>
-      <table className={styles.table} data-phone-show="1 5">
+      <table className={styles.table} data-phone-show="1 5" data-sales-table>
         <thead><tr><th>Sale</th><th>Buyer</th><th>Total (TZS)</th><th>Received (TZS)</th><th>Buyer owes (TZS)</th><th>Supplier owed (TZS)</th><th>Status</th><th aria-label="Open" /></tr></thead>
         <tbody>{data.items.map((sale) => {
           const tone = sale.status === 'cancelled' ? 'cancelled' : Number(sale.balance) > 0 ? 'open' : 'settled';
           return <tr key={sale.id}>
-            <td data-label="Sale"><div><Link className={styles.name} href={`/sales/${sale.id}`}>{sale.sale_number}</Link><small>{day(sale.sold_on)}</small></div></td>
+            <td data-label="Sale"><div><Link className={styles.name} href={`/sales/${sale.id}`}>{sale.sale_number}</Link><small>{day(sale.sold_on)}</small>
+              {sale.status === 'active' && sale.cost_state === 'unknown' && <small className={costStyles.unknown}>Cost unknown</small>}</div></td>
             <td data-label="Buyer"><div>{sale.buyer_name}<small>{sale.buyer_phone ? phone(sale.buyer_phone) : '—'}</small></div></td>
             <td data-label="Total" className={styles.balance}>{tzs(sale.total_amount)}</td>
             <td data-label="Received" className={styles.money}>{tzs(sale.received_amount)}</td>

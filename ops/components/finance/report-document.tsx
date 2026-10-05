@@ -5,12 +5,14 @@
 import { Inter } from 'next/font/google';
 import type { ReactNode } from 'react';
 import type { FinancialReport } from '@/lib/reports';
-import { expenseLabel } from '@/lib/finance';
+import { PROVISIONAL, expenseLabel } from '@/lib/finance';
 import styles from './report-document.module.css';
 
 const inter = Inter({ subsets: ['latin'], variable: '--font-report' });
 
 const COVER = '/images/reports/cover.jpg';
+// 150 dpi copy drawn on phones: the 300 dpi cover alone decodes to ~35 MB.
+const COVER_LIGHT = '/images/reports/cover-pdf.jpg';
 const LOGO = '/images/marketing/logo.png';
 const MIN_HISTORY_DAYS = 60;
 const MIN_SELLING_DAYS = 10;
@@ -18,11 +20,23 @@ const MAX_EXPENSE_ROWS = 6;
 const EXPENSE_COLORS = ['#063c2b', '#0d6b47', '#4f8a6c', '#82ad96', '#adcbbb', '#d0e1d6'];
 
 /** Fonts and images are only fetched once the document is shown, which is too late for print. */
-export async function prepareReportDocument() {
+export async function prepareReportDocument(cover = COVER) {
+  // A font or image that fails on a weak connection falls back to the next
+  // one in the stack; it must not stop the PDF.
   await Promise.all([
-    ...['400', '500', '600', '700', '800', '900'].map((weight) => document.fonts.load(`${weight} 16px ${inter.style.fontFamily}`)),
-    ...[COVER, LOGO].map((src) => { const image = new Image(); image.src = src; return image.decode().catch(() => undefined); }),
+    ...['400', '500', '600', '700', '800', '900'].map((weight) => document.fonts.load(`${weight} 16px ${inter.style.fontFamily}`).catch(() => undefined)),
+    ...[cover, LOGO].map((src) => { const image = new Image(); image.src = src; return image.decode().catch(() => undefined); }),
   ]);
+}
+
+/** A lazily loaded chunk can fail on a flaky mobile connection; try twice more. */
+async function load<T>(chunk: () => Promise<T>, tries = 3): Promise<T> {
+  try { return await chunk(); }
+  catch (error) {
+    if (tries <= 1) throw error;
+    await new Promise((resolve) => setTimeout(resolve, 800));
+    return load(chunk, tries - 1);
+  }
 }
 
 /** Draws each A4 page to an image and returns one PDF file. Unlike the
@@ -31,22 +45,49 @@ export async function prepareReportDocument() {
 export async function createReportPdf(title: string): Promise<Blob> {
   const root = document.querySelector<HTMLElement>('[data-print-document]');
   if (!root) throw new Error('The report document is not on this page.');
-  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([import('html2canvas-pro'), import('jspdf'), prepareReportDocument()]);
+  const phone = window.matchMedia('(max-width: 900px), (pointer: coarse)').matches;
+  const cover = phone ? COVER_LIGHT : COVER;
+  const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+    load(() => import('html2canvas-pro')), load(() => import('jspdf')), prepareReportDocument(cover),
+  ]);
   root.setAttribute('data-capturing', '');
   try {
     const pdf = new jsPDF({ unit: 'mm', format: 'a4', compress: true });
     const pages = [...root.querySelectorAll<HTMLElement>(':scope > section')];
     if (!pages.length) throw new Error('The report has no pages.');
+    // Phones have far less canvas memory than computers: start smaller, and
+    // step down further for any page that still fails to draw.
+    const scales = phone ? [1.5, 1, 0.75] : [2, 1.5, 1];
     for (const [index, page] of pages.entries()) {
-      // Use a smaller canvas on phones to keep peak memory and file size manageable.
-      const canvas = await html2canvas(page, {
-        scale: window.matchMedia('(max-width: 600px)').matches ? 1.5 : 2,
-        windowWidth: Math.max(page.scrollWidth, 800), windowHeight: Math.max(page.scrollHeight, 1123),
-        scrollX: 0, scrollY: 0, useCORS: true, backgroundColor: '#ffffff', logging: false,
-      });
+      let image = '';
+      for (const [attempt, scale] of scales.entries()) {
+        try {
+          const canvas = await html2canvas(page, {
+            scale,
+            windowWidth: Math.max(page.scrollWidth, 800), windowHeight: Math.max(page.scrollHeight, 1123),
+            scrollX: 0, scrollY: 0, useCORS: true, backgroundColor: '#ffffff', logging: false,
+            // html2canvas copies the whole app into a hidden frame for every
+            // page. Keep only the report there, so each copy stays small.
+            onclone: (clone) => {
+              const copy = clone.querySelector<HTMLElement>('[data-print-document]');
+              if (!copy) return;
+              clone.body.replaceChildren(copy);
+              if (cover !== COVER) copy.querySelectorAll<HTMLImageElement>(`img[src="${COVER}"]`).forEach((img) => { img.src = cover; });
+            },
+          });
+          image = canvas.toDataURL('image/jpeg', phone ? 0.85 : 0.9);
+          canvas.width = canvas.height = 0;
+          // A canvas past the device limit comes back blank as "data:,".
+          if (image.length < 100) throw new Error('The page image is empty.');
+          break;
+        } catch (error) {
+          if (attempt === scales.length - 1) throw error;
+        }
+      }
       if (index) pdf.addPage();
-      pdf.addImage(canvas.toDataURL('image/jpeg', 0.9), 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
-      canvas.width = canvas.height = 0;
+      pdf.addImage(image, 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+      // Let the browser free the last page's memory before drawing the next.
+      await new Promise((resolve) => setTimeout(resolve, 0));
     }
     pdf.setProperties({ title, author: 'Omoterra Operations', creator: 'Omoterra Operations' });
     return pdf.output('blob');
@@ -126,7 +167,7 @@ function analyse(report: FinancialReport) {
   if (historyShort || sellingShort || revenue <= 0) unlocks.push('Build repeat-demand history');
 
   const actions: Action[] = [];
-  if (unknown) actions.push({ title: 'Complete costs', step: 'Costs', detail: unknown === 1 ? 'Match the uncosted sale line to its supplier receipt.' : `Match the ${unknown} uncosted sale lines to their supplier receipts.` });
+  if (unknown) actions.push({ title: 'Complete costs', step: 'Costs', detail: unknown === 1 ? 'Give the uncosted sale line its cost: opening stock, an evidenced cost, or free.' : `Give the ${unknown} uncosted sale lines their cost: opening stock, an evidenced cost, or free.` });
   for (const row of report.products.filter((p) => p.gross_margin !== null && num(p.gross_margin) < 0)) {
     actions.push({ title: `Review ${product(row.category).toLowerCase()} pricing`, step: 'Pricing', detail: 'Check buying price, selling price and unit quantities before buying more.' });
   }
@@ -148,13 +189,19 @@ export function ReportDocument({ report }: { report: FinancialReport }) {
   const { a, revenue, stock, expenses, result, unknown } = d;
   const stockShare = revenue ? stock / revenue : 0;
   const uncosted = unknown === 1 ? 'One sale line is still missing its buying cost' : `${unknown} sale lines are still missing their buying cost`;
+  // Rule R5: with an unknown buying cost the result is "Provisional: buying
+  // costs incomplete", never a figure, minimum or range.
+  const prov = unknown > 0;
+  const affected = `${plural(report.unknown_cost?.sales ?? 0, 'sale')} · ${tzs(num(report.unknown_cost?.revenue))} revenue`;
 
   const snapshotText = revenue <= 0 ? 'No sales were recorded in this period, so there is no revenue to measure costs against.'
+    : prov ? `${PROVISIONAL}: ${affected} have a line with an unknown buying cost, so the operating result is not shown.`
     : stockShare >= 0.85 ? 'The business recorded meaningful sales during the period, but most of that revenue was absorbed by stock cost.'
     : result >= 0 ? 'Sales covered stock cost and recorded expenses, leaving a positive operating result for the period.'
     : 'Sales covered stock cost, but recorded expenses pushed the operating result below zero.';
-  const viewText = (result < 0 ? 'Recorded revenue is below stock cost plus operating expenses.' : 'Recorded revenue covers stock cost and operating expenses.')
-    + (unknown ? ` ${uncosted}, so the current result should remain provisional.` : result < 0 ? ' Review pricing and cost discipline before committing new capital.' : ' Reconcile cash before treating this as final profit.');
+  const viewText = prov ? `${uncosted}, so profit is provisional: buying costs incomplete. Give those lines a cost (opening stock, an evidenced cost, or free) before relying on any result.`
+    : (result < 0 ? 'Recorded revenue is below stock cost plus operating expenses.' : 'Recorded revenue covers stock cost and operating expenses.')
+    + (result < 0 ? ' Review pricing and cost discipline before committing new capital.' : ' Reconcile cash before treating this as final profit.');
 
   // Stacked bar against revenue. Expenses get a block only when they fit in what stock cost leaves.
   const stockWidth = revenue ? Math.min(100, stock / revenue * 100) : 0;
@@ -191,8 +238,8 @@ export function ReportDocument({ report }: { report: FinancialReport }) {
     : transport === 0 ? 'No transport expense was recorded. Check that delivery costs have been captured before treating this as zero transport cost.'
     : 'Recorded gross profit covered transport. The remaining gap must still cover other expenses and recorded losses.';
   const allocationBase = Math.max(revenue, stock + expenses, 1);
-  const overrun = Math.max(0, stock + expenses - revenue);
-  const positiveResult = Math.max(0, result);
+  const overrun = prov ? 0 : Math.max(0, stock + expenses - revenue);
+  const positiveResult = prov ? 0 : Math.max(0, result);
   let donutOffset = 0;
 
   const count = ['No', 'One', 'Two', 'Three'][d.actions.length];
@@ -226,9 +273,9 @@ export function ReportDocument({ report }: { report: FinancialReport }) {
     <Page section="Financial snapshot" number={2} heading="Financial Snapshot" subtitle={span(a.start, a.end)}>
       <div className={styles.hero} style={{ top: '67mm' }}><strong>{compact(revenue)}</strong><span>Recorded revenue</span><p>{snapshotText}</p></div>
       <div className={styles.figures}>
-        <div><span>Stock cost</span><b>{compact(stock)}</b><small>{pct(stock, revenue)} of revenue</small></div>
+        <div><span>{prov ? 'Known stock cost' : 'Stock cost'}</span><b>{compact(stock)}</b><small>{pct(stock, revenue)} of revenue</small></div>
         <div><span>Recorded expenses</span><b>{compact(expenses)}</b><small>{pct(expenses, revenue)} of revenue</small></div>
-        <div><span>Operating result</span><b>{compact(result)}</b><small>Recorded margin: {pct(result, revenue)}</small></div>
+        <div><span>Operating result</span><b>{prov ? 'Provisional' : compact(result)}</b><small>{prov ? 'Buying costs incomplete' : `Recorded margin: ${pct(result, revenue)}`}</small></div>
       </div>
       <div className={styles.split} style={{ top: '135mm' }}>
         <h3>Where revenue went</h3><p>Each block is proportional to recorded revenue.</p>
@@ -236,12 +283,12 @@ export function ReportDocument({ report }: { report: FinancialReport }) {
         <div className={styles.legend}>
           <span><b>Stock cost</b><em>{pct(stock, revenue)}</em></span>
           <span><b>Expenses</b><em>{pct(expenses, revenue)}</em></span>
-          <span><b>Result</b><em>{pct(result, revenue)}</em></span>
+          <span><b>Result</b><em>{prov ? 'Provisional' : pct(result, revenue)}</em></span>
         </div>
       </div>
       <Note label="Management view" top="189mm">{viewText}</Note>
       <div className={styles.stats} style={{ top: '235.5mm' }}>
-        <div><span>Status</span><b>{unknown ? 'Provisional' : 'Fully costed'}</b><small>{unknown ? plural(unknown, 'uncosted sale line') : 'Not yet reconciled to cash'}</small></div>
+        <div><span>Status</span><b>{unknown ? 'Provisional' : 'Fully costed'}</b><small>{unknown ? `Buying costs incomplete: ${affected}` : 'Not yet reconciled to cash'}</small></div>
         <div><span>Activity window</span><b>{plural(report.history_days, 'day')}</b><small>{plural(report.active_sales_days, 'selling day')}</small></div>
       </div>
     </Page>
@@ -262,9 +309,9 @@ export function ReportDocument({ report }: { report: FinancialReport }) {
     <Page section="Financial overview" number={4} heading="Financial Overview" subtitle="Revenue, costs and recorded operating result">
       <div className={styles.overviewRevenue}><span>Recorded revenue</span><strong>{compact(revenue)}</strong><p>Total sales recorded in the selected period.</p></div>
       <div className={styles.overviewFigures}>
-        <div><span>Stock cost</span><b>{compact(stock)}</b><small>{pct(stock, revenue)} of revenue</small></div>
+        <div><span>{prov ? 'Known stock cost' : 'Stock cost'}</span><b>{compact(stock)}</b><small>{pct(stock, revenue)} of revenue</small></div>
         <div><span>Expenses &amp; losses</span><b>{compact(expenses)}</b><small>{pct(expenses, revenue)} of revenue</small></div>
-        <div><span>Operating result</span><b>{compact(result)}</b><small>Margin {pct(result, revenue)}</small></div>
+        <div><span>Operating result</span><b>{prov ? 'Provisional' : compact(result)}</b><small>{prov ? 'Buying costs incomplete' : `Margin ${pct(result, revenue)}`}</small></div>
       </div>
       <div className={styles.allocation}>
         <h3>Where revenue went</h3>
@@ -278,12 +325,12 @@ export function ReportDocument({ report }: { report: FinancialReport }) {
         <div className={styles.allocationLegend}>
           <div><span>Stock cost</span><b>{pct(stock, revenue)}</b></div>
           <div><span>Expenses &amp; losses</span><b>{pct(expenses, revenue)}</b></div>
-          <div><span>{overrun > 0 ? 'Overrun / loss' : 'Operating result'}</span><b>{pct(overrun > 0 ? overrun : result, revenue)}</b><small>{overrun > 0 ? 'Beyond recorded revenue' : 'After recorded costs'}</small></div>
+          <div><span>{overrun > 0 ? 'Overrun / loss' : 'Operating result'}</span><b>{prov ? 'Provisional' : pct(overrun > 0 ? overrun : result, revenue)}</b><small>{prov ? 'Buying costs incomplete' : overrun > 0 ? 'Beyond recorded revenue' : 'After recorded costs'}</small></div>
         </div>
       </div>
       <Note label="Management view" top="205mm">{viewText}</Note>
       <div className={styles.stats} style={{ top: '250mm' }}>
-        <div><span>Status</span><b>{unknown ? 'Provisional' : 'Fully costed'}</b><small>{unknown ? plural(unknown, 'uncosted sale line') : 'Not yet reconciled to cash'}</small></div>
+        <div><span>Status</span><b>{unknown ? 'Provisional' : 'Fully costed'}</b><small>{unknown ? `Buying costs incomplete: ${affected}` : 'Not yet reconciled to cash'}</small></div>
         <div><span>Activity window</span><b>{plural(report.history_days, 'day')}</b><small>{plural(report.active_sales_days, 'selling day')}</small></div>
       </div>
     </Page>
@@ -307,9 +354,9 @@ export function ReportDocument({ report }: { report: FinancialReport }) {
       <div className={styles.transportComparison}>
         <h3>Transport vs gross profit</h3>
         <div>
-          <span><small>{unknown ? 'Gross profit (provisional)' : 'Recorded gross profit'}</small><b>{tzs(recordedGross)}</b></span>
+          <span><small>Recorded gross profit</small><b>{prov ? 'Provisional' : tzs(recordedGross)}</b></span>
           <span><small>Transport</small><b>{tzs(transport)}</b></span>
-          <span><small>{unknown ? 'Gap (provisional)' : 'Remaining after transport'}</small><b>{tzs(transportGap)}</b></span>
+          <span><small>Remaining after transport</small><b>{prov ? 'Provisional' : tzs(transportGap)}</b></span>
         </div>
       </div>
       <Note label="Management view" top="220mm">{transportText}</Note>
@@ -333,7 +380,7 @@ export function ReportDocument({ report }: { report: FinancialReport }) {
         <span className={styles.statLabel}>Gross margin</span>
         {unknown ? <>
           <b>Not available</b>
-          <em>{unknown === 1 ? '1 sale line has no recorded buying cost.' : `${unknown} sale lines have no recorded buying cost.`}</em>
+          <em>{unknown === 1 ? '1 sale line has an unknown buying cost.' : `${unknown} sale lines have an unknown buying cost.`}</em>
           <p>Until that source cost is recorded, the apparent product margin should not be used for expansion or pricing decisions.</p>
         </> : <>
           <b>{compact(grossMargin)}</b>
@@ -343,7 +390,7 @@ export function ReportDocument({ report }: { report: FinancialReport }) {
       </div>
       <div className={styles.stats} data-size="small" style={{ top: '241.5mm' }}>
         <div><span>Stock cost / revenue</span><b>{pct(stock, revenue)}</b></div>
-        <div><span>Recorded operating margin</span><b>{pct(result, revenue)}</b></div>
+        <div><span>Recorded operating margin</span><b>{prov ? 'Provisional' : pct(result, revenue)}</b></div>
       </div>
     </Page>
 

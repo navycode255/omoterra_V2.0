@@ -6,10 +6,12 @@ import { Icons } from '@/components/icons';
 import { Notice, PageHeader, Status } from '@/components/ui';
 import { DebtSummary, PartyLink, PaymentForm, PaymentsTable, debtStatus, debtTone } from '@/components/finance/ledger';
 import { ExpenseWorkspace } from '@/components/finance/expense-workspace';
+import { CostResolution } from '@/components/finance/cost-resolution';
+import costStyles from '@/components/finance/cost-states.module.css';
 import { categoryImage } from '@/components/portal/supplier-format';
 import { ApiError, get } from '@/lib/api';
 import { cancelSale } from '@/lib/finance-actions';
-import { GOODS_OUTCOMES, UNITS, day, today, type SaleDetail } from '@/lib/finance';
+import { GOODS_OUTCOMES, UNITS, day, today, type OpeningStock, type SaleDetail } from '@/lib/finance';
 import { category, dateTime, phone, quantity, tzs } from '@/lib/format';
 import { requireSession } from '@/lib/session';
 import styles from '@/components/finance/finance.module.css';
@@ -30,12 +32,16 @@ export default async function SaleWorkspace({ params, searchParams }: {
     if (error instanceof ApiError && error.status === 404) notFound();
     throw error;
   }
+  // Unknown buying costs (rule R5): no final margin; an admin gives each a cost.
+  const unknownLines = sale.items.filter((item) => item.cost_state === 'unknown');
+  const openingStock = admin && sale.status === 'active' && unknownLines.length
+    ? await get<OpeningStock[]>('/ops/opening-stock/available').catch(() => []) : [];
   const receivable = sale.debts.find((debt) => debt.direction === 'receivable');
   const payables = sale.debts.filter((debt) => debt.direction === 'payable' && debt.status !== 'cancelled');
   const expenseTotal = payables.filter((debt) => debt.source === 'expense').reduce((total, debt) => total + Number(debt.amount), 0);
   const anyPaid = sale.debts.some((debt) => Number(debt.paid_amount) > 0);
   // Received goods (delivery note or LPO): cancelling asks what happened to them (rule R2).
-  const received = sale.items.filter((item) => item.location_allocation_id || item.supplier_collection_id || item.lpo_line_id);
+  const received = sale.items.filter((item) => item.location_allocation_id || item.supplier_collection_id || item.lpo_line_id || item.opening_stock_id);
   const goodsLabel = GOODS_OUTCOMES.find(([id]) => id === sale.cancel_goods)?.[1];
   const unitLabel = (value: string) => UNITS.find(([key]) => key === value)?.[1].toLowerCase() ?? value;
 
@@ -87,21 +93,35 @@ export default async function SaleWorkspace({ params, searchParams }: {
                     <td><b>{tzs(item.subtotal)}</b></td>
                     <td>{item.supplier_collection_id ? <><Link href={`/supplier-collections/${item.supplier_collection_id}`}>Delivery note</Link><small>{supplier} · cost {tzs(item.unit_cost)} each</small></>
                       : item.lpo_line_id ? <>LPO stock<small>cost {tzs(item.unit_cost)} each</small></>
-                      : item.location_allocation_id ? <><Link href={`/locations/${sale.location_id}`}>Location stock</Link><small>cost {tzs(item.unit_cost)} each</small></> : item.unit_cost ? <>{supplier}<small>cost {tzs(item.unit_cost)} each</small></> : 'Own stock'}</td>
+                      : item.location_allocation_id ? <><Link href={`/locations/${sale.location_id}`}>Location stock</Link><small>cost {item.cost_state === 'unknown' ? 'unknown' : `${tzs(item.unit_cost)} each`}</small></>
+                      : item.opening_stock_id ? <><Link href={`/finance/opening-stock?q=${item.opening_stock_number ?? ''}`}>Opening stock {item.opening_stock_number}</Link><small>cost {tzs(item.unit_cost)} each</small></>
+                      : item.cost_state === 'unknown' ? <>{item.supplier_name || item.supplier_id ? supplier : 'Own stock'}<small className={costStyles.unknown}>Cost unknown</small></>
+                      : item.cost_state === 'free' ? <>{item.supplier_name || item.supplier_id ? supplier : 'Own stock'}<small className={costStyles.free}>Free (no cost)</small></>
+                      : item.supplier_name || item.supplier_id ? <>{supplier}<small>cost {tzs(item.unit_cost)} each</small></> : <>Own stock<small>cost {tzs(item.unit_cost)} each</small></>}</td>
                   </tr>;
                 })}</tbody>
               </table>
             </div>
+            {unknownLines.length > 0 && <p className={costStyles.provisionalNote} role="note">
+              {unknownLines.length === 1 ? 'One line has' : `${unknownLines.length} lines have`} an unknown buying cost, so this sale&apos;s margin is provisional.
+              {admin && sale.status === 'active' ? ' Give each line its cost below.' : ' An admin gives each line its cost.'}</p>}
+            {admin && sale.status === 'active' && unknownLines.map((item) => <div key={item.id}>
+              <strong>{item.category ? category(item.category) : item.description} · {quantity(item.quantity)} {unitLabel(item.unit)}</strong>
+              <CostResolution saleId={sale.id} itemId={item.id} unit={item.unit} quantity={item.quantity}
+                openingStock={openingStock} idempotencyKey={randomUUID()} />
+            </div>)}
           </section>
 
           <section className={`${styles.saleDetailCard} ${styles.saleSummaryCard}`}>
             <header className={styles.saleCardHeader}><span><Icons.chart size={22} /></span><h2>Sale summary</h2></header>
             <dl>
               <div><dt>Sale total</dt><dd>{tzs(sale.total_amount)}</dd></div>
-              <div><dt>Stock buying cost</dt><dd>{tzs(sale.cost_amount)}</dd></div>
-              <div><dt>Margin before expenses</dt><dd>{tzs(sale.margin)}</dd></div>
+              <div><dt>Stock buying cost</dt><dd>{sale.margin === null
+                ? <span className={costStyles.lineCost}>{tzs(sale.cost_amount)} known<small className={costStyles.unknown}>{sale.unknown_cost_lines} {sale.unknown_cost_lines === 1 ? 'line' : 'lines'}: cost unknown</small></span>
+                : tzs(sale.cost_amount)}</dd></div>
+              <div><dt>Margin before expenses</dt><dd>{sale.margin === null ? <span className={costStyles.unknown}>Provisional: cost unknown</span> : tzs(sale.margin)}</dd></div>
               <div><dt>Sale expenses (paid or owed)</dt><dd>{tzs(String(expenseTotal))}</dd></div>
-              <div><dt>Margin after sale expenses</dt><dd>{tzs(String(Number(sale.margin) - expenseTotal))}</dd></div>
+              <div><dt>Margin after sale expenses</dt><dd>{sale.margin === null ? <span className={costStyles.unknown}>Provisional: cost unknown</span> : tzs(String(Number(sale.margin) - expenseTotal))}</dd></div>
             </dl>
             {sale.status === 'active' && <ExpenseWorkspace now={today()} saleId={sale.id} saleNumber={String(sale.sale_number)}/>}
             <Link className={styles.expenseLink} href={`/finance/expenses?sale_id=${sale.id}`}>View expenses for this sale</Link>

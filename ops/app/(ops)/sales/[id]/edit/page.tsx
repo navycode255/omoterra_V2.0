@@ -3,7 +3,7 @@ import { notFound } from 'next/navigation';
 import { SaleForm } from '@/components/finance/sale-form';
 import { Notice, PageHeader } from '@/components/ui';
 import { ApiError, get } from '@/lib/api';
-import { today, type Parties, type SaleDetail, type SupplierCollectionStock, type OpenBatch } from '@/lib/finance';
+import { today, type Parties, type SaleDetail, type SupplierCollectionStock, type OpenBatch, type OpeningStock } from '@/lib/finance';
 import type { LpoStockRow } from '@/lib/lpo';
 import styles from '@/components/finance/finance.module.css';
 
@@ -16,13 +16,15 @@ export default async function EditSale({ params }: { params: Promise<{ id: strin
   let stock: LpoStockRow[];
   let supplierStock: SupplierCollectionStock[];
   let batches: OpenBatch[];
+  let openingStock: OpeningStock[];
   try {
-    [sale, parties, stock, supplierStock, batches] = await Promise.all([
+    [sale, parties, stock, supplierStock, batches, openingStock] = await Promise.all([
       get<SaleDetail>(`/ops/sales/${id}`),
       get<Parties>('/ops/finance/parties'),
       get<LpoStockRow[]>('/ops/lpos/stock'),
       get<SupplierCollectionStock[]>('/ops/supplier-collections/stock'),
       get<OpenBatch[]>('/ops/supplier-batches/open'),
+      get<OpeningStock[]>('/ops/opening-stock/available'),
     ]);
   } catch (error) {
     if (error instanceof ApiError && error.status === 404) notFound();
@@ -64,7 +66,7 @@ export default async function EditSale({ params }: { params: Promise<{ id: strin
       <PageHeader title={`Edit ${sale.sale_number}`} subtitle="Correct the buyer, items, prices, buying costs, or notes." />
     </div></div>
     <div className={styles.saleFrame}><div className={styles.saleWorkspace}>
-      <SaleForm parties={parties} today={today()} stock={stock} supplierStock={supplierStock} batches={batches} sale={sale} />
+      <SaleForm parties={parties} today={today()} stock={stock} supplierStock={supplierStock} batches={batches} openingStock={openingStock} sale={sale} />
       <Link href={`/sales/${sale.id}`} className={styles.backLink}>← <span>Back to sale</span></Link>
     </div></div>
   </div>;

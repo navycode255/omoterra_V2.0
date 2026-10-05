@@ -16,7 +16,7 @@
 .page :global(.join-input) { height: 59px; padding: 14px 18px 14px 67px; border: 1.5px solid #dbe2e8; border-radius: 14px; font-size: 17px; background-color: #ffffffa6; background-repeat: no-repeat; background-position: 20px center; background-size: 24px; }
 .page :global(.join-input)::placeholder { color: #8792a3; opacity: 1; }
 .page :global(input[type='tel']) { background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238792a3' stroke-width='1.7' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M7 3 4 4c-4 5 11 20 16 16l1-3-5-3-2 2c-3-1-5-3-6-6l2-2Z'/%3E%3C/svg%3E"); }
-.page :global(input[type='password']) { letter-spacing: .12em; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238792a3' stroke-width='1.8' stroke-linecap='round'%3E%3Crect x='4' y='10' width='16' height='11' rx='2'/%3E%3Cpath d='M8 10V6a4 4 0 0 1 8 0v4m-4 5v3'/%3E%3C/svg%3E"); }
+.page :global(input[type='password']), .page :global(input[data-secret]) { letter-spacing: .12em; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%238792a3' stroke-width='1.8' stroke-linecap='round'%3E%3Crect x='4' y='10' width='16' height='11' rx='2'/%3E%3Cpath d='M8 10V6a4 4 0 0 1 8 0v4m-4 5v3'/%3E%3C/svg%3E"); }
 .page :global(.join-input:focus) { border-color: #238462; outline: 3px solid #19845f18; }
 .page :global(.join-link) { font-size: 16px; color: #00754e; }
 .page :global(.join-split) { justify-content: space-between; margin-top: -2px; }

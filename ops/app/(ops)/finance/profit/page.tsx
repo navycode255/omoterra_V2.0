@@ -6,8 +6,9 @@ import { FilterMenu } from '@/components/list-toolbar';
 import { ListFooter } from '@/components/finance/list-footer';
 import ui from '@/components/finance/expenses.module.css';
 import styles from '@/components/finance/finance-list.module.css';
+import costStyles from '@/components/finance/cost-states.module.css';
 import { ApiError, get } from '@/lib/api';
-import { day, expenseLabel, thisMonth, today, type ProfitReport } from '@/lib/finance';
+import { PROVISIONAL, day, expenseLabel, thisMonth, today, type ProfitReport } from '@/lib/finance';
 import { tzs } from '@/lib/format';
 import { param, type ListParams } from '@/lib/paging';
 
@@ -71,6 +72,10 @@ export default async function Profit({ searchParams }: { searchParams: Promise<L
     return `/finance/profit?${query}`;
   };
   const loss = Number(data.net_profit) < 0;
+  // Rule R5: with any unknown buying cost there is no final result, and no
+  // minimum, range or "at least" figure either.
+  const provisional = data.provisional;
+  const affected = `${data.unknown_cost.sales} ${data.unknown_cost.sales === 1 ? 'sale' : 'sales'} · ${tzs(data.unknown_cost.revenue)} revenue affected`;
   const app = (value: string) => Number(value) > 0 ? ` · app orders ${tzs(value)}` : '';
 
   return <div className={`${ui.workspace} ${styles.page}`}>
@@ -91,13 +96,22 @@ export default async function Profit({ searchParams }: { searchParams: Promise<L
       <article className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.chart size={26} /></span>
         <div><span>Sales</span><strong>{tzs(data.revenue)}</strong><small>Direct {tzs(data.sales)}{app(data.marketplace_sales)}</small></div></article>
       <article className={styles.stat} data-tone="late"><span className={styles.statIcon}><Icons.box size={26} /></span>
-        <div><span>Stock cost</span><strong>{tzs(data.cost_of_goods)}</strong><small>Direct {tzs(data.stock_cost)}{app(data.marketplace_cost)}</small></div></article>
+        <div><span>{provisional ? 'Known stock cost' : 'Stock cost'}</span><strong>{tzs(data.cost_of_goods)}</strong><small>{provisional
+          ? `${data.unknown_cost.lines} ${data.unknown_cost.lines === 1 ? 'line' : 'lines'}: cost unknown`
+          : <>Direct {tzs(data.stock_cost)}{app(data.marketplace_cost)}</>}</small></div></article>
       <Link href={`/finance/expenses?start=${start}&end=${end}`} className={styles.stat} data-tone="red"><span className={styles.statIcon}><Icons.file size={26} /></span>
         <div><span>Expenses</span><strong>{tzs(data.expenses)}</strong>{Number(data.stock_lost) > 0 && <small>Stock lost, also deducted: {tzs(data.stock_lost)}</small>}</div></Link>
       {/* An operating result: no depreciation, interest or tax yet (M3.2). */}
-      <article className={styles.stat} data-tone={loss ? 'red' : 'in'} data-highlight={loss ? 'loss' : 'gain'}><span className={styles.statIcon}><Icons.trend size={26} /></span>
-        <div><span>{loss ? 'Operating loss' : 'Operating profit'}</span><strong>{loss ? '-' : ''}{tzs(String(Math.abs(Number(data.net_profit))))}</strong></div></article>
+      {provisional
+        ? <article className={styles.stat} data-tone="late"><span className={styles.statIcon}><Icons.trend size={26} /></span>
+          <div><span>Operating profit</span><strong className={costStyles.provisional}>{PROVISIONAL}</strong><small>{affected}</small></div></article>
+        : <article className={styles.stat} data-tone={loss ? 'red' : 'in'} data-highlight={loss ? 'loss' : 'gain'}><span className={styles.statIcon}><Icons.trend size={26} /></span>
+          <div><span>{loss ? 'Operating loss' : 'Operating profit'}</span><strong>{loss ? '-' : ''}{tzs(String(Math.abs(Number(data.net_profit))))}</strong></div></article>}
     </section>
+
+    {provisional && <p className={costStyles.provisionalNote} role="note">
+      {PROVISIONAL}: {affected}. These sales have a line whose buying cost is unknown, so profit for these dates is not final.{' '}
+      <Link href={`/finance/opening-stock?start=${start}&end=${end}#unknown-costs`}>See the lines and give them a cost</Link>.</p>}
 
     {data.unresolved_marketplace.count > 0 && <p className={styles.sourceNote} role="note">
       {data.unresolved_marketplace.count} delivered app {data.unresolved_marketplace.count === 1 ? 'order has' : 'orders have'} no recorded delivery date
@@ -113,7 +127,9 @@ export default async function Profit({ searchParams }: { searchParams: Promise<L
             <td data-label="Sales" className={styles.money}>{plain(d.revenue)}</td>
             <td data-label="Stock cost" className={styles.money}>{plain(d.cost_of_goods)}</td>
             <td data-label="Expenses and stock lost" className={styles.money}>{plain(d.expenses_and_losses)}</td>
-            <td data-label="Operating profit" className={Number(d.net_profit) < 0 ? styles.outAmount : styles.inAmount}>{signed(d.net_profit)}</td>
+            {d.provisional
+              ? <td data-label="Operating profit" className={costStyles.unknown}>Provisional</td>
+              : <td data-label="Operating profit" className={Number(d.net_profit) < 0 ? styles.outAmount : styles.inAmount}>{signed(d.net_profit)}</td>}
           </tr>)}</tbody>
         </table>
       </div>

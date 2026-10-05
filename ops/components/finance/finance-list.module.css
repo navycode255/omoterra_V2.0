@@ -278,3 +278,29 @@
   .wideLabel { display: none; }
   .phoneLabel { display: inline; }
 }
+
+.mobileStatLabel, .statInfo { display:none; }
+.statLabelLink { color:#50617a; font-size:13px; }
+.statLabelLink:hover { color:var(--green); text-decoration:underline; }
+@media (max-width:720px) {
+  .salesStats[data-count='4'] { gap:2.9vw 2.2vw; margin-bottom:22px; }
+  .salesStats[data-count='4'] .stat { position:relative; isolation:isolate; min-height:30.4vw; padding:2.9vw 3.4vw; flex-direction:column; align-items:flex-start; gap:1.8vw; border-radius:2.8vw; border-color:#edf0ee; box-shadow:0 1vw 3vw #17201b06; }
+  .salesStats[data-count='4'] .stat::before { content:''; position:absolute; z-index:-1; right:1.9vw; bottom:1.8vw; width:26vw; height:9.7vw; opacity:.5; background:#c5e8d4; clip-path:polygon(0 100%,12% 90%,23% 58%,34% 60%,46% 73%,58% 50%,69% 55%,81% 28%,93% 8%,100% 0,100% 100%); mask-image:linear-gradient(to bottom,#000,transparent); }
+  .salesStats[data-count='4'] .stat[data-tone='late']::before { background:#efdbbe; }
+  .salesStats[data-count='4'] .statIcon { width:8.9vw; height:8.9vw; border-radius:50%; background:#e6f3eb !important; }
+  .salesStats[data-count='4'] .statIcon svg { width:4.7vw; height:4.7vw; }
+  .salesStats[data-count='4'] .stat[data-tone='late'] .statIcon { background:#fff1e2 !important; }
+  .salesStats .stat > div { gap:1.5vw; width:100%; }
+  .salesStats .stat span:not(.statIcon), .salesStats .statLabelLink { color:#566175; font-size:2.9vw; line-height:1.2; }
+  .salesStats .stat strong { font-size:clamp(17px,4.5vw,30px); line-height:1.15; font-weight:800; color:#070e15; white-space:normal; overflow:visible; overflow-wrap:anywhere; }
+  .salesStats .stat small, .salesStats .desktopStatLabel { display:none !important; }
+  .salesStats .mobileStatLabel { display:inline; }
+  .salesStats .statInfo { display:block; position:absolute; top:8px; right:8px; }
+  .salesStats :global(.info-tip-panel) { position:fixed; top:auto; bottom:88px; left:16px; right:16px; width:auto; z-index:60; }
+  .salesPage .tableWrap { overflow:hidden; }
+}
+@media(max-width:720px) {
+  .salesPage { container-type:normal; }
+  .salesStats[data-count='4'] { grid-template-columns:repeat(2,minmax(0,1fr)); }
+  .salesStats .stat:focus-within { z-index:5; }
+}

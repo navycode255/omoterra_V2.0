@@ -319,6 +319,19 @@ def test_app_order_counts_on_its_delivery_date(client, sessions, seeded):
     summary = get(client, '/finance/summary')
     assert Decimal(summary['owed_to_me']['marketplace']) == Decimal('36000')
     assert Decimal(summary['commitments']['total']) == 0
+    # Due dates (finance owner, 5 October): the buyer owes on delivery, so
+    # 5 days later it is overdue; the payout is due 7 days after delivery.
+    with sessions() as db:
+        [owed] = [r for r in rp.receivables(db)['rows'] if r['source'] == 'marketplace']
+        assert owed['due_on'] == delivered and owed['overdue'] is True
+        payouts = [r for r in rp.payables(db)['rows'] if r['source_table'] == 'settlements']
+        assert payouts and all(r['due_on'] == delivered + timedelta(days=7) and not r['overdue'] for r in payouts)
+    with sessions.begin() as db:
+        row = db.get(m.Order, id)
+        late = datetime.combine(DAY - timedelta(days=8), time(9), tzinfo=EAT).isoformat()
+        row.activity = [{**entry, 'at': late} if entry['label'] == 'Delivered' else entry for entry in row.activity]
+    with sessions() as db:
+        assert all(r['overdue'] for r in rp.payables(db)['rows'] if r['source_table'] == 'settlements')
     # A delivered order whose delivery has no date is unresolved: owed now,
     # but in no period's revenue.
     with sessions.begin() as db:
@@ -366,3 +379,22 @@ def test_m1_exit_scenario(client, sessions, seeded):
         assert held['amount'] == held['transferred'] == Decimal('200000') and tr.balanced(held)
         # The declaration is never stock: 400 birds are still the supplier's.
         assert db.get(m.SupplierBatch, declared).available_to_commit == 400
+
+
+def test_a_disputed_payout_stays_money_out_and_is_shown_beside_it(client, sessions, seeded):
+    """Finance owner, 5 October: a payout the supplier says never arrived is
+    still money out (R3) until M2.7 proves the debit failed; the Cash book
+    shows how much of its money out is disputed."""
+    id = app_order(sessions, seeded, 4, 'disputed-payout', delivered_on=DAY)
+    with sessions.begin() as db:
+        row = db.get(m.Settlement, settlement_of(sessions, id).id)
+        row.status, row.paid_at, row.payment_reference = 'paid', datetime.combine(DAY, time(12), tzinfo=EAT), 'MP-1'
+        amount = row.total_payable
+    book = lambda: get(client, '/ledger/payments', start=DAY.isoformat(), end=DAY.isoformat())['summary']
+    before = book()
+    assert Decimal(before['money_out']) == amount and Decimal(before['disputed_out']) == 0 and before['disputed_out_count'] == 0
+    with sessions.begin() as db:
+        db.get(m.Settlement, settlement_of(sessions, id).id).supplier_confirmation = 'not_received'
+    after = book()
+    assert Decimal(after['money_out']) == amount
+    assert Decimal(after['disputed_out']) == amount and after['disputed_out_count'] == 1

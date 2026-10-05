@@ -275,7 +275,11 @@ def _legacy_reversal(sessions, seeded, amount=650000, reversed_amount=19500):
         return sent.id, wrong.id
 
 
-def test_historical_reversal_stays_unresolved_until_classified(client, seeded, sessions, engine):
+def test_historical_reversal_stays_unresolved_until_classified(client, seeded, sessions, engine, monkeypatch):
+    from app import db as app_db
+    # The Finance summary reads one snapshot through the app's engine.
+    monkeypatch.setattr(app_db, 'engine', engine)
+    owe = lambda: client.get(API + '/finance/summary', headers=OPS).json()['i_owe']
     transfer_id, allocation_id = _legacy_reversal(sessions, seeded, 100000, 40000)
     body = statement(client, seeded)
     assert Decimal(body['unresolved']) == Decimal('40000') and Decimal(body['credit']) == 0
@@ -283,6 +287,8 @@ def test_historical_reversal_stays_unresolved_until_classified(client, seeded, s
     sections = {s['key']: s for s in fx.build_report(engine)['sections']}
     assert sections['unresolved_transfer_allocations']['amount'] == Decimal('40000.00')
     assert sections['transfer_invariant_breaks']['count'] == 0
+    # Also on the Finance overview and Debts, beside I owe (M1 exit: unknowns are visible).
+    assert Decimal(owe()['unresolved']) == Decimal('40000')
     # Unresolved money cannot be used or refunded until classified.
     assert post(client, f"/ledger/suppliers/{seeded['supplier']}/credit/apply", {'amount': '1'}).status_code == 422
     assert post(client, f'/ledger/transfers/{transfer_id}/refunds',
@@ -305,6 +311,7 @@ def test_historical_reversal_stays_unresolved_until_classified(client, seeded, s
     body = statement(client, seeded)
     assert Decimal(body['unresolved']) == 0 and Decimal(body['credit']) == Decimal('30000')
     assert Decimal(body['refunded']) == Decimal('10000')
+    assert Decimal(owe()['unresolved']) == 0 and Decimal(owe()['credit']) == Decimal('30000')
     refunds = client.get(API + f'/ledger/payments?status=in&start={YESTERDAY}&end={YESTERDAY}', headers=OPS).json()
     assert Decimal(refunds['summary']['money_in']) == Decimal('10000')
     assert {s['key']: s for s in fx.build_report(engine)['sections']}['unresolved_transfer_allocations']['count'] == 0

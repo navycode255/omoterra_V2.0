@@ -2643,10 +2643,11 @@ def ops_dashboard(start: Optional[date] = None, end: Optional[date] = None, year
 
     period_orders = [o for o in db.scalars(select(m.Order).where(m.Order.created_at >= since, m.Order.created_at < until))
         if o.internal_status not in ('cancelled', 'payment_failed')]
-    margin = Decimal('0')
-    for order in period_orders:
-        for item in db.scalars(select(m.OrderItem).where(m.OrderItem.order_id == order.id)):
-            margin += (item.unit_price - item.payout_snapshot) * item.quantity
+    # Sales and gross margin are the Finance figures (reporting.py): direct
+    # sales by sale date, app orders by delivery date. No margin is shown
+    # while a buying cost is unknown (R5).
+    from . import reporting
+    period_profit = reporting.profit(db, start, end)
 
     joined = sorted((p for p in profiles if since <= users[p.user_id].created_at < until),
         key=lambda p: users[p.user_id].created_at, reverse=True)
@@ -2685,8 +2686,9 @@ def ops_dashboard(start: Optional[date] = None, end: Optional[date] = None, year
         },
         'trading': {
             'orders': len(period_orders),
-            'sales': sum((o.total_amount for o in period_orders), Decimal('0')),
-            'gross_margin': margin,
+            'sales': period_profit['revenue'],
+            'gross_margin': None if period_profit['provisional'] else period_profit['gross_profit'],
+            'provisional_label': period_profit['provisional_label'],
         },
         'supply_trend': {'year': year, 'months': trend},
         'batch_status': batch_status,

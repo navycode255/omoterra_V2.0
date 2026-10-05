@@ -1,0 +1,25 @@
+.panel { min-width:0; border:1px solid #dfe9e3; border-radius:14px; background:linear-gradient(120deg,#f2f9f5,#fff); padding:20px 24px; box-shadow:0 4px 16px #173c2905; color:#0b1721; }
+.heading { display:flex; align-items:center; gap:10px; margin-bottom:20px; color:#08704b; }
+.heading h2 { flex:1; margin:0; color:#0b1721; font-size:20px; letter-spacing:-.025em; }
+.heading :global(.info-tip-panel) { left:auto; right:0; }
+.main { display:grid; grid-template-columns:1.2fr 1fr; gap:24px; }
+.main > div { display:flex; flex-direction:column; align-items:flex-start; gap:7px; min-width:0; }
+.main > div + div { padding-left:24px; border-left:1px solid #e3ebe7; }
+.main span,.debts span { color:#667286; font-size:13px; }
+.amount { font-size:30px; font-weight:800; letter-spacing:-.035em; line-height:1.2; overflow-wrap:anywhere; }
+.amount:hover { text-decoration:underline; text-underline-offset:4px; }
+.amount[data-tone='negative'],small[data-tone='negative'] { color:#d93848; }
+.amount[data-tone='positive'],small[data-tone='positive'] { color:#08704b; }
+.main small { font-size:11px; color:#788597; }
+.result small { padding:4px 9px; border-radius:6px; background:#eaf5ee; }
+.result small[data-tone='negative'] { background:#fff0f1; }.result small[data-tone='provisional'] { color:#93621d; background:#fff5e4; }
+.debts { display:grid; grid-template-columns:1.2fr 1fr; gap:24px; border-top:1px solid #e3ebe7; margin-top:18px; padding-top:16px; }
+.debts > a { display:flex; align-items:center; gap:12px; min-width:0; }.debts > a + a { border-left:1px solid #e3ebe7; padding-left:24px; }
+.debts svg { flex:none; color:#167653; }.debts div { display:grid; gap:4px; min-width:0; }.debts strong { font-size:19px; font-weight:750; overflow-wrap:anywhere; }
+.unavailable { font-size:13px; color:#667286; }.unavailable a { color:#08704b; }
+@media(max-width:720px) {
+  .panel { padding:16px; border-radius:12px; }.heading { margin-bottom:16px; }.heading h2 { font-size:18px; }
+  .main,.debts { grid-template-columns:1.1fr 1fr; gap:12px; }.main > div + div,.debts > a + a { padding-left:12px; }
+  .amount { font-size:clamp(18px,4.8vw,30px); }.main span,.debts span { font-size:12px; }.debts strong { font-size:clamp(15px,3.8vw,23px); }.debts > a { gap:8px; }
+  .heading :global(.info-tip-panel) { position:fixed; left:16px; right:16px; bottom:88px; top:auto; width:auto; z-index:60; }
+}

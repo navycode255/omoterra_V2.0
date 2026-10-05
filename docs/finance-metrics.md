@@ -44,7 +44,7 @@ The finance owner signs it off. After M1.7, a figure that is not defined here ma
 | 18 | Supplier bought / paid / owed | Supplier detail (statement) | Non-cancelled payables of that supplier | Transferred / allocated / unapplied / refunded / unresolved (M1.2), plus marketplace settlements | Transfer header and allocations can differ. Settlements missing |
 | 19 | Supplier list paid / owed / birds bought | Suppliers | Ledger paid; ledger owed **plus** pending settlements; mixed-unit quantity | Same figures as 17 and 18; quantity per unit | Differs from the statement and Supplier payments. Adds kg to birds |
 | 20 | Batch registered / taken / sold elsewhere / left | Supplier detail | Batch counters | Lot movements (M2.1). The declaration is never counted as stock | The four figures do not add up when birds are reserved |
-| 21 | Trading sales / gross margin | Manage | Marketplace orders by created date, including undelivered ones, at ordered quantity | Same population and dates as 6 and 13 | A third definition of "sales" |
+| 21 | Trading sales / gross margin | Manage | Same population and dates as 6 and 13 (`reporting.profit`), built 5 October 2026; "Orders placed" stays a count by created date | Same | Resolved |
 
 ---
 
@@ -94,7 +94,7 @@ The finance owner signs it off. After M1.7, a figure that is not defined here ma
    - Display rounds half-up instead of truncating.
 7. **Provisional and qualified flags (R5, R7).**
    - Any figure that depends on an unknown cost, an unresolved allocation, an unassigned payment or an unresolved recognition date carries `provisional: true`, with the count and amount affected.
-   - The UI shows "Provisional: …" next to the figure. It never shows a minimum or range.
+   - The UI shows "Provisional: …" with the count and amount affected. A profit or margin that needs an unknown cost is shown **as** "Provisional: buying costs incomplete" (or "cost unknown" for one sale), in place of the number; the stock cost beside it is labelled "Known stock cost". It never shows a minimum, range or "at least" figure (M1.3).
 8. **Drilldown rule.** Every headline links to a list whose rows, under the **same filters, scope, dates and rounding**, add up exactly to the headline across **all pages** of that list. A preview limited to the top 5 or top 100 must say so and must not be presented as the drilldown.
 9. **One snapshot per page (M5).** One endpoint per finance page, read in a single `REPEATABLE READ READ ONLY` transaction.
 
@@ -185,7 +185,7 @@ The finance owner signs it off. After M1.7, a figure that is not defined here ma
   - Two figures: **Overdue to collect** (receivables) and **Overdue to pay** (payables). Each has its own tab filtered by direction.
   - Marketplace rows have no due date. **Proposed:**
     - A recognised marketplace receivable is due on the delivery date and becomes overdue the next day.
-    - A pending settlement is due 7 days after delivery. This needs finance-owner sign-off (D1, Maternus Joshua) as a policy rule, not a code default.
+    - A pending settlement is due 7 days after delivery (`reporting.PAYOUT_DAYS`). Signed off by the finance owner on 5 October 2026; built.
   - Computed in the API, never added up in the browser.
 
 ### 4. Marketplace receivables
@@ -378,7 +378,7 @@ The finance owner signs it off. After M1.7, a figure that is not defined here ma
 - **Exclusions:** cancelled sales; undelivered or cancelled orders.
 - **Drilldown:** the Profit day-by-day table, whose rows add up to the cards. Each day's link to the Sales list shows only direct sales.
 - **Current gaps:**
-  - **G19.** An unknown buying cost counts as 0, which overstates margin (F02).
+  - **G19.** ~~An unknown buying cost counts as 0, which overstates margin (F02).~~ Fixed by M1.3: `sale_items.cost_state`; an unknown line adds nothing to cost of goods and the period is provisional.
   - **G20.** Cancelling a `sale_cost` debt clears the matching item costs and recalculates `cost_amount`, which raises profit (F06, `finance.cancel_debt`).
   - **G21.** A marketplace order is dated by creation, not delivery. An order made in September and delivered in October lands in September, and only after delivery, so a closed month changes (F07).
   - **G22.** Marketplace cost falls back to the **ordered** quantity when the item has no `actual_quantity`, while the settlement uses `order.actual_quantity` (`services.advance`). Cost and payable can then differ. The cost is also rounded per day, not per item.

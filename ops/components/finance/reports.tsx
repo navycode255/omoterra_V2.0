@@ -1,7 +1,7 @@
 'use client';
 import { useEffect, useState } from 'react';
 import type { FinancialReport } from '@/lib/reports';
-import { expenseLabel } from '@/lib/finance';
+import { PROVISIONAL, expenseLabel } from '@/lib/finance';
 import styles from './reports.module.css';
 import { Busy } from '@/components/spinner';
 import { createReportPdf, prepareReportDocument, ReportDocument } from './report-document';
@@ -21,10 +21,15 @@ function csvCell(value: unknown) {
   return `"${text.replaceAll('"', '""')}"`;
 }
 function downloadCsv(report: FinancialReport) {
-  const rows: unknown[][] = [['Omoterra financial report', 'Provisional recorded activity'], ['Generated (UTC)', report.generated_at], ['Model', report.model_version], ['From', report.actual.start, 'To', report.actual.end], [], ['Metric', 'Selected period (TZS)', 'Previous equal-length period (TZS)']];
-  for (const key of ['revenue', 'stock_cost', 'marketplace_cost', 'expenses', 'stock_lost', 'net_profit'] as const) rows.push([key, report.actual[key], report.previous[key]]);
-  rows.push([], ['Daily recorded activity'], ['Date', 'Revenue', 'Stock cost', 'Marketplace cost', 'Expenses', 'Losses', 'Recorded operating result']);
-  for (const d of report.actual.days) rows.push([d.date, d.revenue, d.stock_cost, d.marketplace_cost, d.expenses, d.stock_lost, d.net_profit]);
+  // Rule R5: a result that needs an unknown buying cost is never exported as a figure.
+  const result = (period: FinancialReport['actual']) => period.provisional ? PROVISIONAL : period.net_profit;
+  const rows: unknown[][] = [['Omoterra financial report', 'Provisional recorded activity'], ['Generated (UTC)', report.generated_at], ['Model', report.model_version], ['From', report.actual.start, 'To', report.actual.end]];
+  if (report.provisional) rows.push([PROVISIONAL, `${report.unknown_cost.sales} sales`, `${report.unknown_cost.revenue} revenue affected`, `${report.unknown_cost.lines} lines with unknown cost`]);
+  rows.push([], ['Metric', 'Selected period (TZS)', 'Previous equal-length period (TZS)']);
+  for (const key of ['revenue', 'stock_cost', 'marketplace_cost', 'expenses', 'stock_lost'] as const) rows.push([key, report.actual[key], report.previous[key]]);
+  rows.push(['net_profit', result(report.actual), result(report.previous)]);
+  rows.push([], ['Daily recorded activity'], ['Date', 'Revenue', 'Stock cost (known)', 'Marketplace cost', 'Expenses', 'Losses', 'Recorded operating result']);
+  for (const d of report.actual.days) rows.push([d.date, d.revenue, d.stock_cost, d.marketplace_cost, d.expenses, d.stock_lost, d.provisional ? PROVISIONAL : d.net_profit]);
   rows.push([], ['Direct-sale product performance'], ['Product', 'Revenue', 'Known cost', 'Gross margin (blank if unknown)', 'Uncosted lines']);
   for (const p of report.products) rows.push([p.category, p.revenue, p.known_cost, p.gross_margin, p.unknown_lines]);
   rows.push([], ['Forecast assumptions']);
@@ -60,7 +65,12 @@ function PdfButton({ report }: { report: FinancialReport }) {
       link.href = url; link.download = file.name;
       document.body.append(link); link.click(); link.remove();
     }
-    catch { setError('The PDF could not be created on this device. Please try again, or use Download CSV.'); }
+    catch (error) {
+      console.error('PDF export failed', error);
+      // The reason helps support tell a weak connection from a device limit.
+      const reason = error instanceof Error && error.message ? ` (${error.message.slice(0, 120)})` : '';
+      setError(`The PDF could not be created on this device${reason}. Please try again, or use Download CSV.`);
+    }
     finally { setBusy(false); }
   }
   async function share() {
@@ -109,12 +119,14 @@ export function FinancialReports({ report, today }: { report: FinancialReport; t
       <p className={styles.help}>Stock costs and recorded losses come from history. Split all other operating costs between fixed and variable inputs—do not include them twice. Include costs missing from your records. Growth defaults to 0%; the first forecast covers the next full month after the report end month.</p>
       <div className={styles.formFooter}><label className={styles.check}><input type="checkbox" name="reviewed" value="true" defaultChecked={report.assumptions.reviewed}/>I reviewed the source costs, expense split, growth assumption and available capacity.</label><button className={styles.primary}>Generate report</button></div>
     </form>
-    <aside className={styles.notice}><strong>Provisional management report</strong><span>{report.unknown_cost_lines ? `${report.unknown_cost_lines} sale lines have missing costs. ` : ''}Recorded operating results are not reconciled cash or final net income. Review the scope notes before investing.</span></aside>
+    <aside className={styles.notice}><strong>{report.provisional ? PROVISIONAL : 'Provisional management report'}</strong><span>{report.provisional ? `${report.unknown_cost.sales} sales (${amount(report.unknown_cost.revenue)} revenue) have ${report.unknown_cost.lines} lines with an unknown buying cost, so no operating result is shown for this period. ` : ''}Recorded operating results are not reconciled cash or final net income. Review the scope notes before investing.</span></aside>
     <section className={styles.metrics} aria-label="Recorded performance">
       <article><span>Recorded revenue</span><strong>{amount(a.revenue)}</strong><small>Previous period: {amount(report.previous.revenue)}</small></article>
-      <article><span>Stock cost</span><strong>{amount(a.cost_of_goods)}</strong><small>{report.unknown_cost_lines ? 'Incomplete buying costs' : 'Recorded cost of stock sold'}</small></article>
+      <article><span>{report.provisional ? 'Known stock cost' : 'Stock cost'}</span><strong>{amount(a.cost_of_goods)}</strong><small>{report.provisional ? `${report.unknown_cost.lines} lines: cost unknown` : 'Recorded cost of stock sold'}</small></article>
       <article><span>Expenses & recorded losses</span><strong>{amount(a.expenses_and_losses)}</strong><small>Includes unpaid expense obligations</small></article>
-      <article data-tone={Number(a.net_profit) < 0 ? 'negative' : 'positive'}><span>Recorded operating result</span><strong>{amount(a.net_profit)}</strong><small>Provisional · {report.history_days} days / {report.active_sales_days} selling days</small></article>
+      {report.provisional
+        ? <article><span>Recorded operating result</span><strong>{PROVISIONAL}</strong><small>{report.unknown_cost.sales} sales · {amount(report.unknown_cost.revenue)} revenue affected</small></article>
+        : <article data-tone={Number(a.net_profit) < 0 ? 'negative' : 'positive'}><span>Recorded operating result</span><strong>{amount(a.net_profit)}</strong><small>Provisional · {report.history_days} days / {report.active_sales_days} selling days</small></article>}
     </section>
     <section className={styles.panel}><div className={styles.sectionHeading}><div><p className={styles.eyebrow}>LOOKING AHEAD</p><h2>Earnings & break-even</h2></div>{report.forecast && <div className={styles.tabs}>{report.forecast.scenarios.map((s, i) => <button key={s.name} aria-pressed={scenario === i} onClick={() => setScenario(i)}>{s.name}</button>)}</div>}</div>
       {!report.forecast || !selected ? <div className={styles.empty}><h3>Forecast needs a reliable starting point</h3><ul>{report.forecast_blockers.map(v => <li key={v}>{v}</li>)}</ul><p>Your recorded results remain available above and in the downloads.</p></div> : <>
@@ -131,7 +143,7 @@ export function FinancialReports({ report, today }: { report: FinancialReport; t
       </>}
     </section>
     <section className={styles.panel}><h2>Where to improve & grow</h2><p>Recommendations are tied to recorded evidence. Growth candidates still require a cash and capacity review.</p><div className={styles.insights}>{report.suggestions.map(s => <article key={s.title}><span className={styles.eyebrow}>{s.priority}</span><h3>{s.title}</h3><p><strong>{s.evidence}</strong></p><p>{s.action}</p></article>)}</div></section>
-    <div className={styles.columns}><section className={styles.panel}><h2>Product performance</h2><p>Direct sales only · margins before shared operating costs</p><div className={styles.tableWrap}><table><thead><tr><th>Product</th><th>Revenue</th><th>Gross margin</th></tr></thead><tbody>{report.products.map(p => <tr key={p.category}><th>{label(p.category)}<small>{p.lines} sale lines</small></th><td>{amount(p.revenue)}</td><td>{p.gross_margin === null ? `Unknown (${p.unknown_lines} uncosted)` : amount(p.gross_margin)}</td></tr>)}</tbody></table></div>{!report.products.length && <p>No direct sales in this period.</p>}</section>
+    <div className={styles.columns}><section className={styles.panel}><h2>Product performance</h2><p>Direct sales only · margins before shared operating costs</p><div className={styles.tableWrap}><table><thead><tr><th>Product</th><th>Revenue</th><th>Gross margin</th></tr></thead><tbody>{report.products.map(p => <tr key={p.category}><th>{label(p.category)}<small>{p.lines} sale lines</small></th><td>{amount(p.revenue)}</td><td>{p.gross_margin === null ? `Cost unknown (${p.unknown_lines} ${p.unknown_lines === 1 ? 'line' : 'lines'})` : amount(p.gross_margin)}</td></tr>)}</tbody></table></div>{!report.products.length && <p>No direct sales in this period.</p>}</section>
       <section className={styles.panel}><h2>Recorded expenses</h2><div className={styles.tableWrap}><table><thead><tr><th>Category</th><th>Amount</th></tr></thead><tbody>{a.expenses_by_category.map(e => <tr key={e.category}><th>{expenseLabel(e.category)}</th><td>{amount(e.amount)}</td></tr>)}</tbody></table></div>{!a.expenses_by_category.length && <p>No expenses recorded. This does not establish zero operating costs.</p>}</section></div>
     <section className={styles.panel}><h2>Report basis & assumptions</h2><p>Model: {report.model_version} · Prior comparison: {report.previous.start} — {report.previous.end}</p><p>Monthly fixed costs: {amount(report.assumptions.fixed)} · Other variable costs: {report.assumptions.variable_pct ?? 'Not supplied'}% · Monthly growth: {report.assumptions.growth_pct}% · Unrecovered investment: {amount(report.assumptions.investment)}</p><ul>{report.limitations.map(v => <li key={v}>{v}</li>)}</ul><p>Break-even sales = fixed costs ÷ contribution margin ratio. <a href={report.methodology_url} target="_blank" rel="noreferrer">SBA methodology</a>. Revenue baseline uses every calendar day in the selected period, including days without sales.</p><p>CSV contains every daily row and all three scenarios. Save snapshot preserves the exact data and assumptions used to generate this report. Download PDF saves the seven-page management report as a file on any device.</p></section>
   </div>
