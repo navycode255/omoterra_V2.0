@@ -2,6 +2,7 @@ import { randomUUID } from 'node:crypto';
 import Link from 'next/link';
 import { notFound } from 'next/navigation';
 import { ActionForm } from '@/components/form';
+import { SaleDialog } from '@/components/finance/sale-dialog';
 import { Icons } from '@/components/icons';
 import { Notice, PageHeader, Status } from '@/components/ui';
 import { DebtSummary, PartyLink, PaymentForm, PaymentsTable, debtStatus, debtTone } from '@/components/finance/ledger';
@@ -53,6 +54,21 @@ export default async function SaleWorkspace({ params, searchParams }: {
           subtitle={`Sold ${day(sale.sold_on)} · entered ${dateTime(sale.created_at)} by ${sale.created_by ?? '—'}`} />
       </div>
       <div className={styles.saleDetailActions}>
+        {admin && sale.status === 'active' && <SaleDialog label="More actions" title="Cancel sale">
+        {anyPaid ? <p className="small muted">Reverse recorded payments before cancelling this sale.</p>
+          : <ActionForm action={cancelSale} label="Cancel sale" variant="danger"
+              confirm="Cancel this sale? Its own debts are cancelled too. It stays in the history."
+              hidden={{ sale_id: sale.id, idempotency_key: randomUUID() }}>
+              <div className="field"><label htmlFor="reason">Reason</label><input id="reason" name="reason" className="input" required minLength={3} /></div>
+              {received.length > 0 && <fieldset className="field">
+                <legend>What happened to the received goods ({received.map((item) => `${quantity(item.quantity)} ${unitLabel(item.unit)}`).join(', ')})?</legend>
+                {GOODS_OUTCOMES.map(([id, label]) => <label key={id} className="row"><input type="radio" name="goods" value={id} required />{label}</label>)}
+                <label htmlFor="goods-note">Condition of returned goods (if returned)</label>
+                <input id="goods-note" name="goods_note" className="input" placeholder="e.g. All alive, checked by Juma" />
+                <span className="meta">The delivery note or LPO and what is owed to the supplier do not change. To reduce what was received, correct the delivery note.</span>
+              </fieldset>}
+            </ActionForm>}
+        </SaleDialog>}
         {sale.status === 'active' && !sale.items.some(i => i.location_allocation_id) && <Link className={styles.editSaleButton} href={`/sales/${sale.id}/edit`}><Icons.edit size={18} />Edit sale</Link>}
         {sale.status === 'cancelled' ? <Status>Cancelled</Status>
           : Number(sale.balance) > 0 ? <Status tone="warning">Buyer owes {tzs(sale.balance)}</Status> : <Status tone="positive">Paid in full</Status>}
@@ -79,19 +95,19 @@ export default async function SaleWorkspace({ params, searchParams }: {
           <section className={styles.saleDetailCard}>
             <header className={styles.saleCardHeader}><span><Icons.box size={22} /></span><h2>Items in this sale</h2></header>
             <div className={styles.saleItemsTable}>
-              <table>
+              <table data-phone-native>
                 <thead><tr><th>Item</th><th>Qty</th><th>Price</th><th>Total</th><th>From (supplier)</th></tr></thead>
                 <tbody>{sale.items.map((item) => {
                   const supplier = item.supplier_name || payables.find((debt) => debt.supplier_id === item.supplier_id)?.party_name || 'Supplier';
                   return <tr key={item.id}>
-                    <td><div className={styles.saleProduct}>{item.category
+                    <td data-label="Item"><div className={styles.saleProduct}>{item.category
                       ? <span style={{ backgroundImage: `url(${categoryImage(item.category)})` }} />
                       : <span className={styles.saleProductFallback}><Icons.box size={20} /></span>}
                       <div><b>{item.category ? category(item.category) : item.description}</b>{item.category && item.description && <small>{item.description}</small>}</div></div></td>
-                    <td>{quantity(item.quantity)} {unitLabel(item.unit)}</td>
-                    <td>{tzs(item.unit_price)}</td>
-                    <td><b>{tzs(item.subtotal)}</b></td>
-                    <td>{item.supplier_collection_id ? <><Link href={`/supplier-collections/${item.supplier_collection_id}`}>Delivery note</Link><small>{supplier} · cost {tzs(item.unit_cost)} each</small></>
+                    <td data-label="Quantity">{quantity(item.quantity)} {unitLabel(item.unit)}</td>
+                    <td data-label="Price">{tzs(item.unit_price)}</td>
+                    <td data-label="Total"><b>{tzs(item.subtotal)}</b></td>
+                    <td data-label="Stock source">{item.supplier_collection_id ? <><Link href={`/supplier-collections/${item.supplier_collection_id}`}>Delivery note</Link><small>{supplier} · cost {tzs(item.unit_cost)} each</small></>
                       : item.lpo_line_id ? <>LPO stock<small>cost {tzs(item.unit_cost)} each</small></>
                       : item.location_allocation_id ? <><Link href={`/locations/${sale.location_id}`}>Location stock</Link><small>cost {item.cost_state === 'unknown' ? 'unknown' : `${tzs(item.unit_cost)} each`}</small></>
                       : item.opening_stock_id ? <><Link href={`/finance/opening-stock?q=${item.opening_stock_number ?? ''}`}>Opening stock {item.opening_stock_number}</Link><small>cost {tzs(item.unit_cost)} each</small></>
@@ -133,7 +149,7 @@ export default async function SaleWorkspace({ params, searchParams }: {
             <header className={styles.saleCardHeader}><span><Icons.card size={22} /></span><h2>Buyer payments</h2></header>
             <DebtSummary debt={receivable} />
             <div className={styles.salePayments}><PaymentsTable payments={receivable.payments} admin={admin} direction="receivable" /></div>
-            {sale.status === 'active' && <PaymentForm debt={receivable} today={today()} saleId={sale.id} />}
+            {sale.status === 'active' && <SaleDialog label="Record buyer payment" title="Buyer payment"><PaymentForm debt={receivable} today={today()} saleId={sale.id}/></SaleDialog>}
           </section>}
 
           {payables.map((debt) => <section key={debt.id} className={styles.saleDetailCard}>
@@ -141,27 +157,12 @@ export default async function SaleWorkspace({ params, searchParams }: {
             <p className={styles.saleDebtMeta}><PartyLink debt={debt} /> · {debt.description} · <Link href={`/finance/debts/${debt.id}`}>review / reconcile</Link></p>
             <DebtSummary debt={debt} />
             <div className={styles.salePayments}><PaymentsTable payments={debt.payments} admin={admin} direction="payable" supplier={Boolean(debt.supplier_id)} /></div>
-            {sale.status === 'active' && <PaymentForm debt={debt} today={today()} saleId={sale.id} />}
+            {sale.status === 'active' && <SaleDialog label="Record supplier payment" title={`Payment to ${debt.party_name}`}><PaymentForm debt={debt} today={today()} saleId={sale.id}/></SaleDialog>}
           </section>)}
         </div>
       </div>
 
-      {admin && sale.status === 'active' && <section className={`${styles.saleDetailCard} ${styles.cancelSaleCard}`}>
-        <header className={styles.saleCardHeader}><h2>Cancel sale</h2></header>
-        {anyPaid ? <p className="small muted">Reverse recorded payments before cancelling this sale.</p>
-          : <ActionForm action={cancelSale} label="Cancel sale" variant="danger"
-              confirm="Cancel this sale? Its own debts are cancelled too. It stays in the history."
-              hidden={{ sale_id: sale.id, idempotency_key: randomUUID() }}>
-              <div className="field"><label htmlFor="reason">Reason</label><input id="reason" name="reason" className="input" required minLength={3} /></div>
-              {received.length > 0 && <fieldset className="field">
-                <legend>What happened to the received goods ({received.map((item) => `${quantity(item.quantity)} ${unitLabel(item.unit)}`).join(', ')})?</legend>
-                {GOODS_OUTCOMES.map(([id, label]) => <label key={id} className="row"><input type="radio" name="goods" value={id} required />{label}</label>)}
-                <label htmlFor="goods-note">Condition of returned goods (if returned)</label>
-                <input id="goods-note" name="goods_note" className="input" placeholder="e.g. All alive, checked by Juma" />
-                <span className="meta">The delivery note or LPO and what is owed to the supplier do not change. To reduce what was received, correct the delivery note.</span>
-              </fieldset>}
-            </ActionForm>}
-      </section>}
+
     </div>
   </div>;
 }

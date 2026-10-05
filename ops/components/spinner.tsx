@@ -16,7 +16,7 @@ export function Busy({ children }: { children: React.ReactNode }) {
 
 /** Branded route fallback; the surrounding navigation remains interactive. */
 export function PageLoader({ message = 'Loading latest records...' }: { message?: string }) {
-  return <div className="page-loader" role="status" aria-live="polite" aria-atomic="true">
+  return <div className="page-loader" role="status" aria-live="polite" aria-atomic="true" aria-label={message}>
     <div className="page-loader-content">
       <span className="page-loader-mark" aria-hidden="true">
         <svg className="page-loader-orbit" viewBox="0 0 160 160" fill="none">
@@ -30,8 +30,6 @@ export function PageLoader({ message = 'Loading latest records...' }: { message?
           <Image src="/icon.png" width={64} height={64} alt="" priority />
         </span>
       </span>
-      <span className="page-loader-text">{message}</span>
-      <span className="page-loader-hint">Please wait a moment</span>
     </div>
   </div>;
 }
