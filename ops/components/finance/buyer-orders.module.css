@@ -1,0 +1,39 @@
+/* Orders staff take for a buyer (build plan M2.5): list, form and detail. */
+.actions { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; }
+.dates { display: grid; grid-template-columns: repeat(2, minmax(0, 220px)); gap: 14px; margin-top: 14px; }
+.hint { margin: 12px 0 0; color: #6b7a8f; font-size: 13px; }
+.problem { color: var(--error, #c0392b); font-size: 12px; }
+.note { margin: 0 0 16px; padding: 12px 14px; border: 1px solid #f3dcb5; border-radius: 12px; background: #fff8ec; color: #6b4a12; font-size: 14px; }
+.late { color: #c2410c; font-weight: 600; }
+
+.detail { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(280px, 1fr); gap: 18px; align-items: start; }
+.panel { display: grid; gap: 14px; padding: 18px 20px; border: 1px solid var(--line); border-radius: 14px; background: #fff; }
+.panel h2 { margin: 0; font-size: 17px; }
+.facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 18px; margin: 0; }
+.facts div { display: grid; gap: 2px; min-width: 0; }
+.facts dt { color: #6b7a8f; font-size: 12px; }
+.facts dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.lines { width: 100%; border-collapse: collapse; font-size: 14px; }
+.lines th, .lines td { padding: 9px 8px; border-bottom: 1px solid var(--line); text-align: left; }
+.lines td:last-child, .lines th:last-child { text-align: right; }
+.lines tfoot td { font-weight: 700; border-bottom: 0; }
+.payment { display: grid; gap: 6px; padding: 12px 0; border-top: 1px solid var(--line); }
+.payment:first-of-type { border-top: 0; padding-top: 0; }
+.payment header { display: flex; justify-content: space-between; gap: 10px; font-weight: 600; }
+.payment small { color: #6b7a8f; }
+.payment details summary { cursor: pointer; color: #0b6b43; font-size: 13px; font-weight: 600; }
+.payment details > form { margin-top: 10px; }
+.state { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: #0b8a4e; }
+.state[data-state='voided'], .state[data-state='given_back'] { color: #8a94a6; }
+.state[data-state='applied'] { color: #1d4ed8; }
+.danger summary { color: #b42318; }
+
+@media (max-width: 900px) {
+  .detail { grid-template-columns: 1fr; }
+}
+@media (max-width: 700px) {
+  .dates { grid-template-columns: 1fr; }
+  .facts { grid-template-columns: 1fr; }
+  .panel { padding: 14px; }
+  .actions > * { flex: 1 1 auto; }
+}

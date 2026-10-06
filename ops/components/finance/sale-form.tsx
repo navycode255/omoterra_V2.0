@@ -3,13 +3,17 @@
 import { useActionState, useMemo, useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { createSale, updateSale } from '@/lib/finance-actions';
+import { deliverBuyerOrder } from '@/lib/buyer-order-actions';
+import type { BuyerOrderDetail } from '@/lib/buyer-orders';
 import { Icons } from '@/components/icons';
 import { InfoTip } from '@/components/info-tip';
 import { DEFAULT_UNIT, GOODS_OUTCOMES, METHODS, PRODUCTS, UNITS, type OpenBatch, type OpeningStock, type Parties, type SaleDetail, type SupplierCollectionStock } from '@/lib/finance';
 import type { LpoStockRow } from '@/lib/lpo';
 import { tanzanianMobile } from '@/lib/phone';
 import styles from './finance.module.css';
+import orderStyles from './buyer-orders.module.css';
 import { Busy } from '@/components/spinner';
+import { AccountSelect } from '@/components/finance/account-select';
 
 type Line = {
   key: number;
@@ -36,6 +40,8 @@ type Line = {
   cost_status: 'owed' | 'paid';
   cost_method: string;
   cost_reference: string;
+  // The money account the supplier was paid from (M2.3).
+  cost_account: string;
   cost_paid_on: string;
 };
 
@@ -45,7 +51,7 @@ function blank(key: number): Line {
   return { key, category: 'local_chicken', description: '', unit: 'bird', quantity: '', unit_price: '',
     source: 'own', supplier_id: '', supplier_name: '', unit_cost: '', lpo_line_id: '', supplier_collection_id: '', supplier_batch_id: '',
     opening_stock_id: '', cost_unknown: false,
-    receipt_confirmed: false, legacy_batch_id: '', cost_status: 'owed', cost_method: 'cash', cost_reference: '', cost_paid_on: '' };
+    receipt_confirmed: false, legacy_batch_id: '', cost_status: 'owed', cost_method: 'cash', cost_reference: '', cost_account: '', cost_paid_on: '' };
 }
 
 // Money typed as "15,000" or "15000"; NaN when not a number.
@@ -53,10 +59,10 @@ const num = (value: string) => (value.trim() === '' ? NaN : Number(value.replace
 const tzs = (value: number) => `TZS ${Math.round(value).toLocaleString('en-US')}`;
 const clean = (value: string) => value.replace(/,/g, '').trim();
 
-function Submit({ disabled, editing = false }: { disabled: boolean; editing?: boolean }) {
+function Submit({ disabled, editing = false, delivering = false }: { disabled: boolean; editing?: boolean; delivering?: boolean }) {
   const { pending } = useFormStatus();
   return <button type="submit" className={styles.saveButton} disabled={pending || disabled}>
-    {!pending && <span aria-hidden="true">▣</span>}{pending ? <Busy>Saving…</Busy> : editing ? 'Save changes' : 'Save sale'}
+    {!pending && <span aria-hidden="true">▣</span>}{pending ? <Busy>Saving…</Busy> : editing ? 'Save changes' : delivering ? 'Mark delivered and save sale' : 'Save sale'}
   </button>;
 }
 
@@ -64,14 +70,17 @@ function StepTitle({ number, children }: { number: number; children: React.React
   return <h2 className={styles.stepTitle}><span>{number}</span>{children}</h2>;
 }
 
-export function SaleForm({ parties, today, stock = [], supplierStock = [], batches = [], openingStock = [], sale }: { parties: Parties; today: string; stock?: LpoStockRow[]; supplierStock?: SupplierCollectionStock[]; batches?: OpenBatch[]; openingStock?: OpeningStock[]; sale?: SaleDetail }) {
+// `order`: "Mark delivered" on a staff buyer order (build plan M2.5). The
+// form starts from the order (buyer fixed, its lines and prices); staff say
+// where the stock came from and the delivery day, which is the sale date.
+export function SaleForm({ parties, today, stock = [], supplierStock = [], batches = [], openingStock = [], sale, order }: { parties: Parties; today: string; stock?: LpoStockRow[]; supplierStock?: SupplierCollectionStock[]; batches?: OpenBatch[]; openingStock?: OpeningStock[]; sale?: SaleDetail; order?: BuyerOrderDetail }) {
   const editing = Boolean(sale);
-  const [state, action] = useActionState(editing ? updateSale : createSale, null);
+  const [state, action] = useActionState(editing ? updateSale : order ? deliverBuyerOrder : createSale, null);
   // One key per filled-in form: a double click or retry records one sale.
   const [idempotencyKey] = useState(() => crypto.randomUUID());
   const [mode, setMode] = useState<'existing' | 'new'>('existing');
   const [search, setSearch] = useState('');
-  const [buyer, setBuyer] = useState(sale ? `profile:${sale.buyer_profile_id}` : '');
+  const [buyer, setBuyer] = useState(sale ? `profile:${sale.buyer_profile_id}` : order ? `profile:${order.buyer_profile_id}` : '');
   const [newBuyer, setNewBuyer] = useState({ business_name: '', buyer_type: 'personal', contact_person: '', phone: '', region: '', area: '' });
   const [soldOn, setSoldOn] = useState(sale?.sold_on ?? today);
   const [lines, setLines] = useState<Line[]>(sale ? sale.items.map((item, index) => ({
@@ -82,10 +91,17 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
     opening_stock_id: item.opening_stock_id ?? '', cost_unknown: item.cost_state === 'unknown' && !item.supplier_id && !item.supplier_name,
     receipt_confirmed: false, legacy_batch_id: item.supplier_batch_id ?? '',
     supplier_id: item.supplier_id ?? '', supplier_name: item.supplier_name,
-    unit_cost: item.unit_cost ?? '', cost_status: 'owed', cost_method: 'cash', cost_reference: '', cost_paid_on: sale.sold_on,
-  })) : [blank(1)]);
-  const [paid, setPaid] = useState({ amount: '', method: 'cash', reference: '', paid_on: today });
-  const [notes, setNotes] = useState(sale?.notes ?? '');
+    unit_cost: item.unit_cost ?? '', cost_status: 'owed', cost_method: 'cash', cost_reference: '', cost_account: '', cost_paid_on: sale.sold_on,
+  })) : order ? order.items.map((item, index) => ({ ...blank(index + 1), category: item.category, description: item.description,
+    unit: item.unit, quantity: String(Number(item.quantity)), unit_price: String(Number(item.unit_price)) })) : [blank(1)]);
+  const [paid, setPaid] = useState({ amount: '', method: 'cash', reference: '', paid_on: today, account: '' });
+  const [notes, setNotes] = useState(sale?.notes ?? (order ? `Order ${order.order_number}${order.notes ? `: ${order.notes}` : ''}` : ''));
+  // Deposits held on the order go on the sale when it is saved.
+  const held = Number(order?.deposit_held ?? 0);
+  // A sale of received stock dated more than 3 days back is a late entry:
+  // admin only, with a reason (build plan M2.2). Editing counts the older of
+  // the two dates.
+  const [lateReason, setLateReason] = useState('');
   // Editing: what happened to received goods the sale now sells fewer of (rule R2).
   const [goods, setGoods] = useState({ outcome: '', note: '' });
   const soldReceived = Boolean(sale?.items.some((item) => item.supplier_collection_id || item.lpo_line_id || item.opening_stock_id));
@@ -106,7 +122,7 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
   const supplierDue = editing ? Math.max(supplierCost - alreadyPaidToSuppliers, 0)
     : lines.reduce((sum, l) => sum + ((l.source === 'supplier' || l.source === 'named') && l.cost_status === 'owed' ? num(l.quantity) * num(l.unit_cost) || 0 : 0), 0);
   const paidNow = num(paid.amount) || 0;
-  const recordedReceived = editing ? Number(sale?.received_amount ?? 0) : paidNow;
+  const recordedReceived = editing ? Number(sale?.received_amount ?? 0) : paidNow + held;
   const paymentProblem = recordedReceived > total;
   const phoneProblem = mode === 'new' && newBuyer.phone.trim() !== '' && !tanzanianMobile(newBuyer.phone);
 
@@ -134,34 +150,43 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
         unit_price: clean(l.unit_price),
         ...(l.source === 'supplier' ? { supplier_id: l.supplier_id || null, unit_cost: clean(l.unit_cost), supplier_batch_id: l.supplier_batch_id || null,
           receipt_confirmed: Boolean(l.supplier_batch_id) && l.receipt_confirmed,
-          ...(!editing && l.cost_status === 'paid' ? { cost_payment: { paid_on: l.cost_paid_on || soldOn, method: l.cost_method, reference: l.cost_reference } } : {}) } : {}),
+          ...(!editing && l.cost_status === 'paid' ? { cost_payment: { paid_on: l.cost_paid_on || soldOn, method: l.cost_method, reference: l.cost_reference, money_account_id: l.cost_account || null } } : {}) } : {}),
         ...(l.source === 'named' ? { supplier_name: l.supplier_name, unit_cost: clean(l.unit_cost),
-          ...(!editing && l.cost_status === 'paid' ? { cost_payment: { paid_on: l.cost_paid_on || soldOn, method: l.cost_method, reference: l.cost_reference } } : {}) } : {}),
+          ...(!editing && l.cost_status === 'paid' ? { cost_payment: { paid_on: l.cost_paid_on || soldOn, method: l.cost_method, reference: l.cost_reference, money_account_id: l.cost_account || null } } : {}) } : {}),
         ...(l.source === 'lpo' ? { lpo_line_id: l.lpo_line_id || null } : {}),
         ...(l.source === 'collection' ? { supplier_collection_id: l.supplier_collection_id || null } : {}),
         ...(l.source === 'opening' ? { opening_stock_id: l.opening_stock_id || null } : {}),
         ...(l.source === 'own' ? (l.cost_unknown ? { cost_unknown: true } : { unit_cost: clean(l.unit_cost) }) : {}),
       })),
-      ...(!editing && paidNow > 0 ? { payment: { amount: clean(paid.amount), method: paid.method, reference: paid.reference, paid_on: paid.paid_on } } : {}),
+      ...(!editing && paidNow > 0 ? { payment: { amount: clean(paid.amount), method: paid.method, reference: paid.reference, paid_on: paid.paid_on, money_account_id: paid.account || null } } : {}),
       ...(editing && goods.outcome ? { goods: goods.outcome, goods_note: goods.note } : {}),
+      ...(lateReason.trim() ? { late_reason: lateReason.trim() } : {}),
     });
-  }, [buyer, mode, newBuyer, soldOn, notes, lines, paid, paidNow, editing, goods, sale?.location_id]);
+  }, [buyer, mode, newBuyer, soldOn, notes, lines, paid, paidNow, editing, goods, sale?.location_id, lateReason]);
+  const earliest = sale && sale.sold_on < soldOn ? sale.sold_on : soldOn;
+  const late = (Date.parse(today) - Date.parse(earliest)) / 86_400_000 > 3
+    && lines.some((l) => l.source === 'collection' || l.source === 'lpo' || l.source === 'opening' || (l.source === 'supplier' && l.supplier_batch_id && l.receipt_confirmed));
 
   return (
     <form action={action} className={styles.saleForm}>
       <input type="hidden" name="payload" value={payload} />
       <input type="hidden" name="idempotency_key" value={idempotencyKey} />
       {sale && <input type="hidden" name="sale_id" value={sale.id} />}
+      {order && <input type="hidden" name="buyer_order_id" value={order.id} />}
 
       <section className={styles.stepCard}>
         <div className={styles.stepHeader}>
           <StepTitle number={1}>Buyer</StepTitle>
-          <div className={styles.buyerModes} role="radiogroup" aria-label="Buyer">
+          {!order && <div className={styles.buyerModes} role="radiogroup" aria-label="Buyer">
             <label data-active={mode === 'existing'}><input type="radio" checked={mode === 'existing'} onChange={() => setMode('existing')} />Existing buyer</label>
             <label data-active={mode === 'new'}><input type="radio" checked={mode === 'new'} onChange={() => setMode('new')} />New buyer</label>
-          </div>
+          </div>}
         </div>
-        {mode === 'existing' ? (
+        {order ? (
+          <p className={orderStyles.hint} data-order-buyer>
+            <strong>{order.buyer_name}</strong>{order.buyer_phone ? ` · ${order.buyer_phone}` : ''} · order {order.order_number} of {order.ordered_on}
+          </p>
+        ) : mode === 'existing' ? (
           <div className={styles.buyerGrid}>
             <div className="field">
               <label htmlFor="buyer-search">Find buyer</label>
@@ -268,10 +293,15 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
                     onChange={(e) => update(line.key, { unit_price: e.target.value })} />
                 </div>
                 <div className="field">
-                  <label htmlFor={`sold-on-${line.key}`}>Date sold</label>
-                  <input id={`sold-on-${line.key}`} type="date" className="input" value={soldOn} max={today} required
+                  <label htmlFor={`sold-on-${line.key}`}>{order ? 'Date delivered' : 'Date sold'}</label>
+                  <input id={`sold-on-${line.key}`} type="date" className="input" value={soldOn} min={order?.ordered_on} max={today} required
                     onChange={(e) => setSoldOn(e.target.value)} />
                 </div>
+                {late && line.key === lines[0].key && <div className="field">
+                  <label htmlFor="late-reason">Why it is recorded late (admin only)</label>
+                  <input id="late-reason" className="input" required minLength={3} value={lateReason} placeholder="e.g. Paper invoice found"
+                    onChange={(e) => setLateReason(e.target.value)} />
+                </div>}
                 <div className={`field ${styles.sourceField}`}>
                   <label htmlFor={`src-${line.key}`}>Stock came from</label>
                   <select id={`src-${line.key}`} className="input" value={line.source}
@@ -452,6 +482,8 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
                       {METHODS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
                     </select>
                   </div>
+                  <AccountSelect id={`cost-account-${line.key}`} name={`cost-account-${line.key}`} label="Paid from account"
+                    method={line.cost_method} value={line.cost_account} onChange={(value) => update(line.key, { cost_account: value })} />
                   <div className="field">
                     <label htmlFor={`cost-ref-${line.key}`}>Receipt / transaction reference (optional)</label>
                     <input id={`cost-ref-${line.key}`} className="input" value={line.cost_reference}
@@ -476,6 +508,7 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
 
       {!editing && <section className={styles.stepCard}>
         <div className={styles.stepHeader}><StepTitle number={3}>Money received now (optional)</StepTitle></div>
+        {held > 0 && <p className={orderStyles.hint}>Deposit already paid on the order: {tzs(held)}. It goes on this sale with the day it was paid.</p>}
         <div className={styles.paymentGrid}>
           <div className="field">
             <label htmlFor="paid-amount">Amount received (TZS)</label>
@@ -488,6 +521,8 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
               {METHODS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
             </select>
           </div>
+          {Number(paid.amount || 0) > 0 && <AccountSelect id="paid-account" name="paid-account" label="Received into account" method={paid.method}
+            value={paid.account} onChange={(value) => setPaid((current) => ({ ...current, account: value }))} />}
           <div className="field">
             <label htmlFor="paid-ref">Transaction reference</label>
             <input id="paid-ref" className="input" placeholder="e.g. M-Pesa code" value={paid.reference}
@@ -522,7 +557,7 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
         <div className={`field ${styles.notesField}`}><label htmlFor="notes">Notes (optional)</label><textarea id="notes" className="input" value={notes} onChange={(e) => setNotes(e.target.value)} /></div></div></section>}
 
       {(paymentProblem || (state && !state.ok)) && <div className="notice" data-tone="error">
-        {paymentProblem ? editing ? 'The sale total cannot be less than money already received.' : 'The amount received is more than the sale total.' : state && !state.ok ? state.error : ''}
+        {paymentProblem ? editing ? 'The sale total cannot be less than money already received.' : held > 0 ? 'The deposit and the amount received are more than the sale total.' : 'The amount received is more than the sale total.' : state && !state.ok ? state.error : ''}
       </div>}
       <section className={styles.saleSummary}>
         <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.cubes size={24} /></span><div><span>Sale total</span><strong>{tzs(total)}</strong></div></div>
@@ -530,7 +565,7 @@ export function SaleForm({ parties, today, stock = [], supplierStock = [], batch
         <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.users size={24} /></span><div><span>Gross profit</span><strong>{costUnknown ? 'Provisional: cost unknown' : tzs(total - cost)}</strong></div></div>
         <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.card size={24} /></span><div><span>Buyer will owe</span><strong>{tzs(Math.max(total - recordedReceived, 0))}</strong></div></div>
         <div className={styles.summaryMetric}><span className={styles.metricIcon}><Icons.box size={24} /></span><div><span>Supplier balance</span><strong>{tzs(supplierDue)}</strong></div></div>
-        <Submit editing={editing} disabled={phoneProblem || paymentProblem || total <= 0} />
+        <Submit editing={editing} delivering={Boolean(order)} disabled={phoneProblem || paymentProblem || total <= 0} />
       </section>
     </form>
   );

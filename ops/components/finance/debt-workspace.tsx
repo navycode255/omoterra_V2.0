@@ -1,5 +1,6 @@
 'use client';
 import { useMemo, useRef, useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { Icons } from '@/components/icons';
 import { createDebt } from '@/lib/finance-actions';
@@ -45,7 +46,9 @@ export function DebtWorkspace({ children, parties, now }: { children: ReactNode;
   }
 
   return <div className={`${ui.workspace} ${styles.page} ${open ? ui.drawerOpen : ''}`}>
-    <div className={ui.heading}><h1>Debts</h1><button className={ui.primary} onClick={show}><Icons.plus size={19} />Add debt</button></div>
+    <div className={ui.heading}><h1>Debts</h1><div style={{ display: 'flex', gap: 10, flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+      <Link className={ui.secondary} href="/finance/debts/receive" title="One amount from a customer, put on their oldest debts first">Receive customer payment</Link>
+      <button className={ui.primary} onClick={show}><Icons.plus size={19} />Add debt</button></div></div>
     {saved && <p className={ui.success} role="status">Debt saved.</p>}
     {children}
     <dialog ref={dialog} className={ui.drawer} aria-labelledby="debt-drawer-title" onCancel={(event) => { if (busy) event.preventDefault(); }} onClose={() => setOpen(false)}>

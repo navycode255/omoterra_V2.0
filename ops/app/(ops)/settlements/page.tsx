@@ -7,6 +7,7 @@ import { date, quantity, reference, tzs } from '@/lib/format';
 import { ListControls } from '@/components/list-controls';
 import { listPath, type ListParams, type Page } from '@/lib/paging';
 import type { Settlement } from '@/lib/types';
+import { AccountSelect } from '@/components/finance/account-select';
 
 export const metadata = { title: 'Settlements · Omoterra Operations' };
 
@@ -173,6 +174,7 @@ export default async function Settlements({ searchParams }: { searchParams: Prom
                   <label htmlFor="payment_reference">Payment reference</label>
                   <input id="payment_reference" name="payment_reference" className="input" required />
                 </div>
+                <AccountSelect id="payout-account" label="Paid from account" />
               </div>
             </ActionForm>
           </Card>

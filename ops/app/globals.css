@@ -1305,7 +1305,7 @@ textarea.input {
   .dash-row-charts, .dash-row-metrics, .dash-row-lists { grid-template-columns: 1fr; }
 }
 @media (max-width: 700px) {
-  .dash-head { padding: 18px 16px 0; flex-direction: column; }
+  .dash-head { padding: 18px 16px 0; flex-direction: row; align-items: center; }
   .dash-head h1 { font-size: 26px; }
   .dashboard { padding: 14px 16px 24px; gap: 14px; }
   .kpi-row { grid-template-columns: 1fr; gap: 10px; }
@@ -2707,7 +2707,12 @@ textarea.join-input { min-height: 88px; resize: vertical; }
   flex-direction: column;
   align-items: center;
   text-align: center;
-  transform: translateY(-24px);
+  position: fixed;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 30;
+  pointer-events: none;
 }
 .page-loader-mark {
   position: relative;
@@ -2715,7 +2720,7 @@ textarea.join-input { min-height: 88px; resize: vertical; }
   place-items: center;
   width: 160px;
   height: 160px;
-  margin-bottom: 24px;
+  margin-bottom: 0;
 }
 .page-loader-orbit { position: absolute; inset: 0; width: 100%; height: 100%; animation: loading-orbit 1.8s linear infinite; }
 .page-loader-disc {
@@ -2773,21 +2778,21 @@ button:disabled:has(.busy-label) { opacity: .85; cursor: progress; }
 @media (max-width: 767px) {
   .shell:has(.sidebar[data-mobile-overview='true']) { --dash-green: #0b6b47; --dash-inset: 4.25vw; }
   .shell:has(.sidebar[data-mobile-overview='true']) .main { position: relative; background: #fafbf9 url('/images/dashboard/waves.svg') right top / 100% auto no-repeat; }
-  .shell:has(.sidebar[data-mobile-overview='true']) .dash-head { padding: 4.7vw var(--dash-inset) 0; gap: 3.4vw; flex-direction: column; }
-  .shell:has(.sidebar[data-mobile-overview='true']) .dash-head h1 { font-size: 6.8vw; font-weight: 800; line-height: 1.2; color: #070e15; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .dash-head { padding: 4.7vw var(--dash-inset) 0; gap: 2vw; flex-direction: row; align-items: center; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .dash-head h1 { font-size: 6.3vw; font-weight: 800; line-height: 1.2; color: #070e15; }
   .shell:has(.sidebar[data-mobile-overview='true']) .dash-head p { display: none; }
-  .shell:has(.sidebar[data-mobile-overview='true']) .range-button { min-height: 44px; height: 8.9vw; padding: 0 3.3vw; gap: 2.8vw; border: 1px solid #e8ebed; border-radius: 2.3vw; font-size: 3.3vw; font-weight: 500; }
+  .shell:has(.sidebar[data-mobile-overview='true']) .range-button { min-height: 44px; height: auto; padding: 8px 2vw; gap: 1.5vw; border: 1px solid #e8ebed; border-radius: 2.3vw; font-size: 3vw; font-weight: 500; }
   .shell:has(.sidebar[data-mobile-overview='true']) .range-button svg { width: 4vw; height: 4vw; }
-  .shell:has(.sidebar[data-mobile-overview='true']) .range-popover { right: auto; left: 0; max-width: calc(100vw - 2 * var(--dash-inset)); }
+  .shell:has(.sidebar[data-mobile-overview='true']) .range-popover { right: 0; left: auto; max-width: calc(100vw - 2 * var(--dash-inset)); }
   .dashboard[data-mobile-reference] { padding: 3.4vw var(--dash-inset) 7vw; gap: 3.5vw; }
   .dashboard[data-mobile-reference] .kpi-row { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2.9vw 2.2vw; }
-  .dashboard[data-mobile-reference] .kpi-card { position: relative; isolation: isolate; height: 30.4vw; min-height: 0; padding: 2.9vw 3.4vw; display: flex; flex-direction: column; align-items: flex-start; gap: 1.8vw; overflow: hidden; border: 1px solid #edf0ee; border-radius: 2.8vw; box-shadow: 0 1vw 3vw rgba(23,32,27,.025); }
+  .dashboard[data-mobile-reference] .kpi-card { position: relative; isolation: isolate; height: 26.4vw; min-height: 0; padding: 2.9vw 3.4vw; display: grid; grid-template-columns: 8.9vw minmax(0, 1fr); align-content: center; align-items: center; gap: 1.8vw; overflow: hidden; border: 1px solid #edf0ee; border-radius: 2.8vw; box-shadow: 0 1vw 3vw rgba(23,32,27,.025); }
   .dashboard[data-mobile-reference] .kpi-icon { width: 8.9vw; height: 8.9vw; display: grid; place-items: center; border-radius: 50%; background: #e6f3eb; color: var(--dash-green); }
   .dashboard[data-mobile-reference] .kpi-icon svg { width: 4.7vw; height: 4.7vw; }
-  .dashboard[data-mobile-reference] .kpi-copy { display: flex; flex-direction: column; gap: 1.5vw; flex: none; width: 100%; }
-  .dashboard[data-mobile-reference] .kpi-copy > span { order: -1; min-height: 3.8vw; color: #566175; font-size: 2.9vw; line-height: 1.2; }
+  .dashboard[data-mobile-reference] .kpi-copy { display: contents; }
+  .dashboard[data-mobile-reference] .kpi-copy > span { grid-column: 2; grid-row: 1; min-height: 3.8vw; color: #566175; font-size: 2.9vw; line-height: 1.2; }
   .dashboard[data-mobile-reference] .kpi-card[href='/batches'] .kpi-copy > span { max-width: 26vw; }
-  .dashboard[data-mobile-reference] .kpi-copy strong { font-size: 5.8vw; line-height: 1.1; font-weight: 800; color: #070e15; overflow: visible; white-space: normal; overflow-wrap: anywhere; }
+  .dashboard[data-mobile-reference] .kpi-copy strong { grid-column: 1 / -1; grid-row: 2; font-size: 5.8vw; line-height: 1.1; font-weight: 800; color: #070e15; overflow: visible; white-space: normal; overflow-wrap: anywhere; }
   .dashboard[data-mobile-reference] .kpi-copy small, .dashboard[data-mobile-reference] .kpi-card > svg:last-child { display: none; }
   .dashboard[data-mobile-reference] .kpi-decoration { display: block; position: absolute; z-index: -1; right: 1.9vw; bottom: 1.8vw; width: 26vw; height: 9.7vw; color: #c5e8d4; opacity: .65; mask-image: linear-gradient(to bottom, #000, transparent); }
   .dashboard[data-mobile-reference] .kpi-decoration[data-neutral='true'] { color: #e1e3e6; }
@@ -2875,4 +2880,16 @@ button:disabled:has(.busy-label) { opacity: .85; cursor: progress; }
   .shell [data-sales-table][data-phone-table] tr[data-open] td[data-phone-hidden] > div { min-width:0; }
   .shell [data-sales-table][data-phone-table] tr[data-open] td[data-phone-hidden] > div small { overflow-wrap:anywhere; }
   .shell [data-sales-table][data-phone-table] tr[data-open] td:last-child { justify-content:flex-end; }
+}
+
+@media (max-width: 767px) {
+  .dash-head > div:first-child { flex: none; }
+  .dash-head .range-picker { min-width: 0; max-width: 60%; margin-left: auto; }
+  .dash-head .range-button { max-width: 100%; }
+  .dash-head .range-button span { white-space: normal; text-align: left; }
+  .dash-head .range-button svg { flex: none; }
+}
+
+@media (max-width: 720px) {
+  .shell [data-sales-table][data-phone-table] tr[data-open] td[data-phone-toggle] > div { justify-items: start; text-align: left; }
 }

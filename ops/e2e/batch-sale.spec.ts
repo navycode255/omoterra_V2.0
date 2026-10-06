@@ -48,6 +48,7 @@ test('A batch sale is confirmed as collected, becomes a delivery note, and its c
   await expect(page.getByRole('link', { name: 'Delivery note' })).toHaveAttribute('href', `/supplier-collections/${noteId}`);
 
   // Cancel: the goods never left, so they are back on hand on the note.
+  await page.getByRole('button', { name: 'More actions', exact: true }).click();
   await page.locator('#reason').fill('Buyer did not collect');
   await page.getByLabel('They never left Omoterra: back on hand').check();
   page.once('dialog', (dialog) => dialog.accept());

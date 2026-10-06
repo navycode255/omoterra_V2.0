@@ -139,6 +139,10 @@ def wrap(db, ledger_payment_id, evidence, by, operator_id=None):
     transfer = transfers.new_transfer(db, debt.supplier_id, payment.amount, payment.paid_on, payment.method,
         payment.reference, note, operator_id or payment.recorded_by, 'legacy')
     payment.supplier_payment_id = transfer.id
+    from .accounts import follow
+    from . import duplicates
+    follow(db, 'ledger_payments', payment.id, 'supplier_payments', transfer.id)
+    duplicates.follow(db, 'ledger_payments', payment.id, 'supplier_payments', transfer.id)
     db.flush()
     return transfer
 

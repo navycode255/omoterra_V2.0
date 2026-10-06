@@ -333,6 +333,13 @@ The finance owner signs it off. After M1.7, a figure that is not defined here ma
   - The *Unassigned (historical)* bucket is shown separately, outside the balance.
   - Drilldown: account statement lines.
 
+### 11a. Account balance (Finance → Accounts, M2.3)
+
+- **Definition:** an account's verified opening balance at the end of its cutoff day, plus the cash book rows assigned to it dated after the cutoff (in minus out), plus restated pre-cutoff rows, plus transfers in minus transfers out between Omoterra accounts after the cutoff. Fees are cash book rows (money out) assigned to their account.
+- **Excluded:** unassigned rows (shown as "Unassigned (historical)"), rows dated on or before the cutoff (inside the opening balance), reversed rows.
+- **Drilldown that must add up:** the account page's movements, whose last running balance equals the balance.
+- **Verified:** only through a cash count or statement balance; a difference is an exception, never an adjustment.
+
 ### 12. Money in / Money out / Net for period (Cash book) and Money by method (Finance)
 
 - **Shown on:**
@@ -401,6 +408,7 @@ The finance owner signs it off. After M1.7, a figure that is not defined here ma
 - **Current definition** (`finance.profit_between`): gross profit − expenses − stock lost.
   - **Expenses:** the sum of `ledger_debts.amount` with `source = 'expense'` and status other than cancelled, by `incurred_on`. That is accrual: unpaid expenses count.
   - **Stock lost:** the sum of `stock_losses.quantity × unit_cost` where not cancelled, by `lost_on`. Only LPO stock can be recorded as lost.
+  - **Since M2.1 (`reporting.stock_lost`):** LPO losses, delivery-note losses and goods not recovered, opening stock not recovered or lost, kitchen losses, and stock count differences (`lot_adjustments`: a shortage adds, a surplus found on a count subtracts), each by the day it was recorded, at the lot's cost. Stock *on hand* dates goods not recovered on the sale date (when they left); Profit dates the loss on the day it was recorded.
 - **Exclusions:**
   - Manual debts (loans and similar), which is correct.
   - Losses or mortality on delivery-note stock, which has no loss path (F09).

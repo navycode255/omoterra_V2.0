@@ -1,0 +1,8 @@
+/* "This is a separate payment" after a possible duplicate (build plan M2.6). */
+
+.override {
+  display: grid; gap: 8px; margin: 0; padding: 12px; border: 1px solid #f0d49a; border-radius: 10px;
+  background: #fff8e8; color: #6b4300;
+}
+.override legend { padding: 0 4px; font-size: 13px; font-weight: 700; }
+.tick { display: inline-flex; align-items: center; gap: 8px; font-size: 14px; font-weight: 600; }

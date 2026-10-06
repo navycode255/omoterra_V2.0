@@ -30,7 +30,20 @@ def pay(client, settlement, key, reference):
         json={'amount': '27000', 'payment_reference': reference})
 
 
-def test_supplier_follows_the_order_to_a_confirmed_payout(client, sessions, seeded):
+def resend(client, settlement, key, reference, approver):
+    """A resend (M2.7, D9): requested with a reason and the acknowledgement
+    that two outflows may exist, approved by a second admin, then recorded."""
+    asked = client.post(f'/api/v1/ops/settlements/{settlement}/approvals', headers={**OPS, 'Idempotency-Key': key + '-ask'},
+        json={'amount': '27000', 'reason': 'Supplier says it never arrived', 'acknowledge_two_outflows': True})
+    assert asked.status_code == 201, asked.text
+    approved = client.post(f"/api/v1/ops/approvals/{asked.json()['id']}/approve", headers=approver, json={})
+    assert approved.status_code == 200, approved.text
+    return client.post(f'/api/v1/ops/settlements/{settlement}/attempts', headers={**OPS, 'Idempotency-Key': key},
+        json={'amount': '27000', 'payment_reference': reference, 'debited': True, 'evidence': 'M-Pesa SMS',
+              'approval_id': asked.json()['id']})
+
+
+def test_supplier_follows_the_order_to_a_confirmed_payout(client, sessions, seeded, second_admin):
     id = order(sessions, seeded)
     row = supplier_order(client)
     assert row['stage'] == 'confirmed' and steps(row)['ordered'] and not steps(row)['collection_scheduled']
@@ -73,7 +86,9 @@ def test_supplier_follows_the_order_to_a_confirmed_payout(client, sessions, seed
     listed = client.get('/api/v1/ops/settlements?status=not_received', headers=OPS).json()['items']
     assert [item['id'] for item in listed] == [settlement['id']] and listed[0]['supplier_note'] == 'Nothing on my M-Pesa yet'
 
-    assert pay(client, settlement['id'], 'payout-key-0002', 'MPESA-SECOND').status_code == 200
+    # A resend needs a second admin's approval (D9).
+    assert pay(client, settlement['id'], 'payout-key-0002', 'MPESA-SECOND').status_code == 403
+    assert resend(client, settlement['id'], 'payout-key-0002b', 'MPESA-SECOND', second_admin).status_code == 201
     row = supplier_order(client)
     assert row['stage'] == 'confirm_payout'
 

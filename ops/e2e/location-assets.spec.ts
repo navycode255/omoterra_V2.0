@@ -14,7 +14,7 @@ test('Kitchen assets, stock, sales and costs reconcile with business profit on p
   await page.getByLabel('Buying cost per unit (TZS)',{exact:true}).fill('10000');
   await page.getByLabel('Quantity given to this location',{exact:true}).fill('20');
   await page.getByRole('button',{name:'Allocate stock',exact:true}).click();
-  await expect(page.getByRole('heading',{name:'Stock at this location · current'}).locator('..')).toContainText('20 bird');
+  await expect(page.getByRole('heading',{name:'Stock at this location · current'}).locator('..').locator('..')).toContainText('20 bird');
   await page.getByText('Record daily sales',{exact:true}).click();
   await page.getByLabel('Quantity sold',{exact:true}).fill('12');
   await page.getByLabel('Selling price per unit (TZS)',{exact:true}).fill('15000');

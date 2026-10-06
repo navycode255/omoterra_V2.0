@@ -516,6 +516,10 @@ class SupplierCollectionInput(Input):
     unit_cost: Money
     payment_terms_days: Annotated[int, Field(ge=0, le=180)] = 0
     notes: str = Field(default='', max_length=1000)
+    # The reservation this delivery fills (build plan M2.1). Needed when the
+    # batch's unreserved birds cannot cover what was accepted.
+    commitment_kind: Optional[Literal['demand_allocation', 'market_reservation']] = None
+    commitment_id: Optional[str] = Field(default=None, min_length=36, max_length=36)
 
     @field_validator('received_on')
     @classmethod
@@ -680,6 +684,8 @@ class PayoutConfirm(Input):
 class Reconcile(Input):
     amount: Money
     payment_reference: str = Field(min_length=3, max_length=150)
+    # The money account it went through (M2.3); required once any account exists.
+    money_account_id: Optional[str] = Field(default=None, max_length=36)
 
 
 class SourceProgress(Input):
@@ -868,12 +874,25 @@ class NewSaleBuyer(Input):
     area: str = Field(default='', max_length=100)
 
 
-class LedgerPaymentInput(Input):
+class DuplicateOverride(Input):
+    """Entered without a reference although a payment with the same party,
+    amount, day and direction exists: staff say it is a separate payment and
+    why (build plan M2.6). Kept in duplicate_overrides."""
+    duplicate_override: bool = False
+    duplicate_reason: str = Field(default='', max_length=500)
+
+
+OVERRIDE_FIELDS = {'duplicate_override', 'duplicate_reason'}
+
+
+class LedgerPaymentInput(DuplicateOverride):
     amount: Money
     paid_on: date
     method: LedgerMethod
     reference: str = Field(default='', max_length=150)
     note: str = Field(default='', max_length=500)
+    # The money account it went through (M2.3); required once any account exists.
+    money_account_id: Optional[str] = Field(default=None, max_length=36)
 
     @field_validator('paid_on')
     @classmethod
@@ -890,11 +909,18 @@ class StockCostPaymentInput(Input):
     method: LedgerMethod
     reference: str = Field(default='', max_length=150)
     note: str = Field(default='', max_length=500)
+    # The money account it went through (M2.3); required once any account exists.
+    money_account_id: Optional[str] = Field(default=None, max_length=36)
 
     @field_validator('paid_on')
     @classmethod
     def not_future(cls, value):
         return _not_future(value)
+
+
+class BuyerPaymentInput(LedgerPaymentInput):
+    """One amount a customer paid. The server puts it on their open debts,
+    oldest first; it may not be more than they owe."""
 
 
 class SupplierPaymentInput(LedgerPaymentInput):
@@ -924,7 +950,7 @@ class SupplierCreditInput(Input):
     note: str = Field(default='', max_length=500)
 
 
-class TransferRefundInput(Input):
+class TransferRefundInput(DuplicateOverride):
     """Money a supplier actually sent back from their credit: a separate,
     dated inflow with evidence. Partial refunds are separate entries."""
     amount: Money
@@ -933,6 +959,8 @@ class TransferRefundInput(Input):
     reference: str = Field(default='', max_length=150)
     evidence: str = Field(default='', max_length=2000)
     receipt_media_id: Optional[str] = Field(default=None, max_length=36)
+    # The money account it went through (M2.3); required once any account exists.
+    money_account_id: Optional[str] = Field(default=None, max_length=36)
     note: str = Field(default='', max_length=500)
 
     @field_validator('received_on')
@@ -1048,6 +1076,9 @@ class DirectSaleInput(Input):
     # when a line sells fewer of them than before (rule R2).
     goods: Optional[GoodsOutcome] = None
     goods_note: str = Field(default='', max_length=500)
+    # A date more than 3 days back is a late entry: admin only, with this
+    # reason (build plan M2.2).
+    late_reason: str = Field(default='', max_length=500)
 
     @field_validator('sold_on')
     @classmethod
@@ -1121,8 +1152,26 @@ class DeliveryLossInput(Input):
     lost_on: date
     reason: Literal['died', 'sick', 'stolen', 'spoiled', 'other']
     note: str = Field(default='', max_length=500)
+    # A date more than 3 days back is a late entry: admin only, with this
+    # reason (build plan M2.2).
+    late_reason: str = Field(default='', max_length=500)
 
     @field_validator('lost_on')
+    @classmethod
+    def not_future(cls, value):
+        return _not_future(value)
+
+
+class StockCountInput(Input):
+    """A physical count of one received lot (build plan M2.1). The
+    difference from what the records expected that day is recorded as a
+    count adjustment. Admin only, with a reason and evidence."""
+    counted_quantity: Decimal = Field(ge=0, max_digits=14, decimal_places=3)
+    counted_on: date
+    reason: str = Field(min_length=3, max_length=500)
+    evidence: str = Field(min_length=3, max_length=1000)
+
+    @field_validator('counted_on')
     @classmethod
     def not_future(cls, value):
         return _not_future(value)
@@ -1134,6 +1183,9 @@ class SupplierReturnInput(Input):
     quantity: Quantity
     returned_on: date
     reason: str = Field(min_length=3, max_length=500)
+    # A date more than 3 days back is a late entry: admin only, with this
+    # reason (build plan M2.2).
+    late_reason: str = Field(default='', max_length=500)
 
     @field_validator('returned_on')
     @classmethod
@@ -1381,6 +1433,9 @@ class StockLossInput(Input):
     quantity: Quantity
     reason: Literal['died', 'sick', 'stolen', 'spoiled', 'other']
     note: str = Field(default='', max_length=500)
+    # A date more than 3 days back is a late entry: admin only, with this
+    # reason (build plan M2.2).
+    late_reason: str = Field(default='', max_length=500)
 
     @field_validator('lost_on')
     @classmethod

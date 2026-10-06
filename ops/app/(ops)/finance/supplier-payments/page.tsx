@@ -15,6 +15,7 @@ import { recordUnlistedSupplierPayment } from '@/lib/finance-actions';
 import { METHODS, day, today, type Debt, type Parties } from '@/lib/finance';
 import { tzs } from '@/lib/format';
 import { param, type ListParams, type Page } from '@/lib/paging';
+import { AccountSelect } from '@/components/finance/account-select';
 
 export const metadata = { title: 'Supplier payments · Omoterra Operations' };
 
@@ -75,6 +76,7 @@ export default async function SupplierPayments({ searchParams }: { searchParams:
             <div className="field"><label htmlFor="unlisted-amount">Amount paid (TZS)</label><input id="unlisted-amount" name="amount" className="input" inputMode="decimal" required /></div>
             <div className="field"><label htmlFor="unlisted-date">Date paid</label><input id="unlisted-date" name="paid_on" type="date" className="input" defaultValue={today()} max={today()} required /></div>
             <div className="field"><label htmlFor="unlisted-method">Method</label><select id="unlisted-method" name="method" className="input" defaultValue="mpesa">{METHODS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></div>
+            <AccountSelect id="unlisted-account" label="Paid from account" />
             <div className="field"><label htmlFor="unlisted-reference">Reference</label><input id="unlisted-reference" name="reference" className="input" placeholder="e.g. M-Pesa code" /></div>
             <div className="field"><label htmlFor="unlisted-sms">Payment confirmation SMS</label><textarea id="unlisted-sms" name="sms_text" className="input" rows={3} placeholder="Paste the payment confirmation SMS" /></div>
             <div className="field"><label htmlFor="unlisted-receipt">Receipt image</label><input id="unlisted-receipt" name="receipt" className="input" type="file" accept="image/jpeg,image/png,image/webp" /></div>

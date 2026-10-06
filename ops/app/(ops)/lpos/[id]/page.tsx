@@ -73,7 +73,8 @@ export default async function LpoWorkspace({ params }: { params: Promise<{ id: s
                           <td className="numeric">{quantity(line.stock.accepted)}</td><td className="numeric">{quantity(line.stock.rejected)}</td>
                           <td className="numeric">{quantity(line.stock.sold)}</td><td className="numeric">{quantity(line.stock.lost)}</td>
                           <td className="numeric">{quantity(line.stock.allocated ?? '0')}</td>
-                          <td className="numeric money">{quantity(line.stock.on_hand)}</td></>}
+                          <td className="numeric money">{Number(line.stock.accepted) > 0
+                            ? <Link href={`/stock/lpo_lines/${line.id}`}>{quantity(line.stock.on_hand)}</Link> : quantity(line.stock.on_hand)}</td></>}
                       </tr>
                     ))}
                   </tbody>
@@ -205,6 +206,7 @@ export default async function LpoWorkspace({ params }: { params: Promise<{ id: s
                     <div className="field"><label htmlFor="loss-reason">Reason</label>
                       <select id="loss-reason" name="reason" className="input">{LOSS_REASONS.map(([k, v]) => <option key={k} value={k}>{v}</option>)}</select></div>
                     <div className="field"><label htmlFor="loss-date">Date</label><input id="loss-date" name="lost_on" type="date" className="input" defaultValue={now} max={now} required /></div>
+                    <div className="field"><label htmlFor="loss-late">If dated more than 3 days ago: why (admin only)</label><input id="loss-late" name="late_reason" className="input" /></div>
                   </div>
                   <div className="field"><label htmlFor="loss-note">Note</label><input id="loss-note" name="note" className="input" /></div>
                 </ActionForm>

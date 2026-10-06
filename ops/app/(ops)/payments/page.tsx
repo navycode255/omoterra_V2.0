@@ -7,6 +7,7 @@ import { date, paymentTone, reference, titleCase, tzs } from '@/lib/format';
 import { ListControls } from '@/components/list-controls';
 import { listPath, type ListParams, type Page } from '@/lib/paging';
 import type { Payment } from '@/lib/types';
+import { AccountSelect } from '@/components/finance/account-select';
 
 export const metadata = { title: 'Payments · Omoterra Operations' };
 
@@ -128,6 +129,7 @@ export default async function Payments({ searchParams }: { searchParams: Promise
                   <label htmlFor="payment_reference">Reference</label>
                   <input id="payment_reference" name="payment_reference" className="input" required />
                 </div>
+                <AccountSelect id="receipt-account" label="Received into account" />
               </div>
             </ActionForm>
           </Card>

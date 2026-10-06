@@ -108,21 +108,16 @@ def next_number(db, year):
 
 # ---- stock ------------------------------------------------------------------
 
-def line_stock(db, line_id):
-    accepted = db.scalar(select(func.coalesce(func.sum(m.LpoReceiptLine.accepted_quantity), 0))
-        .join(m.LpoReceipt, m.LpoReceipt.id == m.LpoReceiptLine.receipt_id)
-        .where(m.LpoReceiptLine.lpo_line_id == line_id, m.LpoReceipt.cancelled_at.is_(None))) or ZERO
+def line_stock(db, line_id, as_of=None):
+    """Accepted, rejected, sold, lost, at kitchens and on hand; all but
+    rejected from the line's dated movements (lots.py, M2.1)."""
+    from .lots import lot_summary
+    lot = lot_summary(db, 'lpo_lines', line_id, as_of)
     rejected = db.scalar(select(func.coalesce(func.sum(m.LpoReceiptLine.rejected_quantity), 0))
         .join(m.LpoReceipt, m.LpoReceipt.id == m.LpoReceiptLine.receipt_id)
         .where(m.LpoReceiptLine.lpo_line_id == line_id, m.LpoReceipt.cancelled_at.is_(None))) or ZERO
-    sold = db.scalar(select(func.coalesce(func.sum(m.SaleItem.quantity), 0))
-        .join(m.Sale, m.Sale.id == m.SaleItem.sale_id)
-        .where(m.SaleItem.lpo_line_id == line_id, m.Sale.status == 'active')) or ZERO
-    lost = db.scalar(select(func.coalesce(func.sum(m.StockLoss.quantity), 0))
-        .where(m.StockLoss.lpo_line_id == line_id, m.StockLoss.cancelled_at.is_(None))) or ZERO
-    from .locations import transferred
-    allocated = transferred(db, m.LocationAllocation.lpo_line_id, line_id)
-    return {'accepted': accepted, 'rejected': rejected, 'sold': sold, 'lost': lost, 'allocated': allocated, 'on_hand': accepted - sold - lost - allocated}
+    return {'accepted': lot['received'], 'rejected': rejected, 'sold': lot['sold'], 'lost': lot['died'] + lot['lost'],
+            'allocated': lot['at_locations'], 'on_hand': lot['on_hand']}
 
 
 def take_stock(db, line_id, quantity, taken=ZERO):
@@ -422,11 +417,16 @@ def cancel_receipt(id: str, data: c.ReasonInput, operator=Depends(auth.ops_admin
     debt = db.scalar(select(m.LedgerDebt).where(m.LedgerDebt.id == receipt.debt_id).with_for_update()) if receipt.debt_id else None
     if debt and debt.paid_amount > 0:
         fail('err.reverse_payments_before_cancelling')
+    from .lots import StockGuard
+    guard = StockGuard(db)
     for row in db.scalars(select(m.LpoReceiptLine).where(m.LpoReceiptLine.receipt_id == id)):
         if line_stock(db, row.lpo_line_id)['on_hand'] < row.accepted_quantity:
             fail('err.receipt_stock_already_sold')
+        guard.watch('lpo_lines', row.lpo_line_id)
     at = m.now()
     receipt.cancelled_at, receipt.cancelled_by, receipt.cancel_reason = at, operator.id, data.reason
+    # Nothing may have used this receipt's stock on any day since (R8, M2.2).
+    guard.check()
     if debt:
         debt.status, debt.cancelled_at, debt.cancelled_by, debt.cancel_reason = 'cancelled', at, operator.id, data.reason
     return _result(lpo_view(db, _load(db, receipt.lpo_id), True))
@@ -442,7 +442,13 @@ def record_loss(data: c.StockLossInput, idempotency_key: str = Header(), operato
         on_hand = line_stock(db, line.id)['on_hand']
         if data.quantity > on_hand:
             fail('err.not_enough_lpo_stock', 422, available=s.quantity(on_hand))
-        db.add(m.StockLoss(recorded_by=operator.id, unit_cost=line.unit_price, **data.model_dump()))
+        from .lots import StockGuard, late_entry, log_late
+        late = late_entry(operator, data.lost_on, data.late_reason)
+        guard = StockGuard(db).watch('lpo_lines', line.id)
+        loss = m.StockLoss(recorded_by=operator.id, unit_cost=line.unit_price, **data.model_dump(exclude={'late_reason'}))
+        db.add(loss)
+        guard.check()
+        log_late(db, late, 'stock_losses', loss.id, data.lost_on, operator)
         db.flush()
         s.remember(db, key, fingerprint, line.id)
     return _result(lpo_view(db, db.get(m.Lpo, line.lpo_id), True), 201)

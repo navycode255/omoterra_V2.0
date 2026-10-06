@@ -40,6 +40,7 @@ def app_order(sessions, seeded, quantity, idem, accepted=None, deliver=True, del
         if delivered_on:
             at = datetime.combine(delivered_on, time(15), tzinfo=EAT).isoformat()
             row.activity = [{**entry, 'at': at} if entry['label'] == 'Delivered' else entry for entry in row.activity]
+            row.recognized_on = delivered_on  # M2.5: the stored recognition date
     return id
 
 
@@ -108,7 +109,56 @@ def marketplace_data(client, sessions, seeded):
     app_order(sessions, seeded, 2, 'report-order-3', deliver=False)
 
 
-DATA = {'direct': (direct_data,), 'marketplace': (marketplace_data,), 'mixed': (direct_data, marketplace_data)}
+def staff_order_data(client, sessions, seeded):
+    """Orders staff took for buyers (M2.5): one open with a deposit (a
+    commitment; its deposit is money in), one delivered today with its
+    deposit applied to the sale."""
+    open_ = post(client, '/buyer-orders', {'new_buyer': {'business_name': 'Kibanda cha Mama'}, 'ordered_on': TODAY,
+        'items': [{'category': 'local_chicken', 'unit': 'bird', 'quantity': '2', 'unit_price': '20000'}],
+        'deposit': {'amount': '15000', 'paid_on': TODAY, 'method': 'cash'}})
+    assert open_.status_code == 201, open_.text
+    taken = post(client, '/buyer-orders', {'new_buyer': {'business_name': 'Hoteli Njema'}, 'ordered_on': TODAY,
+        'items': [{'category': 'broilers', 'unit': 'bird', 'quantity': '3', 'unit_price': '10000'}],
+        'deposit': {'amount': '10000', 'paid_on': TODAY, 'method': 'mpesa', 'reference': 'QSTAFF1'}}).json()
+    done = post(client, f"/buyer-orders/{taken['id']}/deliver", {'buyer_profile_id': taken['buyer_profile_id'],
+        'sold_on': TODAY, 'items': [{'category': 'broilers', 'unit': 'bird', 'quantity': '3', 'unit_price': '10000',
+        'unit_cost': '7000'}]})
+    assert done.status_code == 201, done.text
+
+
+def payout_attempt_data(client, sessions, seeded):
+    """Payout attempts (M2.7) on top of the marketplace data: the first
+    order's payout sent but not confirmed (in flight: still owed, not money
+    out); a fourth order (2 birds, 18,000) paid, reported not received,
+    resent with a second admin's approval and part refunded, all today."""
+    from test_payout_attempts import make_second_admin, not_received
+    with sessions.begin() as db:
+        db.get(m.Listing, seeded['listing']).quantity_total = 20
+    marketplace_data(client, sessions, seeded)
+    with sessions() as db:
+        # The first order's payout: the only one still pending.
+        first = db.scalar(select(m.Settlement).where(m.Settlement.status == 'pending'))
+    sent = post(client, f'/settlements/{first.id}/attempts', {'amount': '27000', 'payment_reference': 'PO-1-SENT'})
+    assert sent.status_code == 201, sent.text
+    fourth = app_order(sessions, seeded, 2, 'report-order-4')
+    pay_settlement(client, sessions, fourth, 'PO-4A')
+    row = settlement_of(sessions, fourth)
+    not_received(client, row.id)
+    asked = post(client, f'/settlements/{row.id}/approvals', {'amount': '18000', 'reason': 'Never arrived',
+        'acknowledge_two_outflows': True}).json()
+    second = make_second_admin(sessions)
+    assert client.post(API + f"/approvals/{asked['id']}/approve", json={}, headers=second).status_code == 200
+    resent = post(client, f'/settlements/{row.id}/attempts', {'amount': '18000', 'payment_reference': 'PO-4B',
+        'debited': True, 'evidence': 'Statement', 'approval_id': asked['id']})
+    assert resent.status_code == 201, resent.text
+    first_attempt = resent.json()['attempts'][1]['id']
+    refund = post(client, f'/settlement-transfers/{first_attempt}/refunds', {'amount': '5000', 'refunded_on': TODAY,
+        'reference': 'PO-4A-BACK', 'evidence': 'Reversal SMS'})
+    assert refund.status_code == 201, refund.text
+
+
+DATA = {'direct': (direct_data,), 'marketplace': (marketplace_data,), 'mixed': (direct_data, marketplace_data),
+        'staff_orders': (direct_data, staff_order_data), 'payout_attempts': (payout_attempt_data,)}
 
 
 def drill(client, metric, **params):
@@ -228,10 +278,26 @@ def test_every_headline_equals_its_drilldown(client, sessions, seeded, data):
         'marketplace': {'owed': '26000', 'owe': '27000', 'sold': '72000', 'cost': '54000', 'in': '46000', 'out': '27000'},
     }
     expected['mixed'] = {k: str(Decimal(expected['direct'][k]) + Decimal(expected['marketplace'][k])) for k in expected['direct']}
+    # Staff orders: the delivered one is a 30,000 sale costing 21,000 with
+    # 20,000 still owed; both deposits (15,000 held, 10,000 applied) are in.
+    staff = {'owed': '20000', 'owe': '0', 'sold': '30000', 'cost': '21000', 'in': '25000', 'out': '0'}
+    expected['staff_orders'] = {k: str(Decimal(expected['direct'][k]) + Decimal(staff[k])) for k in staff}
+    # Payout attempts: the fourth order adds 24,000 sold and owed to me and
+    # 18,000 cost; its two debited attempts are 36,000 out and the refund
+    # 5,000 in. The first order's payout in flight is still owed, not out.
+    extra = {'owed': '24000', 'owe': '0', 'sold': '24000', 'cost': '18000', 'in': '5000', 'out': '36000'}
+    expected['payout_attempts'] = {k: str(Decimal(expected['marketplace'][k]) + Decimal(extra[k])) for k in extra}
+    if data == 'payout_attempts':
+        assert (Decimal(payouts['in_flight']), Decimal(payouts['disputed'])) == (Decimal('27000'), Decimal('13000'))
+        assert Decimal(summary['i_owe']['payouts_in_flight']) == Decimal('27000')
+        assert Decimal(summary['i_owe']['disputed']) == Decimal('13000')
+        assert (Decimal(book['payouts_in_flight']), Decimal(book['disputed_out'])) == (Decimal('27000'), Decimal('18000'))
+        assert Decimal(payouts['paid']) == Decimal('27000') + Decimal('31000')
     want = {k: Decimal(v) for k, v in expected[data].items()}
     assert (owed, owe, sold, cost) == (want['owed'], want['owe'], want['sold'], want['cost'])
     assert (Decimal(book['money_in']), Decimal(book['money_out'])) == (want['in'], want['out'])
-    assert Decimal(summary['commitments']['total']) == (Decimal('24000') if data != 'direct' else 0)
+    assert Decimal(summary['commitments']['total']) == {'direct': 0, 'staff_orders': Decimal('40000')}.get(data, Decimal('24000'))
+    assert Decimal(summary['commitments']['deposits']) == (Decimal('15000') if data == 'staff_orders' else 0)
 
 
 def test_one_event_reached_from_two_records_counts_once(client, sessions, seeded):
@@ -308,8 +374,10 @@ def test_app_order_counts_on_its_delivery_date(client, sessions, seeded):
         row = db.get(m.Order, id)
         for status in STEPS:
             s.advance(db, row, c.Progress(internal_status=status, actual_quantity=3, rejected_quantity=1))
-        at = datetime.combine(delivered, time(1, 30), tzinfo=EAT).isoformat()  # still the day before in UTC
-        row.activity = [{**entry, 'at': at} if entry['label'] == 'Delivered' else entry for entry in row.activity]
+        # M2.5: marked delivered today; stored as the business day it
+        # happened (here moved to `delivered`, as if marked then).
+        assert row.recognized_on == DAY
+        row.recognized_on = delivered
     in_a = get(client, '/finance/profit', start=ordered.isoformat(), end=ordered.isoformat())
     in_b = get(client, '/finance/profit', start=delivered.isoformat(), end=delivered.isoformat())
     assert Decimal(in_a['marketplace_sales']) == 0 and Decimal(in_a['marketplace_cost']) == 0
@@ -328,15 +396,14 @@ def test_app_order_counts_on_its_delivery_date(client, sessions, seeded):
         assert payouts and all(r['due_on'] == delivered + timedelta(days=7) and not r['overdue'] for r in payouts)
     with sessions.begin() as db:
         row = db.get(m.Order, id)
-        late = datetime.combine(DAY - timedelta(days=8), time(9), tzinfo=EAT).isoformat()
-        row.activity = [{**entry, 'at': late} if entry['label'] == 'Delivered' else entry for entry in row.activity]
+        row.recognized_on = DAY - timedelta(days=8)
     with sessions() as db:
         assert all(r['overdue'] for r in rp.payables(db)['rows'] if r['source_table'] == 'settlements')
-    # A delivered order whose delivery has no date is unresolved: owed now,
-    # but in no period's revenue.
+    # A delivered order whose delivery has no date (history too ambiguous
+    # to backfill, M2.5) is unresolved: owed now, but in no period's revenue.
     with sessions.begin() as db:
         row = db.get(m.Order, id)
-        row.activity = [entry for entry in row.activity if entry['label'] != 'Delivered']
+        row.recognized_on = None
     with sessions() as db:
         sold = rp.revenue(db, ordered, DAY)
         assert sold['marketplace'] == 0 and sold['unresolved']['count'] == 1
@@ -383,18 +450,19 @@ def test_m1_exit_scenario(client, sessions, seeded):
 
 def test_a_disputed_payout_stays_money_out_and_is_shown_beside_it(client, sessions, seeded):
     """Finance owner, 5 October: a payout the supplier says never arrived is
-    still money out (R3) until M2.7 proves the debit failed; the Cash book
-    shows how much of its money out is disputed."""
+    still money out (R3): since M2.7 a debited attempt never becomes failed,
+    only a refund brings money back. The Cash book shows how much of its
+    money out is disputed."""
+    from test_commerce import headers
     id = app_order(sessions, seeded, 4, 'disputed-payout', delivered_on=DAY)
-    with sessions.begin() as db:
-        row = db.get(m.Settlement, settlement_of(sessions, id).id)
-        row.status, row.paid_at, row.payment_reference = 'paid', datetime.combine(DAY, time(12), tzinfo=EAT), 'MP-1'
-        amount = row.total_payable
+    pay_settlement(client, sessions, id, 'MP-1')
+    amount = settlement_of(sessions, id).total_payable
     book = lambda: get(client, '/ledger/payments', start=DAY.isoformat(), end=DAY.isoformat())['summary']
     before = book()
     assert Decimal(before['money_out']) == amount and Decimal(before['disputed_out']) == 0 and before['disputed_out_count'] == 0
-    with sessions.begin() as db:
-        db.get(m.Settlement, settlement_of(sessions, id).id).supplier_confirmation = 'not_received'
+    answer = client.post(f'/api/v1/supplier/payouts/{settlement_of(sessions, id).id}/confirm', headers=headers('supplier'),
+        json={'received': False})
+    assert answer.status_code == 200, answer.text
     after = book()
     assert Decimal(after['money_out']) == amount
     assert Decimal(after['disputed_out']) == amount and after['disputed_out_count'] == 1

@@ -186,6 +186,35 @@ class Order(Entity, Base):
     total_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     idempotency_key: Mapped[str] = mapped_column(unique=True)
     activity: Mapped[list] = mapped_column(JSON, default=list)
+    # Build plan M2.5 (F07, D7): the Dar es Salaam business day the order
+    # counts as a sale, i.e. the day it was delivered. Set on delivery;
+    # cleared when the delivery is reversed (the reversal is its own dated
+    # record, OrderRecognitionReversal). Null on a delivered order means
+    # unresolved: listed, never in a period.
+    recognized_on: Mapped[Optional[date]] = mapped_column(Date, index=True)
+    # How it was set: 'delivery' (marked delivered), 'backfill' (migration
+    # 044 from the activity log) or the finance owner's evidence.
+    recognition_note: Mapped[str] = mapped_column(Text, default='')
+
+
+class OrderRecognitionReversal(Entity, Base):
+    """A delivered app order taken back (build plan M2.5): reopened because
+    it was not really delivered, or returned by the buyer. Append-only. The
+    sale stays in the period it was recognised in (`recognized_on`), and this
+    record takes it out again on `reversed_on`, with the revenue and cost
+    counted then, so an earlier period is never rewritten."""
+    __tablename__ = 'order_recognition_reversals'
+    order_id: Mapped[str] = mapped_column(ForeignKey('orders.id'), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    recognized_on: Mapped[Optional[date]] = mapped_column(Date)
+    reversed_on: Mapped[date] = mapped_column(Date, index=True)
+    revenue: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    cost: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    reason: Mapped[str] = mapped_column(Text)
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint("kind IN ('reopen','return')", name='order_recognition_reversals_kind_check'),
+    )
 
 
 class OrderItem(Entity, Base):
@@ -527,7 +556,105 @@ class PayoutConfirmation(Entity, Base):
     note: Mapped[str] = mapped_column(Text, default='')
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     payment_reference: Mapped[Optional[str]]
+    # The payout attempt it answered about (M2.7). Answers given before
+    # attempts existed have none: they belong to the settlement's one legacy
+    # attempt (migration 045).
+    transfer_id: Mapped[Optional[str]] = mapped_column(ForeignKey('settlement_transfers.id'), index=True)
     __table_args__ = (CheckConstraint("outcome IN ('received','not_received')", name='valid_payout_confirmation'),)
+
+
+class ApprovalRequest(Entity, Base):
+    """A request that a second admin approves before money moves (decision
+    D9; build plan M2.7, reusable by M5). The approver is never the
+    requester; the database refuses it too. An approved request is used
+    once (`used_by_*`)."""
+    __tablename__ = 'approval_requests'
+    subject_table: Mapped[str] = mapped_column(String(32))
+    subject_id: Mapped[str] = mapped_column(String(36))
+    kind: Mapped[str] = mapped_column(String(32))
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    reason: Mapped[str] = mapped_column(Text, default='')
+    # "I understand two outflows may exist" (a resend while an earlier attempt is unresolved).
+    acknowledged: Mapped[bool] = mapped_column(Boolean, default=False)
+    requested_by: Mapped[str] = mapped_column(ForeignKey('operators.id'))
+    status: Mapped[str] = mapped_column(String(16), default='pending')
+    decided_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    decided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    decision_note: Mapped[str] = mapped_column(Text, default='')
+    used_by_table: Mapped[Optional[str]] = mapped_column(String(32))
+    used_by_id: Mapped[Optional[str]] = mapped_column(String(36))
+    used_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    __table_args__ = (
+        Index('ix_approval_requests_subject', 'subject_table', 'subject_id'),
+        CheckConstraint("status IN ('pending','approved','rejected')", name='approval_requests_status_check'),
+        CheckConstraint('amount > 0', name='approval_requests_amount_check'),
+        CheckConstraint("status <> 'approved' OR (decided_by IS NOT NULL AND decided_by <> requested_by)",
+            name='approval_requests_second_admin_check'),
+    )
+
+
+class SettlementTransfer(Entity, Base):
+    """One attempt to pay an app payout (build plan M2.7, audit F12).
+
+    - initiated: sent, no debit confirmation yet. Pending exposure, not money out.
+    - debited: confirmed on a statement or by the provider. A permanent
+      outflow (rule R3) dated `debited_on`; it never becomes failed.
+    - failed: evidence that no debit happened. No outflow; evidence kept.
+    """
+    __tablename__ = 'settlement_transfers'
+    settlement_id: Mapped[str] = mapped_column(ForeignKey('settlements.id'), index=True)
+    attempt_no: Mapped[int] = mapped_column(Integer)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    method: Mapped[str] = mapped_column(String(24), default='')
+    reference: Mapped[str] = mapped_column(Text, default='')
+    money_account_id: Mapped[Optional[str]] = mapped_column(ForeignKey('money_accounts.id'))
+    sent_on: Mapped[date] = mapped_column(Date)
+    evidence: Mapped[str] = mapped_column(Text, default='')
+    state: Mapped[str] = mapped_column(String(16), default='initiated', index=True)
+    initiated_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    is_resend: Mapped[bool] = mapped_column(Boolean, default=False)
+    approval_id: Mapped[Optional[str]] = mapped_column(ForeignKey('approval_requests.id'))
+    debited_on: Mapped[Optional[date]] = mapped_column(Date, index=True)
+    debit_evidence: Mapped[str] = mapped_column(Text, default='')
+    debit_confirmed_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    debit_confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    failed_on: Mapped[Optional[date]] = mapped_column(Date)
+    failure_evidence: Mapped[str] = mapped_column(Text, default='')
+    failed_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    failed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # The supplier's latest answer about this attempt (every answer is in payout_confirmations).
+    supplier_confirmation: Mapped[Optional[str]] = mapped_column(String(16))
+    supplier_confirmed_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    # Made by migration 045 from a settlement marked paid before attempts existed.
+    legacy: Mapped[bool] = mapped_column(Boolean, default=False)
+    __table_args__ = (
+        UniqueConstraint('settlement_id', 'attempt_no', name='uq_settlement_transfer_attempt'),
+        CheckConstraint('amount > 0', name='settlement_transfers_amount_check'),
+        CheckConstraint("state IN ('initiated','debited','failed')", name='settlement_transfers_state_check'),
+        CheckConstraint("state <> 'debited' OR debited_on IS NOT NULL", name='settlement_transfers_debited_check'),
+        CheckConstraint("state <> 'failed' OR (failed_on IS NOT NULL AND length(btrim(failure_evidence)) >= 3)",
+            name='settlement_transfers_failed_check'),
+    )
+
+
+class SettlementRefund(Entity, Base):
+    """Money a debited payout attempt brought back: a separate dated inflow
+    (rule R3). It never changes or removes the attempt's outflow.
+    Append-only."""
+    __tablename__ = 'settlement_refunds'
+    settlement_id: Mapped[str] = mapped_column(ForeignKey('settlements.id'), index=True)
+    transfer_id: Mapped[str] = mapped_column(ForeignKey('settlement_transfers.id'), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    refunded_on: Mapped[date] = mapped_column(Date, index=True)
+    method: Mapped[str] = mapped_column(String(24), default='')
+    reference: Mapped[str] = mapped_column(Text, default='')
+    money_account_id: Mapped[Optional[str]] = mapped_column(ForeignKey('money_accounts.id'))
+    evidence: Mapped[str] = mapped_column(Text)
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint('amount > 0', name='settlement_refunds_amount_check'),
+        CheckConstraint('length(btrim(evidence)) >= 3', name='settlement_refunds_evidence_check'),
+    )
 
 
 class Payment(Entity, Base):
@@ -1048,12 +1175,34 @@ class SupplierPayment(Entity, Base):
     )
 
 
+class BuyerPayment(Entity, Base):
+    """One payment received from a customer, entered once and spread over
+    their open debts, oldest first. It is the cash book's single record of
+    that money; its allocations (ledger payments carrying its id) say which
+    debts it paid. Its amount is what was received; a reversed allocation
+    stops counting, so the cash book shows the unreversed total."""
+    __tablename__ = 'buyer_payments'
+    buyer_profile_id: Mapped[str] = mapped_column(ForeignKey('buyer_profiles.id'), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    paid_on: Mapped[date] = mapped_column(Date, index=True)
+    method: Mapped[str] = mapped_column(String(24))
+    reference: Mapped[str] = mapped_column(Text, default='')
+    note: Mapped[str] = mapped_column(Text, default='')
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint('amount > 0', name='buyer_payments_amount_check'),
+        CheckConstraint(f"method IN ({', '.join(repr(v) for v in LEDGER_METHODS)})", name='buyer_payments_method_check'),
+    )
+
+
 class LedgerPayment(Entity, Base):
     """One installment against a debt: money in for a receivable, money out
     for a payable. Never deleted; a wrong entry is reversed with a reason."""
     __tablename__ = 'ledger_payments'
     debt_id: Mapped[str] = mapped_column(ForeignKey('ledger_debts.id'), index=True)
     supplier_payment_id: Mapped[Optional[str]] = mapped_column(ForeignKey('supplier_payments.id'), index=True)
+    # Part of one customer payment spread over several debts.
+    buyer_payment_id: Mapped[Optional[str]] = mapped_column(ForeignKey('buyer_payments.id'), index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     paid_on: Mapped[date] = mapped_column(Date, index=True)
     method: Mapped[str] = mapped_column(String(24))
@@ -1295,6 +1444,323 @@ class StockLoss(Entity, Base):
         CheckConstraint(f"reason IN ({', '.join(repr(v) for v in LOSS_REASONS)})", name='stock_losses_reason_check'),
     )
 
+
+
+class CommitmentFulfilment(Entity, Base):
+    """Which reservation a delivery note filled (build plan M2.1): a buyer
+    demand allocation or an approved market reservation on the same batch.
+    The reservation's outstanding quantity is what it holds less what
+    notes have filled; only that is released when it is cancelled."""
+    __tablename__ = 'commitment_fulfilments'
+    collection_id: Mapped[str] = mapped_column(ForeignKey('supplier_collections.id'), index=True)
+    commitment_kind: Mapped[str] = mapped_column(String(24))
+    commitment_id: Mapped[str] = mapped_column(String(36), index=True)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    __table_args__ = (
+        CheckConstraint("commitment_kind IN ('demand_allocation','market_reservation')", name='commitment_fulfilments_kind_check'),
+        CheckConstraint('quantity > 0', name='commitment_fulfilments_quantity_check'),
+    )
+
+
+class LateEntry(Entity, Base):
+    """A stock record dated more than LATE_ENTRY_DAYS before the day it was
+    entered (build plan M2.2): only an admin may enter it, with a reason.
+    It must still keep every later day at or above zero (rule R8)."""
+    __tablename__ = 'late_entries'
+    entity_table: Mapped[str] = mapped_column(String(32))
+    entity_id: Mapped[str] = mapped_column(String(36), index=True)
+    entry_date: Mapped[date] = mapped_column(Date)
+    entered_on: Mapped[date] = mapped_column(Date)
+    reason: Mapped[str] = mapped_column(Text)
+    approved_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint('length(btrim(reason)) >= 3', name='late_entries_reason_check'),
+        CheckConstraint('entry_date < entered_on', name='late_entries_dates_check'),
+    )
+
+
+BUYER_ORDER_STATUSES = ('open', 'delivered', 'cancelled')
+
+
+class BuyerOrder(Entity, Base):
+    """An order staff took from a buyer by phone or in person (build plan
+    M2.5, decision D7). Until delivered it is a commitment only: not a sale,
+    nothing owed, no stock taken. Marking it delivered records a direct sale
+    dated the delivery day through the normal sale path (`sale_id`)."""
+    __tablename__ = 'buyer_orders'
+    order_number: Mapped[str] = mapped_column(String(24), unique=True)
+    buyer_profile_id: Mapped[str] = mapped_column(ForeignKey('buyer_profiles.id'), index=True)
+    buyer_name: Mapped[str] = mapped_column(Text)
+    buyer_phone: Mapped[str] = mapped_column(String(20), default='')
+    ordered_on: Mapped[date] = mapped_column(Date, index=True)
+    expected_on: Mapped[Optional[date]] = mapped_column(Date)
+    notes: Mapped[str] = mapped_column(Text, default='')
+    total_amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    status: Mapped[str] = mapped_column(String(16), default='open', index=True)
+    sale_id: Mapped[Optional[str]] = mapped_column(ForeignKey('sales.id'), unique=True)
+    delivered_on: Mapped[Optional[date]] = mapped_column(Date)
+    created_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    updated_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    updated_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    cancelled_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    cancel_reason: Mapped[str] = mapped_column(Text, default='')
+    __table_args__ = (
+        CheckConstraint("status IN ('open','delivered','cancelled')", name='buyer_orders_status_check'),
+        CheckConstraint('total_amount > 0', name='buyer_orders_total_check'),
+        CheckConstraint("(status = 'delivered') = (sale_id IS NOT NULL AND delivered_on IS NOT NULL)",
+            name='buyer_orders_delivered_check'),
+    )
+
+
+class BuyerOrderLine(Entity, Base):
+    __tablename__ = 'buyer_order_lines'
+    buyer_order_id: Mapped[str] = mapped_column(ForeignKey('buyer_orders.id'), index=True)
+    position: Mapped[int] = mapped_column(Integer)
+    category: Mapped[str] = mapped_column(String(32), default='')
+    description: Mapped[str] = mapped_column(Text, default='')
+    unit: Mapped[str] = mapped_column(String(16))
+    quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    subtotal: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    __table_args__ = (
+        CheckConstraint('quantity > 0 AND unit_price > 0', name='buyer_order_lines_amounts_check'),
+        CheckConstraint("unit IN ('bird','animal','kg','tray','piece')", name='buyer_order_lines_unit_check'),
+    )
+
+
+class BuyerOrderPayment(Entity, Base):
+    """Money on a staff buyer order before delivery: a deposit the buyer paid
+    (money in, held for them) or a deposit given back (money out, its own
+    dated record). On delivery each held deposit becomes a payment on the
+    sale's receivable with the same date, method, reference and account
+    (`applied_payment_id`); from then the cash book counts that payment
+    instead, so the money is counted once and its day never moves. A deposit
+    entered by mistake is voided by an admin with a reason while held."""
+    __tablename__ = 'buyer_order_payments'
+    buyer_order_id: Mapped[str] = mapped_column(ForeignKey('buyer_orders.id'), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    refund_of: Mapped[Optional[str]] = mapped_column(ForeignKey('buyer_order_payments.id'), unique=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    paid_on: Mapped[date] = mapped_column(Date, index=True)
+    method: Mapped[str] = mapped_column(String(24))
+    reference: Mapped[str] = mapped_column(Text, default='')
+    note: Mapped[str] = mapped_column(Text, default='')
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    applied_payment_id: Mapped[Optional[str]] = mapped_column(ForeignKey('ledger_payments.id'), unique=True)
+    voided_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    voided_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    void_reason: Mapped[str] = mapped_column(Text, default='')
+    __table_args__ = (
+        CheckConstraint("kind IN ('deposit','refund')", name='buyer_order_payments_kind_check'),
+        CheckConstraint('amount > 0', name='buyer_order_payments_amount_check'),
+        CheckConstraint("(kind = 'refund') = (refund_of IS NOT NULL)", name='buyer_order_payments_refund_check'),
+        CheckConstraint(f"method IN ({', '.join(repr(v) for v in LEDGER_METHODS)})",
+            name='buyer_order_payments_method_check'),
+    )
+
+
+ACCOUNT_KINDS = ('cash', 'bank', 'mobile_wallet')
+
+
+class MoneyAccount(Entity, Base):
+    """Where Omoterra's money is: a cash box, a bank account or a mobile
+    wallet (build plan M2.3, decision D6). Its balance starts from an
+    opening balance the finance owner verified at the end of `cutoff_on`;
+    movements dated on or before the cutoff are inside that balance."""
+    __tablename__ = 'money_accounts'
+    name: Mapped[str] = mapped_column(String(80), unique=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    provider: Mapped[str] = mapped_column(String(80), default='')
+    number: Mapped[str] = mapped_column(String(80), default='')
+    cutoff_on: Mapped[date] = mapped_column(Date)
+    opening_balance: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    opening_evidence: Mapped[str] = mapped_column(Text)
+    verified_by: Mapped[str] = mapped_column(Text)
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    active: Mapped[bool] = mapped_column(default=True)
+    __table_args__ = (
+        CheckConstraint("kind IN ('cash','bank','mobile_wallet')", name='money_accounts_kind_check'),
+        CheckConstraint('length(btrim(opening_evidence)) >= 3 AND length(btrim(verified_by)) >= 2',
+            name='money_accounts_evidence_check'),
+    )
+
+
+class AccountAssignment(Entity, Base):
+    """Which account a recorded money movement (a cash book row) went
+    through. New entries name it; a historical one is assigned only with
+    evidence the finance owner confirmed (rule R6). A movement entered after
+    the account was set up but dated on or before its cutoff is a pre-cutoff
+    adjustment until the finance owner says it was already inside the
+    opening balance, or restates the opening balance with it."""
+    __tablename__ = 'account_assignments'
+    source_table: Mapped[str] = mapped_column(String(32))
+    source_id: Mapped[str] = mapped_column(String(36))
+    account_id: Mapped[str] = mapped_column(ForeignKey('money_accounts.id'), index=True)
+    how: Mapped[str] = mapped_column(String(16), default='entered')
+    evidence: Mapped[str] = mapped_column(Text, default='')
+    assigned_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    confirmed_by: Mapped[str] = mapped_column(Text, default='')
+    pre_cutoff: Mapped[Optional[str]] = mapped_column(String(16))
+    pre_cutoff_note: Mapped[str] = mapped_column(Text, default='')
+    pre_cutoff_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        UniqueConstraint('source_table', 'source_id', name='uq_account_assignment_source'),
+        CheckConstraint("how IN ('entered','historical')", name='account_assignments_how_check'),
+        CheckConstraint("how <> 'historical' OR length(btrim(evidence)) >= 3", name='account_assignments_evidence_check'),
+        CheckConstraint("pre_cutoff IS NULL OR (pre_cutoff IN ('inside_opening','restated') AND length(btrim(pre_cutoff_note)) >= 3)",
+            name='account_assignments_pre_cutoff_check'),
+    )
+
+
+class MoneyReference(Entity, Base):
+    """A transaction reference claimed by one money record (build plan M2.6,
+    audit F11): (provider, account, reference) is unique while the claim is
+    live, so the same real transaction cannot be entered twice with a new
+    retry key. `reference` is normalised (no spaces, upper case); `provider`
+    is the payment method ('' when the record has none); `account_key` the
+    money account id ('' when none). See app/duplicates.py."""
+    __tablename__ = 'money_references'
+    provider: Mapped[str] = mapped_column(String(24), default='')
+    account_key: Mapped[str] = mapped_column(String(36), default='')
+    reference: Mapped[str] = mapped_column(Text)
+    flow: Mapped[str] = mapped_column(String(3))
+    source_table: Mapped[str] = mapped_column(String(32))
+    source_id: Mapped[str] = mapped_column(String(36))
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    released_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    release_reason: Mapped[str] = mapped_column(Text, default='')
+    __table_args__ = (
+        CheckConstraint("reference <> ''", name='money_references_reference_check'),
+        CheckConstraint("flow IN ('in','out')", name='money_references_flow_check'),
+        Index('uq_money_reference_live', 'provider', 'account_key', 'reference', unique=True,
+            postgresql_where=text('released_at IS NULL')),
+        Index('ix_money_references_reference', 'reference'),
+        Index('ix_money_references_source', 'source_table', 'source_id'),
+    )
+
+
+class DuplicateOverride(Entity, Base):
+    """A payment entered without a reference although one with the same
+    party, amount, day and direction already existed: who said it is a
+    separate payment, and why (M2.6)."""
+    __tablename__ = 'duplicate_overrides'
+    source_table: Mapped[str] = mapped_column(String(32))
+    source_id: Mapped[str] = mapped_column(String(36))
+    earlier_table: Mapped[str] = mapped_column(String(32))
+    earlier_id: Mapped[str] = mapped_column(String(36))
+    flow: Mapped[str] = mapped_column(String(3))
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    paid_on: Mapped[date] = mapped_column(Date)
+    reason: Mapped[str] = mapped_column(Text)
+    overridden_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint('length(btrim(reason)) >= 3', name='duplicate_overrides_reason_check'),
+        Index('ix_duplicate_overrides_source', 'source_table', 'source_id'),
+    )
+
+
+class AccountTransfer(Entity, Base):
+    """Money moved between two of Omoterra's own accounts: out of one, into
+    the other, so the business total does not change. A fee charged on it
+    is recorded as an account fee."""
+    __tablename__ = 'account_transfers'
+    from_account_id: Mapped[str] = mapped_column(ForeignKey('money_accounts.id'), index=True)
+    to_account_id: Mapped[str] = mapped_column(ForeignKey('money_accounts.id'), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    transferred_on: Mapped[date] = mapped_column(Date, index=True)
+    reference: Mapped[str] = mapped_column(Text, default='')
+    note: Mapped[str] = mapped_column(Text, default='')
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint('amount > 0', name='account_transfers_amount_check'),
+        CheckConstraint('from_account_id <> to_account_id', name='account_transfers_accounts_check'),
+    )
+
+
+class AccountFee(Entity, Base):
+    """A bank or wallet charge: money out of the account and a business
+    expense."""
+    __tablename__ = 'account_fees'
+    account_id: Mapped[str] = mapped_column(ForeignKey('money_accounts.id'), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    charged_on: Mapped[date] = mapped_column(Date, index=True)
+    description: Mapped[str] = mapped_column(Text)
+    reference: Mapped[str] = mapped_column(Text, default='')
+    transfer_id: Mapped[Optional[str]] = mapped_column(ForeignKey('account_transfers.id'))
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint('amount > 0', name='account_fees_amount_check'),
+        CheckConstraint('length(btrim(description)) >= 3', name='account_fees_description_check'),
+    )
+
+
+class AccountCheck(Entity, Base):
+    """A cash count or a statement balance at the end of a day, against the
+    recorded balance then. A difference is an exception to explain, never
+    a silent adjustment: the balance only changes when the missing record
+    itself is entered."""
+    __tablename__ = 'account_checks'
+    account_id: Mapped[str] = mapped_column(ForeignKey('money_accounts.id'), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    checked_on: Mapped[date] = mapped_column(Date, index=True)
+    balance: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    expected: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    difference: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    evidence: Mapped[str] = mapped_column(Text)
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    resolution: Mapped[str] = mapped_column(Text, default='')
+    resolved_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    resolved_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint("kind IN ('count','statement')", name='account_checks_kind_check'),
+        CheckConstraint('difference = balance - expected', name='account_checks_difference_check'),
+        CheckConstraint('length(btrim(evidence)) >= 3', name='account_checks_evidence_check'),
+        CheckConstraint('resolved_at IS NULL OR length(btrim(resolution)) >= 3', name='account_checks_resolution_check'),
+    )
+
+
+LOT_TABLES = ('supplier_collections', 'lpo_lines', 'opening_stock')
+
+
+class LotAdjustment(Entity, Base):
+    """A physical event on a received lot that has no other record (build
+    plan M2.1, rule R2):
+
+    - count: staff counted the lot; `quantity` is counted minus what the
+      records expected on that day (never 0). Admin only, with a reason and
+      evidence. A shortage counts as stock lost, a surplus as a gain.
+    - lost: opening stock that died or was lost (delivery notes and LPO
+      lines keep their own loss records).
+
+    Never edited or deleted; a mistake is cancelled with a reason."""
+    __tablename__ = 'lot_adjustments'
+    lot_table: Mapped[str] = mapped_column(String(24))
+    lot_id: Mapped[str] = mapped_column(String(36), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    occurred_on: Mapped[date] = mapped_column(Date, index=True)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(14, 3))
+    counted_quantity: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 3))
+    expected_quantity: Mapped[Optional[Decimal]] = mapped_column(Numeric(14, 3))
+    unit_cost: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    loss_reason: Mapped[Optional[str]] = mapped_column(String(16))
+    reason: Mapped[str] = mapped_column(Text, default='')
+    evidence: Mapped[str] = mapped_column(Text, default='')
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    cancelled_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True))
+    cancelled_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    cancel_reason: Mapped[str] = mapped_column(Text, default='')
+    __table_args__ = (
+        CheckConstraint("lot_table IN ('supplier_collections','lpo_lines','opening_stock')", name='lot_adjustments_lot_table_check'),
+        CheckConstraint("kind IN ('count','lost')", name='lot_adjustments_kind_check'),
+        CheckConstraint("kind <> 'count' OR (counted_quantity >= 0 AND expected_quantity IS NOT NULL"
+            " AND quantity = counted_quantity - expected_quantity AND quantity <> 0"
+            " AND length(btrim(reason)) >= 3 AND length(btrim(evidence)) >= 3)", name='lot_adjustments_count_check'),
+        CheckConstraint("kind <> 'lost' OR (lot_table = 'opening_stock' AND quantity > 0 AND loss_reason IN "
+            "('died','sick','stolen','spoiled','other'))", name='lot_adjustments_lost_check'),
+        CheckConstraint('unit_cost >= 0', name='lot_adjustments_unit_cost_check'),
+        CheckConstraint('cancelled_at IS NULL OR length(btrim(cancel_reason)) >= 3', name='lot_adjustments_cancel_check'),
+    )
 
 
 ADJUSTMENT_KINDS = ('wrong_supplier', 'duplicate_liability', 'free_stock', 'cost_never_existed',

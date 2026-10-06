@@ -1021,6 +1021,11 @@ class Strings {
       '$reserved zimehifadhiwa · $available zinaweza kutolewa');
   String externallySold(String n) =>
       _t('$n externally sold', '$n zimeuzwa nje');
+  String receivedByOmoterra(String received, String sold, String lost,
+          String returned, String held) =>
+      _t(
+          'Omoterra received $received: $sold sold · $lost died or lost · $returned returned to you · $held still at Omoterra',
+          'Omoterra ilipokea $received: $sold zimeuzwa · $lost zimekufa au kupotea · $returned zimerudishwa kwako · $held bado ziko Omoterra');
   String get recordExternalSale =>
       _t('Record external sale', 'Rekodi mauzo ya nje');
   String get quantitySoldOutside =>

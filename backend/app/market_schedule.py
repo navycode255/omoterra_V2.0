@@ -194,7 +194,9 @@ def my_reservation(id: str, user=Depends(supplier), db=Depends(database)):
 def _release_batch(db, reservation):
     if reservation.status == 'approved' and reservation.quantity_approved and reservation.supplier_batch_id:
         batch = db.scalar(select(m.SupplierBatch).where(m.SupplierBatch.id == reservation.supplier_batch_id).with_for_update())
-        batch.reserved_quantity -= reservation.quantity_approved
+        # Only what delivery notes have not filled is still held (M2.1).
+        from .batch_stock import outstanding
+        batch.reserved_quantity -= outstanding(db, 'market_reservation', reservation)
         if batch.status in ('fully_reserved', 'partially_reserved'):
             batch.status = 'partially_reserved' if batch.reserved_quantity else ('ready' if batch.expected_ready_date and batch.expected_ready_date <= c.business_today().isoformat() else 'growing')
 
@@ -330,6 +332,9 @@ def review_reservation(id: str, data: c.MarketReservationReview, idempotency_key
         if quantity > available:
             fail('err.market_only_remaining', 409, quantity=f'{available:,.3f}'.rstrip('0').rstrip('.'), unit=slot.unit_type)
         batch_available = batch.available_to_commit + old
+        from .batch_stock import fulfilled
+        if quantity < fulfilled(db, 'market_reservation', row.id):
+            fail('err.reservation_below_received', 422)
         if quantity > batch_available:
             fail('err.market_batch_only_available', 409, quantity=batch_available)
         batch.reserved_quantity += quantity - old

@@ -8,6 +8,7 @@ import { SourceRows } from '@/components/finance/source-rows';
 import ui from '@/components/finance/expenses.module.css';
 import styles from '@/components/finance/finance-list.module.css';
 import costStyles from '@/components/finance/cost-states.module.css';
+import orderStyles from '@/components/finance/buyer-orders.module.css';
 import { ApiError, get } from '@/lib/api';
 import { PROVISIONAL, day, thisMonth, today, type ReportRows, type Sale, type SalesSummary } from '@/lib/finance';
 import { phone, tzs } from '@/lib/format';
@@ -56,13 +57,16 @@ export default async function Sales({ searchParams }: { searchParams: Promise<Li
   }
 
   return <div className={`${ui.workspace} ${styles.page} ${styles.salesPage}`}>
-    <div className={ui.heading}><h1>Sales</h1><Link href="/sales/new" className={ui.primary}><Icons.plus size={19} />New sale</Link></div>
+    <div className={ui.heading}><h1>Sales</h1><div className={orderStyles.actions}>
+      {/* Orders taken for buyers, not sales until delivered (M2.5). */}
+      <Link href="/sales/orders" className={ui.secondary} data-buyer-orders-link>Buyer orders{total.commitments.ledger_count ? ` (${total.commitments.ledger_count})` : ''}</Link>
+      <Link href="/sales/new" className={ui.primary}><Icons.plus size={19} />New sale</Link></div></div>
 
     <section className={`${styles.stats} ${styles.salesStats}`} data-count="4" aria-label="Sales summary">
       <article className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.chart size={26} /></span>
         <div><span>Sales total</span><strong>{tzs(total.sales_total)}</strong>
           <small>{sales(total.sales_count)}{total.marketplace_count ? ` · ${total.marketplace_count} app ${total.marketplace_count === 1 ? 'order' : 'orders'} ${tzs(total.marketplace_total)}` : ''}</small>
-          {Number(total.commitments.total) > 0 && <small>App orders not delivered yet (not sales): {tzs(total.commitments.total)}</small>}</div><span className={styles.statInfo}><InfoTip label="About sales total">{sales(total.sales_count)}. {total.marketplace_count ? `${total.marketplace_count} delivered app orders (${tzs(total.marketplace_total)}) are included. ` : ''}{Number(total.commitments.total) > 0 ? `Undelivered app orders (${tzs(total.commitments.total)}) are not sales.` : ''}</InfoTip></span></article>
+          {Number(total.commitments.total) > 0 && <small><Link href="/sales/orders?status=open">Orders not delivered yet (not sales): {tzs(total.commitments.total)}</Link></small>}</div><span className={styles.statInfo}><InfoTip label="About sales total">{sales(total.sales_count)}. {total.marketplace_count ? `${total.marketplace_count} delivered app orders (${tzs(total.marketplace_total)}) are included. ` : ''}{Number(total.commitments.total) > 0 ? `Orders not delivered yet (${tzs(total.commitments.total)}: app orders ${tzs(total.commitments.marketplace ?? '0')}, buyer orders ${tzs(total.commitments.ledger ?? '0')}) are not sales.` : ''}</InfoTip></span></article>
       <article className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.wallet size={26} /></span>
         <div><span><span className={styles.desktopStatLabel}>Paid on these sales{toDate ? ' to date' : ` by ${day(end)}`}</span><span className={styles.mobileStatLabel}>Received</span></span><strong>{tzs(total.received)}</strong><small>{share}% of direct sales</small></div><span className={styles.statInfo}><InfoTip label="About payments received">Payments on these direct sales{toDate ? ' to date' : ` by ${day(end)}`}. {share}% of direct sales.</InfoTip></span></article>
       <article className={styles.stat} data-tone="late"><span className={styles.statIcon}><Icons.users size={26} /></span>
@@ -95,14 +99,14 @@ export default async function Sales({ searchParams }: { searchParams: Promise<Li
     </div>
 
     <div className={styles.tableWrap}>
-      <table className={styles.table} data-phone-show="1 5" data-sales-table>
+      <table className={styles.table} data-phone-show="2 5" data-sales-table>
         <thead><tr><th>Sale</th><th>Buyer</th><th>Total (TZS)</th><th>Received (TZS)</th><th>Buyer owes (TZS)</th><th>Supplier owed (TZS)</th><th>Status</th><th aria-label="Open" /></tr></thead>
         <tbody>{data.items.map((sale) => {
           const tone = sale.status === 'cancelled' ? 'cancelled' : Number(sale.balance) > 0 ? 'open' : 'settled';
           return <tr key={sale.id}>
-            <td data-label="Sale"><div><Link className={styles.name} href={`/sales/${sale.id}`}>{sale.sale_number}</Link><small>{day(sale.sold_on)}</small>
-              {sale.status === 'active' && sale.cost_state === 'unknown' && <small className={costStyles.unknown}>Cost unknown</small>}</div></td>
-            <td data-label="Buyer"><div>{sale.buyer_name}<small>{sale.buyer_phone ? phone(sale.buyer_phone) : '—'}</small></div></td>
+            <td data-label="Sale"><div><Link className={styles.name} href={`/sales/${sale.id}`}>{sale.sale_number}</Link><small className={styles.wideLabel}>{day(sale.sold_on)}</small><small className={styles.phoneLabel}>{sale.buyer_phone ? phone(sale.buyer_phone) : '—'}</small>
+              {sale.status === 'active' && sale.cost_state === 'unknown' && <small className={`${costStyles.unknown} ${styles.wideLabel}`}>Cost unknown</small>}</div></td>
+            <td data-label="Buyer"><div><span className={styles.wideLabel}>{sale.buyer_name}</span><Link className={`${styles.name} ${styles.phoneLabel}`} href={`/sales/${sale.id}`}>{sale.buyer_name}</Link><small className={styles.wideLabel}>{sale.buyer_phone ? phone(sale.buyer_phone) : '—'}</small><small className={styles.phoneLabel}>{day(sale.sold_on)}</small>{sale.status === 'active' && sale.cost_state === 'unknown' && <small className={`${costStyles.unknown} ${styles.phoneLabel}`}>Cost unknown</small>}</div></td>
             <td data-label="Total" className={styles.balance}>{tzs(sale.total_amount)}</td>
             <td data-label="Received" className={styles.money}>{tzs(sale.received_amount)}</td>
             <td data-label="Buyer owes" className={styles.balance}>{tzs(sale.balance)}</td>

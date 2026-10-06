@@ -89,7 +89,8 @@ export async function recordLoss(_: ActionResult | null, formData: FormData) {
   return run(() => post('/ops/lpos/losses', {
     lpo_line_id: text(formData, 'lpo_line_id'), lost_on: text(formData, 'lost_on'),
     quantity: text(formData, 'quantity'), reason: text(formData, 'reason'), note: text(formData, 'note'),
-  }, key(formData)), [`/lpos/${id}`, '/finance/profit', '/finance']);
+    late_reason: text(formData, 'late_reason'),
+  }, key(formData)), [`/lpos/${id}`, '/finance/profit', '/finance', '/stock']);
 }
 
 export async function cancelLoss(_: ActionResult | null, formData: FormData) {

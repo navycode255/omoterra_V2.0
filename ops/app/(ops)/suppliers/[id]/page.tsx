@@ -170,7 +170,8 @@ export default async function SupplierDetailPage({ params, searchParams }: { par
               <span data-part="taken" style={{ width: `${Number(batch.taken_by_omoterra) / Number(batch.registered) * 100}%` }} />
               <span data-part="elsewhere" style={{ width: `${Number(batch.sold_elsewhere) / Number(batch.registered) * 100}%` }} />
             </div>}
-            {onHand > 0 && <p className="meta">{quantity(String(onHand))} received birds still in Omoterra stock.</p>}
+            {batch.flow && Number(batch.flow.received) > 0 && <p className="meta">Received {quantity(batch.flow.received)}: {quantity(batch.flow.sold)} sold · {quantity(batch.flow.lost)} died or lost · {quantity(batch.flow.returned)} returned to the supplier{Number(batch.flow.at_kitchens) > 0 ? ` · ${quantity(batch.flow.at_kitchens)} at kitchens` : ''} · <b>{quantity(batch.flow.at_omoterra)} still at Omoterra</b></p>}
+            {!batch.flow && onHand > 0 && <p className="meta">{quantity(String(onHand))} received birds still in Omoterra stock.</p>}
             {remaining > 0 && <details className="batch-receive-panel"><summary>Supplier sold some elsewhere</summary>
               <div className="grid-2">
                 <ActionForm action={recordSoldElsewhere} label="Record sold elsewhere" hidden={{ supplier_id: supplier.id, batch_id: batch.id }}>
@@ -195,6 +196,11 @@ export default async function SupplierDetailPage({ params, searchParams }: { par
                   <div className="field"><label htmlFor={`weight-${batch.id}`}>Average weight (kg)</label><input id={`weight-${batch.id}`} name="average_weight_kg" type="number" min="0.001" step="0.001" className="input" /></div>
                   <div className="field"><label htmlFor={`terms-${batch.id}`}>Payment due after (days)</label><input id={`terms-${batch.id}`} name="payment_terms_days" type="number" min="0" max="180" defaultValue="0" className="input" /></div>
                 </div>
+                {batch.commitments && batch.commitments.length > 0 && <div className="field"><label htmlFor={`commitment-${batch.id}`}>Reservation this delivery fills</label>
+                  <select id={`commitment-${batch.id}`} name="commitment" className="input" defaultValue="">
+                    <option value="">None: unreserved birds ({quantity(batch.available_to_commit)} available)</option>
+                    {batch.commitments.map((row) => <option key={row.id} value={`${row.kind}:${row.id}`}>{row.label} · {quantity(row.outstanding)} outstanding</option>)}
+                  </select></div>}
                 <div className="field"><label htmlFor={`collection-note-${batch.id}`}>Delivery note comments</label><textarea id={`collection-note-${batch.id}`} name="notes" className="input" placeholder="Condition, rejected stock, vehicle or collection details" /></div>
               </ActionForm>
             </details>}

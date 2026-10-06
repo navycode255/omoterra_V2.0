@@ -57,9 +57,11 @@ test('Unknown cost makes Profit provisional; opening stock gives a known margin'
 
   // Give the unknown line its cost from the same opening stock.
   await page.goto(unknownSale);
-  await page.getByLabel('Opening stock', { exact: true }).selectOption({ index: 1 });
-  await page.getByLabel('Reason').first().fill('These were from the counted pen');
-  await page.getByRole('button', { name: 'Give this line its cost' }).click();
+  // Scoped to the cost form: the sale page's "More actions" dialog has its own Reason field.
+  const costForm = page.locator('form', { has: page.getByRole('button', { name: 'Give this line its cost' }) });
+  await costForm.getByLabel('Opening stock', { exact: true }).selectOption({ index: 1 });
+  await costForm.getByLabel('Reason').fill('These were from the counted pen');
+  await costForm.getByRole('button', { name: 'Give this line its cost' }).click();
   await expect(summary.locator('div', { hasText: /^Margin before expenses/ }).locator('dd')).toHaveText(tzs(3_000));
 
   // Nothing unknown left: Profit shows its figure again.

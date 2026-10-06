@@ -6,6 +6,7 @@ import { Empty, Notice, Status } from '@/components/ui';
 import { correctTransferEntry, recordTransferRefund } from '@/lib/finance-actions';
 import { METHODS, day, methodLabel, today, type TransferMoney } from '@/lib/finance';
 import { tzs } from '@/lib/format';
+import { AccountSelect } from '@/components/finance/account-select';
 
 type TransferEvent = { id: string; kind: 'credit' | 'reallocation' | 'refund' | 'entry_error'; amount: string;
   occurred_on: string; method: string | null; reference: string; evidence: string; reason: string; recorded_by: string | null };
@@ -54,6 +55,7 @@ function TransferActions({ row, admin }: { row: SupplierStatement['payments'][nu
           <input id={`refund-on-${row.id}`} name="received_on" type="date" className="input" defaultValue={today()} min={row.paid_on} max={today()} required /></div>
         <div className="field"><label htmlFor={`refund-method-${row.id}`}>Method</label>
           <select id={`refund-method-${row.id}`} name="method" className="input" defaultValue={row.method}>{METHODS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></div>
+        <AccountSelect id={`refund-account-${row.id}`} label="Received into account" />
         <div className="field"><label htmlFor={`refund-ref-${row.id}`}>Transaction reference</label>
           <input id={`refund-ref-${row.id}`} name="reference" className="input" placeholder="e.g. M-Pesa code" /></div>
         <div className="field"><label htmlFor={`refund-evidence-${row.id}`}>Proof (confirmation SMS or statement line)</label>

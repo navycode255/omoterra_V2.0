@@ -118,3 +118,18 @@ def client(sessions, seeded):
     with TestClient(app) as client:
         yield client
     app.dependency_overrides.clear()
+
+
+@pytest.fixture
+def second_admin(client, sessions, seeded):
+    """Another admin signed in to the dashboard (decision D9: approvals come
+    from a second admin). Send X-Operator-Session 'ops-admin-2'."""
+    from datetime import timedelta
+    from app.auth import digest
+    with sessions.begin() as db:
+        operator = m.Operator(phone='+255710000003', name='Second Admin', role='admin')
+        db.add(operator); db.flush()
+        db.add(m.OperatorSession(operator_id=operator.id, token_hash=digest('ops-admin-2'),
+            expires_at=m.now() + timedelta(days=1)))
+        seeded['operator_admin_2'] = operator.id
+    return {'X-Ops-Token': 'test-operator-secret', 'X-Operator-Session': 'ops-admin-2'}

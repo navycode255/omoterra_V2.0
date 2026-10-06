@@ -24,9 +24,12 @@ const APP_ROWS: Record<string, { metric: string; title: string; note: string; em
 };
 
 // Paying a debt happens where its money is tracked: a registered supplier's
-// invoices on Supplier payments, everything else on the debt's own page.
+// invoices on Supplier payments, a known customer's debts as one payment
+// over all of them (oldest first), everything else on the debt's own page.
 function payHref(debt: Debt) {
-  return debt.direction === 'payable' && debt.supplier_id ? `/finance/supplier-payments?debt=${debt.id}` : `/finance/debts/${debt.id}#pay`;
+  if (debt.direction === 'payable' && debt.supplier_id) return `/finance/supplier-payments?debt=${debt.id}`;
+  if (debt.direction === 'receivable' && debt.buyer_profile_id) return `/finance/debts/receive?buyer=${debt.buyer_profile_id}`;
+  return `/finance/debts/${debt.id}#pay`;
 }
 
 export default async function Debts({ searchParams }: { searchParams: Promise<ListParams> }) {

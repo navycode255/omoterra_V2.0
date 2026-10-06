@@ -85,7 +85,7 @@ def _settlement(db, seeded, key, **kw):
 def test_empty_database_reports_nothing(sessions, engine):
     report = fx.build_report(engine)
     assert all(s['count'] == 0 for s in report['sections'])
-    assert 'Sections with exceptions: 0 of 10' in fx.to_text(report)
+    assert 'Sections with exceptions: 0 of 17' in fx.to_text(report)
 
 
 def test_unknown_cost_and_unsourced_supplier_lines(sessions, seeded, engine):

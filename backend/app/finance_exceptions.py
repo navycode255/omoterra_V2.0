@@ -179,37 +179,99 @@ def supplier_credit(db):
 
 
 def settlement_payout_problems(db):
+    """App payouts the supplier says never arrived, or paid more than once.
+    Since M2.7 each payout attempt is its own row; before it, a resend
+    overwrote the first transfer's reference and date. Migration 045 turned
+    each paid settlement into one debited attempt and never guessed the
+    overwritten one: an answer naming a reference that is on no attempt is
+    such a transfer, listed here (its date is unknown and it is not counted
+    as its own outflow)."""
     history = {}
     for row in db.execute(select(m.PayoutConfirmation.settlement_id, m.PayoutConfirmation.outcome,
             m.PayoutConfirmation.payment_reference, m.PayoutConfirmation.created_at)
             .order_by(m.PayoutConfirmation.created_at)):
         history.setdefault(row.settlement_id, []).append(row)
+    attempts = {}
+    for row in db.scalars(select(m.SettlementTransfer).order_by(m.SettlementTransfer.attempt_no)):
+        attempts.setdefault(row.settlement_id, []).append(row)
     candidates = db.scalars(select(m.Settlement).where(or_(m.Settlement.supplier_confirmation == 'not_received',
-        m.Settlement.id.in_(list(history) or ['']))).order_by(m.Settlement.created_at)).all()
+        m.Settlement.id.in_(list(history) or ['']), m.Settlement.id.in_(list(attempts) or [''])))
+        .order_by(m.Settlement.created_at)).all()
+    from . import payouts
+    money = payouts.settlement_figures(db, candidates)
     names = _supplier_names(db, [r.supplier_id for r in candidates])
     records = []
     for row in candidates:
         answers = history.get(row.id, [])
+        tried = [a for a in attempts.get(row.id, []) if a.state != 'failed']
+        # The references money went out under: each attempt's, or before
+        # attempts existed the settlement's own.
+        recorded = [(a.reference or '').strip() for a in tried] if attempts.get(row.id) else (
+            [(row.payment_reference or '').strip()] if row.status == 'paid' else [])
         references = []
-        for ref in [a.payment_reference for a in answers] + ([row.payment_reference] if row.status == 'paid' else []):
+        for ref in [a.payment_reference for a in answers] + recorded:
             ref = (ref or '').strip()
             if ref and ref not in references:
                 references.append(ref)
+        unrecorded = [ref for ref in references if ref not in recorded]
         reasons = []
-        if row.supplier_confirmation == 'not_received':
+        if row.supplier_confirmation == 'not_received' or any(a.supplier_confirmation == 'not_received' for a in tried):
             reasons.append('supplier says not received')
         if len(references) > 1:
             reasons.append(f'paid {len(references)} times')
+        if unrecorded and any(a.legacy for a in tried):
+            reasons.append('resent before payout attempts: the earlier transfer\'s date was overwritten and it is '
+                           'not recorded as its own outflow')
+        extra = money[row.id]['exposure'] if attempts.get(row.id) else ZERO
+        extra += _money(row.total_payable) * len(unrecorded)
         if reasons:
             records.append({'settlement_id': row.id, 'supplier': names.get(row.supplier_id, row.supplier_id),
                 'status': row.status, 'total_payable': _money(row.total_payable),
                 'supplier_confirmation': row.supplier_confirmation, 'payment_references': references,
+                'unrecorded_references': unrecorded,
                 'answers': [a.outcome for a in answers], 'reasons': reasons,
-                'possible_extra_paid': _money(row.total_payable) * max(len(references) - 1, 0)})
+                'possible_extra_paid': _money(extra)})
     return _section('settlement_payout_problems', 'Marketplace settlements not received or paid more than once',
         records, 'payable at issue', sum((r['total_payable'] for r in records), ZERO),
-        'Each extra reference is a separate outflow until proven failed (R3).',
+        'Each debited attempt is a separate outflow (R3) until money comes back as a refund. A reference on no '
+        'attempt is a transfer from before M2.7 whose date was overwritten: find it on the statement.',
         possible_extra_paid=_money(sum((r['possible_extra_paid'] for r in records), ZERO)))
+
+
+def stale_payout_attempts(db):
+    """Payout attempts sent more than payouts.STALE_INITIATED_DAYS days ago
+    and still neither confirmed as debited nor proven failed (M2.7)."""
+    from . import payouts
+    rows = payouts.stale_initiated(db)
+    settlements = {r.id: r for r in db.scalars(select(m.Settlement).where(
+        m.Settlement.id.in_([a.settlement_id for a in rows] or [''])))}
+    names = _supplier_names(db, [r.supplier_id for r in settlements.values()])
+    records = [{'attempt_id': a.id, 'settlement_id': a.settlement_id, 'attempt_no': a.attempt_no,
+        'supplier': names.get(settlements[a.settlement_id].supplier_id, ''), 'sent_on': a.sent_on,
+        'amount': _money(a.amount), 'method': a.method, 'reference': a.reference} for a in rows]
+    return _section('stale_payout_attempts',
+        f'Payout attempts sent over {payouts.STALE_INITIATED_DAYS} days ago, debit not confirmed', records, 'amount',
+        sum((r['amount'] for r in records), ZERO),
+        'Pending exposure, not money out. Check the statement: mark each debited, or failed with evidence.')
+
+
+def payout_exposure(db):
+    """Money possibly paid twice on app payouts (M2.7): debited money the
+    supplier says never arrived, or more sent than the settlement, until a
+    refund brings it back."""
+    from . import payouts
+    rows = db.scalars(select(m.Settlement).where(m.Settlement.status != 'cancelled',
+        m.Settlement.id.in_(select(m.SettlementTransfer.settlement_id))).order_by(m.Settlement.created_at)).all()
+    money = payouts.settlement_figures(db, rows)
+    names = _supplier_names(db, [r.supplier_id for r in rows])
+    records = [{'settlement_id': r.id, 'supplier': names.get(r.supplier_id, ''), 'total_payable': _money(r.total_payable),
+        'net_paid': _money(money[r.id]['net_paid']), 'in_flight': _money(money[r.id]['in_flight']),
+        'disputed': _money(money[r.id]['disputed']), 'exposure': _money(money[r.id]['exposure'])}
+        for r in rows if money[r.id]['exposure'] > 0]
+    return _section('payout_exposure', 'App payouts possibly paid twice (disputed exposure)', records, 'exposure',
+        sum((r['exposure'] for r in records), ZERO),
+        'Resolved only by a refund recorded on the attempt (with evidence). Refunds need evidence when entered, '
+        'so none can wait for it.')
 
 
 def expenses_without_category(db):
@@ -293,12 +355,88 @@ def ledger_payment_methods(db):
         reversed_count=reversed_row[0], reversed_amount=_money(reversed_row[1]))
 
 
+def unassigned_money(db):
+    """Recorded money with no account (M2.3). Before any account exists it
+    is all unassigned, so it is listed only once accounts are set up."""
+    from . import accounts
+    from .reporting import CASH
+    totals = accounts.unassigned_totals(db)
+    if not accounts.any_accounts(db):
+        return _section('unassigned_money', 'Money with no account', [], 'in and out', ZERO,
+            f"No money accounts yet (decision D6): {totals['count']} recorded movements wait to be assigned.")
+    rows = db.execute(select(CASH).where(accounts.unassigned_filter()).order_by(CASH.c.paid_on)).all()
+    records = [{'source_table': r.source_table, 'id': r.id, 'paid_on': r.paid_on, 'flow': r.flow,
+        'amount': _money(r.amount), 'method': r.method, 'reference': r.reference, 'party': r.party_name} for r in rows]
+    return _section('unassigned_money', 'Money with no account (Unassigned, historical)', records, 'in and out',
+        totals['in'] + totals['out'], 'Assign each with evidence: python -m app.classify_accounts, or Finance → Accounts.')
+
+
+def account_differences(db):
+    """Cash counts and statement balances that did not match the records."""
+    from . import accounts
+    names = {a.id: a.name for a in db.scalars(select(m.MoneyAccount))}
+    records = [{'check_id': row.id, 'account': names.get(row.account_id, ''), 'kind': row.kind,
+        'checked_on': row.checked_on, 'balance': _money(row.balance), 'expected': _money(row.expected),
+        'difference': _money(row.difference)} for row in accounts.open_differences(db)]
+    return _section('account_differences', 'Account checks with an unexplained difference', records, 'difference',
+        sum((abs(r['difference']) for r in records), ZERO))
+
+
+def pre_cutoff_adjustments(db):
+    """Money entered after an account was set up but dated on or before its
+    cutoff: inside the opening balance, or a restatement?"""
+    from . import accounts
+    records = [{**row, 'amount': _money(row['amount'])} for row in accounts.pre_cutoff(db)]
+    return _section('pre_cutoff_adjustments', 'Entries dated before an account cutoff, not yet explained', records,
+        'amount', sum((r['amount'] for r in records), ZERO))
+
+
+def duplicate_references(db):
+    """One transaction reference entered on more than one money record
+    (M2.6, audit F11). Migration 043 claimed only the earliest of each; the
+    others still count as before until explained with evidence (R6)."""
+    from . import duplicates
+    groups = duplicates.historical_duplicates(db)
+    records = [{'reference': g['reference'], 'provider': g['provider'] or 'app', 'count': len(g['records']),
+        'amount': _money(sum((r['amount'] for r in g['records'][1:]), ZERO)),
+        'entries': [{**r, 'amount': _money(r['amount'])} for r in g['records']]} for g in groups]
+    return _section('duplicate_references', 'Transaction references recorded more than once', records,
+        'amount of the later entries', sum((r['amount'] for r in records), ZERO),
+        'The earliest entry of each keeps the reference; check each later one against the statement.')
+
+
+def duplicate_overrides(db):
+    """Payments entered without a reference that staff said were separate
+    from an earlier one with the same party, amount and day."""
+    names = dict(db.execute(select(m.Operator.id, m.Operator.name)).all())
+    rows = db.scalars(select(m.DuplicateOverride).order_by(m.DuplicateOverride.created_at)).all()
+    records = [{'source_table': r.source_table, 'source_id': r.source_id, 'earlier_table': r.earlier_table,
+        'earlier_id': r.earlier_id, 'flow': r.flow, 'amount': _money(r.amount), 'paid_on': r.paid_on,
+        'reason': r.reason, 'by': names.get(r.overridden_by, r.overridden_by or '')} for r in rows]
+    return _section('duplicate_overrides', 'Possible duplicates entered as separate payments', records, 'amount',
+        sum((r['amount'] for r in records), ZERO))
+
+
+def unrecognised_orders(db):
+    """Delivered app orders with no recognition date (M2.5, F07): their
+    history was too ambiguous to backfill, so they count in no period's
+    revenue or cost until the finance owner dates them with evidence
+    (`python -m app.recognition --apply`)."""
+    from . import recognition
+    records = [{**r, 'amount': _money(r['amount'])} for r in recognition.unresolved(db)]
+    return _section('unrecognised_orders', 'Delivered app orders with no recognition date', records, 'order value',
+        sum((r['amount'] for r in records), ZERO),
+        'Kept out of every period. Date each with evidence: python -m app.recognition --apply ORDER_ID --on YYYY-MM-DD.')
+
+
 CHECKS = (unknown_cost_lines, supplier_lines_without_source, unresolved_transfer_allocations,
           transfer_invariant_breaks, settlement_payout_problems, expenses_without_category,
           batch_movement_problems, cancelled_sale_cost_debts, unwrapped_supplier_payments,
-          batch_lines_without_receipt, supplier_credit, ledger_payment_methods)
+          batch_lines_without_receipt, unassigned_money, account_differences, pre_cutoff_adjustments,
+          duplicate_references, unrecognised_orders, stale_payout_attempts, payout_exposure, supplier_credit,
+          ledger_payment_methods, duplicate_overrides)
 # Sections that give context and are never counted as exceptions.
-CONTEXT = {'supplier_credit', 'ledger_payment_methods'}
+CONTEXT = {'supplier_credit', 'ledger_payment_methods', 'duplicate_overrides'}
 
 
 def collect(db):
@@ -357,6 +495,12 @@ def _line(section, r):
     if k == 'settlement_payout_problems':
         return (f"{r['supplier']} settlement {r['settlement_id']}: {_tzs(r['total_payable'])}, "
                 f"{'; '.join(r['reasons'])}, refs {', '.join(r['payment_references']) or '-'}")
+    if k == 'stale_payout_attempts':
+        return (f"{r['supplier']} settlement {r['settlement_id']} attempt {r['attempt_no']} sent {r['sent_on']}: "
+                f"{_tzs(r['amount'])} {r['method'] or 'app'} ref {r['reference'] or '-'}")
+    if k == 'payout_exposure':
+        return (f"{r['supplier']} settlement {r['settlement_id']}: payable {_tzs(r['total_payable'])}, net paid "
+                f"{_tzs(r['net_paid'])}, in flight {_tzs(r['in_flight'])}, possibly paid twice {_tzs(r['exposure'])}")
     if k == 'expenses_without_category':
         return f"debt {r['debt_id']} ({r['incurred_on']}) {r['party']}: {r['description']} {_tzs(r['amount'])}"
     if k == 'batch_movement_problems':
@@ -364,6 +508,22 @@ def _line(section, r):
                 f"current {r['current_quantity']}, sold {r['sold_quantity']}, elsewhere {r['externally_sold_quantity']}")
     if k == 'cancelled_sale_cost_debts':
         return f"{r['sale_number']} debt {r['debt_id']} {r['supplier']} {_tzs(r['amount'])} [{r['via']}]: {r['cancel_reason']}"
+    if k == 'unassigned_money':
+        return f"{r['source_table']} {r['id']} ({r['paid_on']}) {r['flow']} {_tzs(r['amount'])} {r['method']} {r['reference']} {r['party']}"
+    if k == 'account_differences':
+        return (f"{r['account']} {r['kind']} {r['checked_on']}: counted {_tzs(r['balance'])}, "
+                f"records {_tzs(r['expected'])}, difference {_tzs(r['difference'])}")
+    if k == 'pre_cutoff_adjustments':
+        return f"{r['account']} {r['source_table']} {r['id']} ({r['date']}) {r['flow']} {_tzs(r['amount'])}: {r['description']}"
+    if k == 'duplicate_references':
+        return (f"{r['reference']} ({r['provider']}) x{r['count']}: " + '; '.join(
+            f"{e['source_table']} {e['id']} {e['paid_on']} {e['flow']} {_tzs(e['amount'])} {e['party']}" for e in r['entries']))
+    if k == 'duplicate_overrides':
+        return (f"{r['source_table']} {r['source_id']} ({r['paid_on']}) {r['flow']} {_tzs(r['amount'])} "
+                f"like {r['earlier_table']} {r['earlier_id']}: {r['reason']} ({r['by']})")
+    if k == 'unrecognised_orders':
+        return (f"order {r['order_id']} ({r['reference']}, {r['status']}, created {r['created_at']:%Y-%m-%d}) "
+                f"{_tzs(r['amount'])}: {r['reason']}")
     if k == 'ledger_payment_methods':
         return f"{r['method']}: {r['count']} payments, received {_tzs(r['received'])}, paid out {_tzs(r['paid_out'])}"
     return str(r)

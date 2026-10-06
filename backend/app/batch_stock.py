@@ -24,6 +24,7 @@ from sqlalchemy import func, select
 from . import auth, contracts as c, models as m, notifications as notes_module, services as s
 from .db import database
 from .i18n import M, fail
+from .lots import StockGuard, late_entry, log_late
 
 router = APIRouter(prefix='/api/v1')
 supplier_member = auth.role('supplier')
@@ -77,7 +78,8 @@ def batch_breakdown(db, batch):
         .where(m.SaleItem.supplier_batch_id == batch.id, m.Sale.status == 'active')) or ZERO
     movements = db.scalars(select(m.SupplierBatchMovement).where(m.SupplierBatchMovement.batch_id == batch.id)
         .order_by(m.SupplierBatchMovement.created_at.desc())).all()
-    return {'registered': batch.current_quantity, 'taken_by_omoterra': batch.sold_quantity,
+    return {'flow': batch_flows(db, [batch])[batch.id], 'commitments': commitments(db, batch.id),
+        'registered': batch.current_quantity, 'taken_by_omoterra': batch.sold_quantity,
         'received_on_notes': received, 'sold_direct': sold_direct,
         'sold_elsewhere': batch.externally_sold_quantity, 'reserved': batch.reserved_quantity,
         'remaining': max(ZERO, batch.available_to_commit),
@@ -85,23 +87,95 @@ def batch_breakdown(db, batch):
             'by_staff': row.recorded_by is not None} for row in movements if row.kind == 'external_sale']}
 
 
-def collection_stock(db, collection_id):
-    """Accepted, sold (active sales), out by a physical event, on hand."""
-    sold = db.scalar(select(func.coalesce(func.sum(m.SaleItem.quantity), 0))
-        .join(m.Sale, m.Sale.id == m.SaleItem.sale_id)
-        .where(m.SaleItem.supplier_collection_id == collection_id, m.Sale.status == 'active')) or ZERO
-    out = dict(db.execute(select(m.CollectionMovement.kind, func.sum(m.CollectionMovement.quantity))
-        .where(m.CollectionMovement.collection_id == collection_id,
-               m.CollectionMovement.kind.in_(m.COLLECTION_STOCK_OUT), m.CollectionMovement.cancelled_at.is_(None))
-        .group_by(m.CollectionMovement.kind)).all())
-    row = db.get(m.SupplierCollection, collection_id)
-    accepted = row.accepted_quantity if row and row.cancelled_at is None else ZERO
-    not_recovered, returned = out.get('not_recovered', ZERO), out.get('returned_to_supplier', ZERO)
-    lost = out.get('lost', ZERO)
-    from .locations import transferred
-    allocated = transferred(db, m.LocationAllocation.supplier_collection_id, collection_id)
-    return {'sold': sold, 'not_recovered': not_recovered, 'returned': returned, 'lost': lost, 'allocated': allocated,
-            'on_hand': accepted - sold - not_recovered - returned - lost - allocated}
+# ---- reservations a delivery fills (M2.1) ----------------------------------------
+
+def fulfilled(db, kind, commitment_id):
+    return db.scalar(select(func.coalesce(func.sum(m.CommitmentFulfilment.quantity), 0)).where(
+        m.CommitmentFulfilment.commitment_kind == kind, m.CommitmentFulfilment.commitment_id == commitment_id)) or ZERO
+
+
+def held(kind, row):
+    """What a reservation holds on its batch before any delivery: an
+    allocation not yet turned into an app order, or an approved market
+    reservation."""
+    if kind == 'demand_allocation':
+        return row.allocated_quantity if row.status == 'reserved' and row.listing_id is None else ZERO
+    return (row.quantity_approved or ZERO) if row.status == 'approved' else ZERO
+
+
+def outstanding(db, kind, row):
+    """Still held on the batch: what it holds less what notes filled."""
+    return max(ZERO, held(kind, row) - fulfilled(db, kind, row.id))
+
+
+def commitments(db, batch_id):
+    """Reservations holding birds on this batch, with what is outstanding."""
+    out = []
+    for row, demand in db.execute(select(m.DemandAllocation, m.SourcingRequest).join(m.SourcingRequest,
+            m.SourcingRequest.id == m.DemandAllocation.demand_id).where(m.DemandAllocation.supplier_batch_id == batch_id)).all():
+        left = outstanding(db, 'demand_allocation', row)
+        if left > 0:
+            out.append({'kind': 'demand_allocation', 'id': row.id, 'outstanding': left,
+                'label': f'Buyer demand {demand.requirement_number or demand.id[:8].upper()} (needed by {demand.needed_by_date})'})
+    for row, slot in db.execute(select(m.MarketReservation, m.MarketSlot).join(m.MarketSlot,
+            m.MarketSlot.id == m.MarketReservation.market_slot_id).where(m.MarketReservation.supplier_batch_id == batch_id)).all():
+        left = outstanding(db, 'market_reservation', row)
+        if left > 0:
+            out.append({'kind': 'market_reservation', 'id': row.id, 'outstanding': left,
+                'label': f'Market day {slot.delivery_date.isoformat()}'})
+    return out
+
+
+def _fill_commitment(db, batch, kind, commitment_id, accepted):
+    """How much of `accepted` fills the named reservation (locked), or 0."""
+    if not kind or not commitment_id:
+        return ZERO, None
+    model = m.DemandAllocation if kind == 'demand_allocation' else m.MarketReservation
+    batch_column = model.supplier_batch_id
+    row = db.scalar(select(model).where(model.id == commitment_id, batch_column == batch.id).with_for_update())
+    if not row or outstanding(db, kind, row) <= 0:
+        fail('err.reservation_not_on_this_batch', 422)
+    return min(accepted, outstanding(db, kind, row)), row
+
+
+def batch_flows(db, batches):
+    """Where each batch's birds are (build plan M2.1), the same for staff,
+    the supplier app and the portal: registered (the supplier's
+    declaration, never Omoterra stock), reserved for buyers, received by
+    Omoterra on delivery notes, then of those sold, lost (died, other
+    losses, not recovered), returned to the supplier, still at Omoterra,
+    and left with the supplier. Received figures come from the notes'
+    dated movements (lots.py)."""
+    from .lots import movements, summary
+    batches = list(batches)
+    notes = defaultdict(list)
+    if batches:
+        for id, batch_id in db.execute(select(m.SupplierCollection.id, m.SupplierCollection.batch_id)
+                .where(m.SupplierCollection.batch_id.in_([b.id for b in batches]))).all():
+            notes[batch_id].append(id)
+    moves = defaultdict(list)
+    ids = [id for group in notes.values() for id in group]
+    for row in movements(db, 'supplier_collections', ids) if ids else []:
+        moves[row['lot_id']].append(row)
+    out = {}
+    for batch in batches:
+        lot = summary([row for id in notes[batch.id] for row in moves[id]])
+        received = lot['received'] - lot['corrected']
+        out[batch.id] = {'registered': batch.current_quantity, 'reserved': batch.reserved_quantity,
+            'received': received, 'sold': lot['sold'], 'lost': lot['died'] + lot['lost'] + lot['not_recovered'],
+            'returned': lot['returned_to_supplier'], 'at_kitchens': lot['at_locations'], 'at_omoterra': lot['on_hand'],
+            'sold_elsewhere': batch.externally_sold_quantity,
+            'left': max(ZERO, batch.current_quantity - batch.sold_quantity - batch.externally_sold_quantity)}
+    return out
+
+
+def collection_stock(db, collection_id, as_of=None):
+    """Sold (active sales), out by a physical event, at kitchens, and on
+    hand, from the note's dated movements (lots.py, M2.1)."""
+    from .lots import lot_summary
+    lot = lot_summary(db, 'supplier_collections', collection_id, as_of)
+    return {'sold': lot['sold'], 'not_recovered': lot['not_recovered'], 'returned': lot['returned_to_supplier'],
+            'lost': lot['died'] + lot['lost'], 'allocated': lot['at_locations'], 'on_hand': lot['on_hand']}
 
 
 def take_collection_stock(db, collection_id, quantity, taken=ZERO):
@@ -271,13 +345,21 @@ def receive_supplier_stock(supplier_id: str, data: c.SupplierCollectionInput, id
     remaining = batch.current_quantity - batch.sold_quantity - batch.externally_sold_quantity
     if data.accepted_quantity > remaining:
         fail('err.collection_exceeds_supplier_batch', 422, available=s.quantity(remaining))
+    # Which reservation this fills (M2.1): the rest must come from birds no
+    # reservation holds, so a delivery never silently uses up a buyer's or a
+    # market day's reservation.
+    filled, commitment = _fill_commitment(db, batch, data.commitment_kind, data.commitment_id, data.accepted_quantity)
+    if data.accepted_quantity - filled > max(ZERO, batch.available_to_commit):
+        fail('err.name_the_reservation_this_fills', 422, available=s.quantity(max(ZERO, batch.available_to_commit)))
     row = record_note(db, batch, user, received_on=data.received_on, delivered=data.delivered_quantity,
         accepted=data.accepted_quantity, unit_cost=data.unit_cost, notes=data.notes, recorded_by=operator.id,
         average_weight_kg=data.average_weight_kg, payment_terms_days=data.payment_terms_days,
         confirmed_by=operator.id)
     if data.accepted_quantity:
-        reserved_used = min(batch.reserved_quantity, data.accepted_quantity)
-        batch.reserved_quantity -= reserved_used
+        if filled:
+            db.add(m.CommitmentFulfilment(collection_id=row.id, commitment_kind=data.commitment_kind,
+                commitment_id=commitment.id, quantity=filled))
+            batch.reserved_quantity -= filled
         batch.sold_quantity += data.accepted_quantity
         if batch.current_quantity - batch.sold_quantity - batch.externally_sold_quantity <= 0:
             batch.status = 'sold'
@@ -381,8 +463,8 @@ def _lock_note(db, id):
 
 
 def _within_on_hand(db, row, quantity):
-    """R8 in its current-state form: a movement out never takes more than is
-    on hand on the note now (dated checks arrive with M2.2)."""
+    """A movement out never takes more than is on hand on the note now; the
+    dated check on every later day is StockGuard (R8, M2.2)."""
     if c.UNITS.get(db.get(m.SupplierBatch, row.batch_id).category) != 'kg' and quantity % 1:
         fail('err.birds_animals_require_whole_quantities', 422)
     on_hand = collection_stock(db, row.id)['on_hand']
@@ -409,6 +491,7 @@ def correct_receipt(id: str, data: c.ReceiptCorrectionInput, idempotency_key: st
     if not prior:
         row = _lock_note(db, id)
         _within_on_hand(db, row, data.quantity)
+        guard = StockGuard(db).watch('supplier_collections', row.id)
         debt = db.scalar(select(m.LedgerDebt).where(m.LedgerDebt.id == row.debt_id).with_for_update()) if row.debt_id else None
         before = _note_state(row, debt)
         reason = data.reason.strip()
@@ -430,6 +513,7 @@ def correct_receipt(id: str, data: c.ReceiptCorrectionInput, idempotency_key: st
             recorded_by=operator.id)
         db.add(movement)
         db.flush()
+        guard.check()
         record_adjustment(db, 'receipt_correction', row, debt, reason, before, _note_state(row, debt),
             {'movement_id': movement.id, 'batch_id': batch.id, 'quantity': str(data.quantity),
              'evidence': data.evidence.strip(), **released}, operator)
@@ -449,9 +533,14 @@ def record_delivery_loss(id: str, data: c.DeliveryLossInput, idempotency_key: st
         row = _lock_note(db, id)
         if data.lost_on < row.received_on:
             fail('err.loss_before_receipt', 422)
+        late = late_entry(operator, data.lost_on, data.late_reason)
         _within_on_hand(db, row, data.quantity)
-        db.add(m.CollectionMovement(collection_id=row.id, kind='lost', loss_reason=data.reason, quantity=data.quantity,
-            occurred_on=data.lost_on, unit_cost=row.unit_cost, note=data.note.strip(), recorded_by=operator.id))
+        guard = StockGuard(db).watch('supplier_collections', row.id)
+        movement = m.CollectionMovement(collection_id=row.id, kind='lost', loss_reason=data.reason, quantity=data.quantity,
+            occurred_on=data.lost_on, unit_cost=row.unit_cost, note=data.note.strip(), recorded_by=operator.id)
+        db.add(movement)
+        guard.check()
+        log_late(db, late, 'collection_movements', movement.id, data.lost_on, operator)
         db.flush()
         s.remember(db, key, fingerprint, row.id)
     return _result(collection_view(db, db.get(m.SupplierCollection, id), True), 201)
@@ -483,9 +572,14 @@ def return_to_supplier(id: str, data: c.SupplierReturnInput, idempotency_key: st
         row = _lock_note(db, id)
         if data.returned_on < row.received_on:
             fail('err.return_before_receipt', 422)
+        late = late_entry(operator, data.returned_on, data.late_reason)
         _within_on_hand(db, row, data.quantity)
-        db.add(m.CollectionMovement(collection_id=row.id, kind='returned_to_supplier', quantity=data.quantity,
-            occurred_on=data.returned_on, unit_cost=row.unit_cost, reason=data.reason.strip(), recorded_by=operator.id))
+        guard = StockGuard(db).watch('supplier_collections', row.id)
+        movement = m.CollectionMovement(collection_id=row.id, kind='returned_to_supplier', quantity=data.quantity,
+            occurred_on=data.returned_on, unit_cost=row.unit_cost, reason=data.reason.strip(), recorded_by=operator.id)
+        db.add(movement)
+        guard.check()
+        log_late(db, late, 'collection_movements', movement.id, data.returned_on, operator)
         db.flush()
         s.remember(db, key, fingerprint, row.id)
     return _result(collection_view(db, db.get(m.SupplierCollection, id), True), 201)

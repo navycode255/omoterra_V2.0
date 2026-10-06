@@ -102,6 +102,7 @@ export default async function SupplierDeliveryNote({ params }: { params: Promise
             <div className="field"><label htmlFor="loss-reason">What happened?</label><select id="loss-reason" name="reason" className="input" defaultValue="died">
               {LOSS_REASONS.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
             <div className="field"><label htmlFor="loss-date">Date</label><input id="loss-date" name="lost_on" type="date" min={note.received_on} max={today()} defaultValue={today()} className="input" required /></div>
+            <div className="field"><label htmlFor="loss-late">If dated more than 3 days ago: why (admin only)</label><input id="loss-late" name="late_reason" className="input" /></div>
             <div className="field"><label htmlFor="loss-note">Note (optional)</label><input id="loss-note" name="note" className="input" maxLength={500} placeholder="e.g. Died on the way from the farm" /></div>
           </ActionForm> : <p className="meta">Nothing on hand on this note.</p>}
         </div>}
@@ -129,6 +130,7 @@ export default async function SupplierDeliveryNote({ params }: { params: Promise
             {onHand > 0 ? <ActionForm action={returnToSupplier} label="Record return" hidden={{ ...hidden, idempotency_key: randomUUID() }}>
               <div className="field"><label htmlFor="return-qty">How many went back?</label><input id="return-qty" name="quantity" type="number" min="0.001" max={onHand} step={note.unit === 'kg' ? '0.001' : '1'} className="input" required /></div>
               <div className="field"><label htmlFor="return-date">Date returned</label><input id="return-date" name="returned_on" type="date" min={note.received_on} max={today()} defaultValue={today()} className="input" required /></div>
+              <div className="field"><label htmlFor="return-late">If dated more than 3 days ago: why (admin only)</label><input id="return-late" name="late_reason" className="input" /></div>
               <div className="field"><label htmlFor="return-reason">Reason</label><input id="return-reason" name="reason" className="input" required minLength={3} placeholder="e.g. Underweight" /></div>
             </ActionForm> : <p className="meta">Nothing on hand to return.</p>}
           </div>
@@ -149,7 +151,8 @@ export default async function SupplierDeliveryNote({ params }: { params: Promise
         </div>}
         {!admin && <p className="meta">Corrections, returns and credit notes are recorded by an admin.</p>}
       </section>
-      <p className="meta"><Link href={'/suppliers/' + note.supplier_id}>← Back to supplier</Link>{note.debt_id && <> · <Link href={'/finance/debts/' + note.debt_id}>Open supplier invoice</Link></>}</p>
+      <p className="meta"><Link href={'/suppliers/' + note.supplier_id}>← Back to supplier</Link>{note.debt_id && <> · <Link href={'/finance/debts/' + note.debt_id}>Open supplier invoice</Link></>}
+        {' · '}<Link href={`/stock/supplier_collections/${note.id}`}>Stock history by date</Link></p>
     </div>
   </>;
 }

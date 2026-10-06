@@ -180,8 +180,11 @@ def allocation_update(db, allocation, quantity, status, actor_id):
     batch = db.scalar(select(m.SupplierBatch).where(m.SupplierBatch.id == allocation.supplier_batch_id).with_for_update())
     demand = db.scalar(select(m.SourcingRequest).where(m.SourcingRequest.id == allocation.demand_id).with_for_update())
     active = allocation.status in SECURED_ALLOCATION_STATES
+    # Birds a delivery note already filled are Omoterra's stock, not held
+    # on the batch (M2.1): only the outstanding part is released.
+    from .batch_stock import fulfilled, outstanding
     if status == 'cancelled' and active:
-        batch.reserved_quantity -= allocation.allocated_quantity
+        batch.reserved_quantity -= outstanding(db, 'demand_allocation', allocation)
         allocation.status = 'cancelled'
     elif quantity is not None:
         if not active:
@@ -189,6 +192,8 @@ def allocation_update(db, allocation, quantity, status, actor_id):
         delta = quantity - allocation.allocated_quantity
         if quantity <= 0 or quantity > allocation.allocated_quantity:
             s.fail('err.allocation_only_reduced_here_create', 422)
+        if quantity < fulfilled(db, 'demand_allocation', allocation.id):
+            s.fail('err.reservation_below_received', 422)
         batch.reserved_quantity += delta
         allocation.allocated_quantity = quantity
         if batch.reserved_quantity == 0 and batch.status == 'partially_reserved':

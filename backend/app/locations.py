@@ -364,8 +364,11 @@ def allocate(id: str, data: AllocationInput, idempotency_key: str = Header(), op
         values.update(category=receipt.category or data.category, unit=receipt.unit, unit_cost=receipt.unit_price)
     whole_quantity(values['unit'], data.quantity)
     values['description'] = values['description'] or values['category'].replace('_', ' ')
+    # Moving received stock to a kitchen is replayed by date like a sale (R8, M2.2).
+    from .lots import StockGuard
+    guard = StockGuard(db).watch('supplier_collections', data.supplier_collection_id).watch('lpo_lines', data.lpo_line_id)
     row = m.LocationAllocation(location_id=id, **values, created_by=operator.id)
-    db.add(row); db.flush(); s.remember(db, key, fingerprint, row.id)
+    db.add(row); guard.check(); s.remember(db, key, fingerprint, row.id)
     return result(allocation_view(db, row), 201)
 
 

@@ -7,12 +7,13 @@ import ui from '@/components/finance/expenses.module.css';
 import styles from '@/components/finance/finance-list.module.css';
 import { ApiError, get } from '@/lib/api';
 import { METHODS, day, methodLabel, thisMonth, type CashMovement } from '@/lib/finance';
+import type { AccountsPage } from '@/lib/accounts';
 import { dateTime, tzs } from '@/lib/format';
 import { listPath, param, type ListParams, type Page } from '@/lib/paging';
 
 export const metadata = { title: 'Cash book · Omoterra Operations' };
 type CashBook = Page<CashMovement> & { summary: { money_in: string; money_out: string; net: string; recorded_net_cash: string;
-  disputed_out: string; disputed_out_count: number } };
+  disputed_out: string; disputed_out_count: number; unassigned_count: number; unassigned_in: string; unassigned_out: string } };
 const tabs = [['', 'All'], ['in', 'Money in'], ['out', 'Money out'], ['reversed', 'Reversed']];
 const plain = (value: string) => Number(value).toLocaleString('en-US', { maximumFractionDigits: 2 });
 const signed = (value: string) => `${Number(value) < 0 ? '-' : ''}${tzs(String(Math.abs(Number(value))))}`;
@@ -25,18 +26,24 @@ export default async function CashBookPage({ searchParams }: { searchParams: Pro
   const start = all ? '' : param(params, 'start') || month.start;
   const end = all ? '' : param(params, 'end') || month.end;
   let data: CashBook;
+  let accounts: AccountsPage['items'] = [];
   try {
-    data = await get<CashBook>(listPath('/ops/ledger/payments', params, ['start', 'end', 'method'], { start, end }));
+    [data, accounts] = await Promise.all([
+      get<CashBook>(listPath('/ops/ledger/payments', params, ['start', 'end', 'method', 'account'], { start, end })),
+      get<AccountsPage>('/ops/accounts').then((r) => r.items),
+    ]);
   } catch (error) {
     return <><div className="topbar"><PageHeader title="Cash book" /></div><div className="workspace"><Notice tone="error">
       {error instanceof ApiError ? error.message : 'The cash book could not be loaded.'}</Notice></div></>;
   }
   const status = param(params, 'status');
   const method = param(params, 'method');
+  const account = param(params, 'account');
+  const accountLabel = account === 'unassigned' ? 'No account' : accounts.find((a) => a.id === account)?.name;
   const total = data.summary;
   function href(change: Record<string, string>) {
     const query = new URLSearchParams();
-    for (const key of ['q', 'status', 'page_size', 'start', 'end', 'dates', 'method']) { const value = param(params, key); if (value) query.set(key, value); }
+    for (const key of ['q', 'status', 'page_size', 'start', 'end', 'dates', 'method', 'account']) { const value = param(params, key); if (value) query.set(key, value); }
     for (const [key, value] of Object.entries(change)) { if (value) query.set(key, value); else query.delete(key); }
     return `/finance/cash-book${query.size ? `?${query}` : ''}`;
   }
@@ -75,7 +82,9 @@ export default async function CashBookPage({ searchParams }: { searchParams: Pro
           {/* Still money out (R3) until payout attempts (M2.7) show whether the debit happened. */}
           {total.disputed_out_count > 0 && <small>Includes {tzs(total.disputed_out)} in {total.disputed_out_count === 1 ? 'a payout' : `${total.disputed_out_count} payouts`} the supplier says never arrived</small>}</div></Link>
       <article className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.chart size={26} /></span>
-        <div><span>Net for period</span><strong>{signed(total.net)}</strong></div></article>
+        <div><span>Net for period</span><strong>{signed(total.net)}</strong>
+          {/* M2.3: money with no account is in no account's balance until assigned with evidence. */}
+          {accounts.length > 0 && total.unassigned_count > 0 && <small><Link href={href({ account: 'unassigned', dates: 'all', start: '', end: '', page: '' })}>{total.unassigned_count} with no account</Link></small>}</div></article>
     </section>
 
     <div className={styles.tabBar}>
@@ -86,9 +95,11 @@ export default async function CashBookPage({ searchParams }: { searchParams: Pro
       </nav>
       <div className={styles.toolbar} role="search">
         <SearchBox placeholder="Search name, reference or note…" />
-        <FilterMenu label={method ? methodLabel(method) : 'Filter'}>
+        <FilterMenu label={[method && methodLabel(method), accountLabel].filter(Boolean).join(' · ') || 'Filter'}>
           <label>Payment method<select name="method" defaultValue={method}><option value="">All methods</option>{METHODS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select></label>
-          <Link className={styles.filterReset} href={href({ method: '', q: '', page: '' })}>Reset filters</Link>
+          {accounts.length > 0 && <label>Account<select name="account" defaultValue={account}><option value="">All accounts</option>
+            {accounts.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}<option value="unassigned">No account (historical)</option></select></label>}
+          <Link className={styles.filterReset} href={href({ method: '', account: '', q: '', page: '' })}>Reset filters</Link>
         </FilterMenu>
       </div>
     </div>
@@ -104,6 +115,7 @@ export default async function CashBookPage({ searchParams }: { searchParams: Pro
           const who = p.debt_id && p.kind !== 'transfer' ? `/finance/debts/${p.debt_id}` : p.supplier_id ? `/suppliers/${p.supplier_id}#money`
             : p.order_id ? `/orders/${p.order_id}` : null;
           const what = p.kind === 'refund' ? 'Refund from supplier'
+            : p.kind === 'buyer_payment' && p.invoices > 1 ? `Customer payment over ${p.invoices} debts`
             : p.kind === 'transfer' ? (p.invoices > 1 ? `Supplier transfer over ${p.invoices} invoices` : p.description ?? 'Supplier transfer')
             : p.description ?? '';
           return <tr key={`${p.kind}:${p.id}`} data-reversed={p.reversed || undefined}>
@@ -113,18 +125,19 @@ export default async function CashBookPage({ searchParams }: { searchParams: Pro
               : p.order_id ? <Link href={`/orders/${p.order_id}`}>{what}</Link> : what}</td>
             <td data-label="In" className={styles.inAmount}>{incoming ? plain(p.amount) : '–'}</td>
             <td data-label="Out" className={styles.outAmount}>{incoming ? '–' : plain(p.amount)}</td>
-            <td data-label="Method">{methodLabel(p.method)}{p.reference && <small className={styles.block}>{p.reference}</small>}</td>
+            <td data-label="Method">{p.kind === 'fee' ? 'Account charge' : methodLabel(p.method)}{p.reference && <small className={styles.block}>{p.reference}</small>}
+              {accounts.length > 0 && <small className={styles.block}>{p.account_name ?? 'No account'}</small>}</td>
             <td data-label="Recorded by"><div>{p.recorded_by ?? '—'}<small>{dateTime(p.created_at)}</small></div></td>
             <td data-label="Notes">{p.reversed ? <span className={styles.reversed}>{p.moved_to_credit ? 'Moved to supplier credit (still money out on its transfer)' : 'Reversed'}: {p.reverse_reason}</span> : p.note || '–'}</td>
             <td className={styles.more}>
               <details className={styles.menu}>
                 <summary aria-label={`More for ${p.party_name}`}><Icons.more size={18} /></summary>
                 <div>
-                  {p.debt_id && <Link href={`/finance/debts/${p.debt_id}`}>{p.kind === 'transfer' ? 'Open the first invoice' : 'Open the debt'}</Link>}
+                  {p.debt_id && <Link href={`/finance/debts/${p.debt_id}`}>{p.kind === 'transfer' ? 'Open the first invoice' : p.kind === 'buyer_payment' && p.invoices > 1 ? 'Open the oldest debt' : 'Open the debt'}</Link>}
                   {p.supplier_id && <Link href={`/suppliers/${p.supplier_id}#money`}>Supplier statement</Link>}
                   {p.sale_id && <Link href={`/sales/${p.sale_id}`}>Open sale</Link>}
                   {p.order_id && <Link href={`/orders/${p.order_id}`}>Open app order</Link>}
-                  {!p.reversed && p.kind === 'payment' && p.debt_id && <Link href={`/finance/debts/${p.debt_id}`}>Reverse (on the debt)</Link>}
+                  {!p.reversed && (p.kind === 'payment' || p.kind === 'buyer_payment') && p.debt_id && <Link href={`/finance/debts/${p.debt_id}`}>Reverse (on the debt)</Link>}
                 </div>
               </details>
             </td>

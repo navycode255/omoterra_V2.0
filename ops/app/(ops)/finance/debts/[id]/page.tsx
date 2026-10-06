@@ -64,6 +64,8 @@ export default async function DebtWorkspace({ params }: { params: Promise<{ id: 
             )}
             {debt.status === 'open' && (
               <div id="pay" style={{ scrollMarginTop: 96 }}><Card title={incoming ? 'Record money received' : 'Record a payment'}>
+                {incoming && debt.buyer_profile_id && <p className="small muted">
+                  Paying several debts at once? <Link href={`/finance/debts/receive?buyer=${debt.buyer_profile_id}`}>Receive one payment for all of this customer&apos;s debts</Link>, oldest first.</p>}
                 <PaymentForm debt={debt} today={today()} saleId={debt.sale_id ?? undefined} />
               </Card></div>
             )}

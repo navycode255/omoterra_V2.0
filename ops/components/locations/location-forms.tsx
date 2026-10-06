@@ -8,6 +8,7 @@ import type { LpoStockRow } from '@/lib/lpo';
 import type { Allocation } from '@/lib/locations';
 import { Busy } from '@/components/spinner';
 import styles from './locations.module.css';
+import { AccountSelect } from '@/components/finance/account-select';
 
 export function LocationForm({kind,id='',label,children,onSaved}:{kind:string;id?:string;label:string;children:ReactNode;onSaved?:()=>void}) {
   const key=useRef('');const router=useRouter();const [busy,setBusy]=useState(false);const [error,setError]=useState('');const [saved,setSaved]=useState(false);
@@ -53,6 +54,7 @@ export function DailySaleForm({id,now,allocations}:{id:string;now:string;allocat
     <label>Selling price per unit (TZS)<input name="unit_price" type="number" min="0.01" step="0.01" required/></label>
     <label>Money collected now (TZS)<input name="payment_amount" type="number" min="0" step="0.01" defaultValue="0" required/></label>
     <label>Payment method<select name="method">{METHODS.map(([id,label])=><option key={id} value={id}>{label}</option>)}</select></label>
+    <AccountSelect inline label="Received into account" />
     <label>Payment reference<input name="reference"/></label><label>Notes<input name="notes"/></label>
     <p>Record each price or payment method separately. Sales are included in total business sales; any unpaid amount stays in the debts ledger.</p>
   </LocationForm>:<p>Allocate stock first to record sales at this location.</p>;

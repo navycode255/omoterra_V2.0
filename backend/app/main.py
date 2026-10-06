@@ -930,7 +930,8 @@ def supplier_progress(db, hold, order, item, settlements):
     payment = db.scalar(select(m.Payment).where(m.Payment.order_id == order.id))
     if payment and payment.paid_at:
         at['buyer_paid'] = payment.paid_at
-    paid = [row.paid_at for row in settlements if row.status == 'paid']
+    # Sent: a payout attempt is live (M2.7), debited or not yet confirmed.
+    paid = [row.paid_at for row in settlements if payout_attempts.sent(row) and row.paid_at]
     confirmed = [row.supplier_confirmed_at for row in settlements if row.supplier_confirmation == 'received']
     if paid:
         at['payout_sent'] = max(paid)
@@ -979,6 +980,11 @@ def supplier_payout(db, row, detail=False):
     """A payout as its supplier sees it: what it was for, and every answer
     they gave about receiving it."""
     view = s.payout_view(row, detail)
+    # Suppliers see a payout as paid once it is sent (an attempt is live),
+    # as the app and portal always have; staff see whether the debit is
+    # confirmed on Settlements (M2.7).
+    if payout_attempts.sent(row):
+        view['status'] = 'paid'
     item = db.get(m.OrderItem, row.order_item_id)
     listing = db.get(m.Listing, item.listing_id) if item else None
     hold = db.scalar(select(m.StockReservation).where(m.StockReservation.order_id == item.order_id,
@@ -1078,19 +1084,12 @@ def payout(id: str, user=Depends(supplier), db=Depends(database)):
 
 @app.post(prefix + '/supplier/payouts/{id}/confirm')
 def confirm_payout(id: str, data: c.PayoutConfirm, user=Depends(supplier), db=Depends(database)):
-    """The supplier says whether a payout Omoterra recorded as paid reached
+    """The supplier says whether a payout Omoterra recorded as sent reached
     them. 'Not received' can later become 'received' (money arrived late);
-    'received' is final. Every answer is kept."""
+    'received' is final. Every answer is kept, and belongs to the payout
+    attempt it was about (M2.7)."""
     row = s.owned(db, m.Settlement, id, user.id, 'supplier_id', True)
-    if row.status != 'paid':
-        s.fail('err.payout_not_sent_yet', 409)
-    if row.supplier_confirmation == 'received':
-        s.fail('err.payout_already_confirmed', 409)
-    outcome = 'received' if data.received else 'not_received'
-    db.add(m.PayoutConfirmation(settlement_id=row.id, supplier_id=user.id, outcome=outcome, note=data.note.strip(),
-        amount=row.total_payable, payment_reference=row.payment_reference))
-    row.supplier_confirmation, row.supplier_confirmed_at = outcome, m.now()
-    db.flush()
+    payout_attempts.confirm(db, row, user.id, data.received, data.note)
     return result(supplier_payout(db, row, True))
 
 
@@ -1603,6 +1602,10 @@ def convert_requirement_to_order(id: str, data: c.DemandOrderCreate, idempotency
             s.fail('err.supplier_batch_not_ready_collection', 422)
         if batch.reserved_quantity < allocation.allocated_quantity:
             s.fail('err.allocated_supplier_batch_no_longer', 409)
+        # Birds already received on a delivery note are sold from that note,
+        # not ordered again through the app (M2.1).
+        if batch_stock.fulfilled(db, 'demand_allocation', allocation.id) > 0:
+            s.fail('err.allocation_already_received', 409)
         item_rows.append((allocation, batch))
         total += allocation.allocated_quantity * batch.buyer_price_per_unit
     total = s.money(total)
@@ -1675,7 +1678,12 @@ def reconcile(id: str, data: c.Reconcile, idempotency_key: str = Header(), db=De
             s.fail('err.amount_exceeds_outstanding_balance_payment', 422)
         if db.scalar(select(m.PaymentReceipt).where(m.PaymentReceipt.reference == data.payment_reference)):
             s.fail('err.payment_reference_already_recorded')
-        db.add(m.PaymentReceipt(payment_id=payment.id, amount=data.amount, reference=data.payment_reference))
+        account = accounts.require_account(db, data.money_account_id)
+        receipt = m.PaymentReceipt(payment_id=payment.id, amount=data.amount, reference=data.payment_reference)
+        db.add(receipt)
+        db.flush()
+        accounts.assign(db, 'payment_receipts', receipt.id, account)
+        duplicates.claim(db, 'payment_receipts', receipt.id, '', account, data.payment_reference, 'in')
         payment.received_amount += data.amount
         payment.status = order.payment_status = 'paid' if payment.received_amount == order.total_amount else 'partial'
         payment.paid_at = m.now() if payment.status == 'paid' else None
@@ -1683,23 +1691,22 @@ def reconcile(id: str, data: c.Reconcile, idempotency_key: str = Header(), db=De
     return result({'id': payment.id, 'status': payment.status, 'amount': payment.amount, 'received_amount': payment.received_amount})
 
 
-@app.post(prefix + '/ops/settlements/{id}/pay', dependencies=[Depends(auth.ops_admin)])
-def pay_settlement(id: str, data: c.Reconcile, idempotency_key: str = Header(), db=Depends(database)):
+@app.post(prefix + '/ops/settlements/{id}/pay')
+def pay_settlement(id: str, data: c.Reconcile, idempotency_key: str = Header(), operator=Depends(auth.ops_admin),
+                   db=Depends(database)):
+    """Record a payout already sent and confirmed (the provider's SMS or the
+    statement shows the debit): one debited payout attempt (M2.7). A resend,
+    or a first payout over the D9 threshold, needs a second admin's approval
+    first (POST /ops/settlements/{id}/approvals, then .../attempts)."""
     key, fingerprint, prior = s.replay(db, 'ops', 'settlement', idempotency_key, {'id': id, **data.model_dump()})
-    row = db.get(m.Settlement, id)
+    row = db.scalar(select(m.Settlement).where(m.Settlement.id == id).with_for_update())
     if not row:
         s.fail('err.settlement_not_found', 404)
     if not prior:
-        # A paid settlement is closed, unless its supplier reported that the
-        # money never arrived: then it can be recorded again with the new
-        # transfer, and the supplier is asked to confirm again.
-        resend = row.status == 'paid' and row.supplier_confirmation == 'not_received'
-        if (row.status == 'paid' and not resend) or row.total_payable != data.amount:
-            s.fail('err.settlement_already_paid_amount_does')
-        row.status, row.paid_at, row.payment_reference = 'paid', m.now(), data.payment_reference
-        row.supplier_confirmation = row.supplier_confirmed_at = None
-        notes.notify(db, row.supplier_id, 'supplier', 'payout_paid', M('notify.payout_paid',
-            amount=f'{row.total_payable:,.0f}', reference=data.payment_reference), f'/payouts/{row.id}')
+        attempt = payout_attempts.AttemptInput(amount=data.amount, payment_reference=data.payment_reference,
+            money_account_id=data.money_account_id)
+        payout_attempts.create_attempt(db, row, attempt, operator, debited=True,
+            evidence=f'Recorded as paid with reference {data.payment_reference}')
         s.remember(db, key, fingerprint, id)
     return result(s.payout_view(row, True))
 
@@ -1806,7 +1813,9 @@ def create_supplier_batch(data: c.SupplierBatchInput, idempotency_key: str = Hea
 def supplier_batches(user=Depends(supplier), db=Depends(database)):
     rows = db.scalars(select(m.SupplierBatch).where(m.SupplierBatch.supplier_id == user.id).order_by(m.SupplierBatch.expected_ready_date.asc().nullslast())).all()
     collections = batch_stock.collections_for_batches(db, rows)
-    return result([dm.batch_view(row, private=True) | {'collections': collections[row.id]} for row in rows])
+    flows = batch_stock.batch_flows(db, rows)
+    return result([dm.batch_view(row, private=True) | {'collections': collections[row.id], 'flow': flows[row.id]}
+        for row in rows])
 
 
 @app.post(prefix + '/supplier/batches/{id}/external-sales')
@@ -2316,9 +2325,14 @@ def ops_order(id: str, db=Depends(database)):
             'unit_price': item.unit_price, 'subtotal': item.subtotal,
             'asking_snapshot': item.asking_snapshot, 'payout_snapshot': item.payout_snapshot,
             'actual_quantity': item.actual_quantity, 'rejected_quantity': item.rejected_quantity})
+    reversals = db.scalars(select(m.OrderRecognitionReversal).where(m.OrderRecognitionReversal.order_id == id)
+        .order_by(m.OrderRecognitionReversal.created_at)).all()
+    from .recognition import reversal_view
     return result({**s.buyer_order(db, row), 'internal_status': row.internal_status,
         'items': items, 'suppliers': suppliers, 'collection_notes': row.collection_notes,
-        'collection_photos': row.collection_photos})
+        'collection_photos': row.collection_photos,
+        # M2.5: the day it counts as a sale, and any reopen or return.
+        'recognized_on': row.recognized_on, 'reversals': [reversal_view(r) for r in reversals]})
 
 
 @app.get(prefix + '/ops/buyers/{id}/addresses', dependencies=[Depends(auth.ops)])
@@ -2336,7 +2350,9 @@ def ops_settlements(params: Paging = Depends(), db=Depends(database)):
             'order_id': item.order_id if item else None,
             'supplier_alias': profile.public_alias if profile else '', 'supplier_legal_name': profile.legal_name if profile else '',
             'supplier_note': db.scalar(select(m.PayoutConfirmation.note).where(m.PayoutConfirmation.settlement_id == row.id)
-                .order_by(m.PayoutConfirmation.created_at.desc()).limit(1)) or ''}
+                .order_by(m.PayoutConfirmation.created_at.desc()).limit(1)) or '',
+            # Payout attempts (M2.7): net paid, in flight, possibly paid twice.
+            **payout_attempts.list_extras(db, row)}
     # Every unpaid settlement comes first, oldest first; paid ones are history.
     body = paging.page(db, paging.SETTLEMENTS, params, view)
     from . import reporting
@@ -2670,8 +2686,12 @@ def ops_dashboard(start: Optional[date] = None, end: Optional[date] = None, year
         activity.append({'kind': 'batch_created', 'at': batch.created_at, 'title': 'Production batch created', 'detail': f"{alias.get(batch.supplier_id, 'Supplier')} \u00b7 {batch.category.replace('_', ' ').capitalize()}", 'href': '/batches'})
     for listing in db.scalars(select(m.Listing).where(m.Listing.created_at >= since, m.Listing.created_at < until)):
         activity.append({'kind': 'stock_submitted', 'at': listing.created_at, 'title': 'Stock submitted', 'detail': f"{alias.get(listing.supplier_id, 'Supplier')} \u00b7 {listing.category.replace('_', ' ').capitalize()}", 'href': f'/supply/{listing.id}'})
-    for settlement in db.scalars(select(m.Settlement).where(m.Settlement.paid_at >= since, m.Settlement.paid_at < until)):
-        activity.append({'kind': 'settlement_paid', 'at': settlement.paid_at, 'title': 'Supplier paid', 'detail': alias.get(settlement.supplier_id, 'Supplier'), 'href': '/settlements'})
+    # Each payout attempt (M2.7) when it was recorded: a resend is its own entry.
+    for attempt, supplier_id in db.execute(select(m.SettlementTransfer, m.Settlement.supplier_id).join(m.Settlement,
+            m.Settlement.id == m.SettlementTransfer.settlement_id).where(m.SettlementTransfer.created_at >= since,
+            m.SettlementTransfer.created_at < until)):
+        activity.append({'kind': 'settlement_paid', 'at': attempt.created_at, 'title': 'Supplier payout resent' if attempt.is_resend else 'Supplier paid',
+            'detail': alias.get(supplier_id, 'Supplier'), 'href': f'/settlements/{attempt.settlement_id}'})
     activity = sorted((a for a in activity if since <= a['at'] < until), key=lambda a: a['at'], reverse=True)
 
     return result({
@@ -3096,7 +3116,8 @@ def reverse_sale(id: str, data: c.SaleReversalInput, idempotency_key: str = Head
 
 
 # Sales, the debts ledger and promotions live in their own modules.
-from . import batch_stock, finance, locations, market_prices, market_schedule, opening_stock, promotions, purchasing  # noqa: E402
+from . import approvals, payouts as payout_attempts  # noqa: E402
+from . import accounts, batch_stock, buyer_orders, duplicates, finance, locations, lots, market_prices, market_schedule, opening_stock, promotions, purchasing, recognition  # noqa: E402
 app.include_router(batch_stock.router)
 app.include_router(finance.router)
 app.include_router(market_prices.router)
@@ -3105,3 +3126,9 @@ app.include_router(promotions.router)
 app.include_router(purchasing.router)
 app.include_router(locations.router)
 app.include_router(opening_stock.router)
+app.include_router(lots.router)
+app.include_router(accounts.router)
+app.include_router(payout_attempts.router)
+app.include_router(approvals.router)
+app.include_router(buyer_orders.router)
+app.include_router(recognition.router)

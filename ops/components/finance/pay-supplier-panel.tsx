@@ -1,6 +1,6 @@
 'use client';
 
-import { useActionState, useState } from 'react';
+import { useState } from 'react';
 import { useFormStatus } from 'react-dom';
 import { Icons } from '@/components/icons';
 import { recordSupplierBatchPayment } from '@/lib/finance-actions';
@@ -8,6 +8,8 @@ import { METHODS } from '@/lib/finance';
 import { tzs } from '@/lib/format';
 import styles from './finance-list.module.css';
 import { Busy } from '@/components/spinner';
+import { AccountSelect } from '@/components/finance/account-select';
+import { DuplicateOverride, usePaymentAction } from '@/components/finance/duplicate-override';
 
 export type PayableSupplier = { supplier_id: string; name: string; owed: string; credit?: string };
 
@@ -25,7 +27,7 @@ export function PaySupplierPanel({ suppliers, selected, debt, now, idempotencyKe
   suppliers: PayableSupplier[]; selected?: string; debt?: { id: string; balance: string; description: string } | null;
   now: string; idempotencyKey: string;
 }) {
-  const [state, action] = useActionState(recordSupplierBatchPayment, null);
+  const { form, state, formAction: action, duplicate } = usePaymentAction(recordSupplierBatchPayment);
   const [supplier, setSupplier] = useState(selected ?? '');
   const owedBy = (id: string) => (debt ? debt.balance : suppliers.find((row) => row.supplier_id === id)?.owed ?? '');
   const creditOf = (id: string) => Number(suppliers.find((row) => row.supplier_id === id)?.credit ?? 0);
@@ -39,7 +41,7 @@ export function PaySupplierPanel({ suppliers, selected, debt, now, idempotencyKe
   const [sms, setSms] = useState(true);
   const [thanks, setThanks] = useState(true);
 
-  return <form action={action} className={styles.payForm} id="pay">
+  return <form ref={form} action={action} className={styles.payForm} id="pay">
     <h2>Pay supplier</h2>
     <input type="hidden" name="idempotency_key" value={idempotencyKey} />
     {debt && <input type="hidden" name="debt_ids" value={debt.id} />}
@@ -69,6 +71,7 @@ export function PaySupplierPanel({ suppliers, selected, debt, now, idempotencyKe
     <label>Payment method
       <select name="method" defaultValue="mpesa">{METHODS.map(([key, label]) => <option key={key} value={key}>{label}</option>)}</select>
     </label>
+    <AccountSelect inline label="Paid from account" />
     <div className={styles.dates}>
       <label>Date<input name="paid_on" type="date" defaultValue={now} max={now} required /></label>
       <label>Reference<input name="reference" placeholder="e.g. M-Pesa code" /></label>
@@ -88,6 +91,7 @@ export function PaySupplierPanel({ suppliers, selected, debt, now, idempotencyKe
       <label className={styles.switch}><input type="checkbox" checked={thanks} onChange={(event) => setThanks(event.target.checked)} /><span aria-hidden="true" />Include thank-you note</label>
     </div>}
     {state && !state.ok && <p className={styles.payError} role="alert">{state.error}</p>}
+    {duplicate && <DuplicateOverride />}
     <Submit />
     <p className={styles.payHint}>Use Record unregistered payment when a payment is not linked to an existing balance.</p>
   </form>;

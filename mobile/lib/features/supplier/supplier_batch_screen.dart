@@ -765,6 +765,18 @@ Future<void> showBatchDetails(BuildContext context, Map<String, dynamic> row,
                           s.externallySold(
                               amount(row['externally_sold_quantity'])),
                           style: line),
+                      // Where the birds Omoterra received are now: the same
+                      // figures staff and the web portal show (M2.1).
+                      if (row['flow'] is Map &&
+                          (num.tryParse('${row['flow']['received']}') ?? 0) > 0)
+                        Text(
+                            s.receivedByOmoterra(
+                                amount(row['flow']['received']),
+                                amount(row['flow']['sold']),
+                                amount(row['flow']['lost']),
+                                amount(row['flow']['returned']),
+                                amount(row['flow']['at_omoterra'])),
+                            style: line),
                       if (row['approved_at'] == null)
                         Text(s.awaitingReview,
                             style: const TextStyle(

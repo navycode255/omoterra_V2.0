@@ -5,6 +5,7 @@ import { ActionForm } from '@/components/form';
 import { recordSupplierBatchPayment } from '@/lib/finance-actions';
 import { METHODS, day, today, type Debt } from '@/lib/finance';
 import { tzs } from '@/lib/format';
+import { AccountSelect } from '@/components/finance/account-select';
 
 export function SupplierReceiptMessageFields({ idPrefix }: { idPrefix: string }) {
   const [enabled, setEnabled] = useState(true);
@@ -75,6 +76,7 @@ export function SupplierPaymentForm({ supplierId, debts, idempotencyKey }: {
       <div className="grid-2">
         <div className="field"><label htmlFor={`paid-${supplierId}`}>Date paid</label><input id={`paid-${supplierId}`} name="paid_on" type="date" className="input" defaultValue={today()} max={today()} required /></div>
         <div className="field"><label htmlFor={`method-${supplierId}`}>Method</label><select id={`method-${supplierId}`} name="method" className="input" defaultValue="mpesa">{METHODS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}</select></div>
+        <AccountSelect id={`account-${supplierId}`} label="Paid from account" />
       </div>
       <div className="receipt-evidence">
         <div><strong>Add payment proof</strong><p className="meta">Add at least one: receipt number, payment SMS, or receipt image. You may add all three.</p></div>

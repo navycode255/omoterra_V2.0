@@ -103,6 +103,7 @@ export async function reconcilePayment(_: ActionResult | null, formData: FormDat
         {
           amount: String(formData.get('amount')),
           payment_reference: String(formData.get('payment_reference')),
+          money_account_id: String(formData.get('money_account_id') ?? '') || null,
         },
         randomUUID(),
       ),
@@ -119,6 +120,7 @@ export async function paySettlement(_: ActionResult | null, formData: FormData) 
         {
           amount: String(formData.get('amount')),
           payment_reference: String(formData.get('payment_reference')),
+          money_account_id: String(formData.get('money_account_id') ?? '') || null,
         },
         randomUUID(),
       ),

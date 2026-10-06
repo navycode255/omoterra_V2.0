@@ -55,15 +55,13 @@ def cost_state_for(unit_cost, free=False):
 
 # ---- stock ------------------------------------------------------------------
 
-def stock(db, opening_id):
-    """Quantity, sold (active sales), not recovered, on hand."""
-    row = db.get(m.OpeningStock, opening_id)
-    sold = db.scalar(select(func.coalesce(func.sum(m.SaleItem.quantity), 0)).join(m.Sale, m.Sale.id == m.SaleItem.sale_id)
-        .where(m.SaleItem.opening_stock_id == opening_id, m.Sale.status == 'active')) or ZERO
-    lost = db.scalar(select(func.coalesce(func.sum(m.OpeningStockMovement.quantity), 0)).where(
-        m.OpeningStockMovement.opening_stock_id == opening_id, m.OpeningStockMovement.kind == 'not_recovered')) or ZERO
-    quantity = row.quantity if row and row.cancelled_at is None else ZERO
-    return {'quantity': quantity, 'sold': sold, 'not_recovered': lost, 'on_hand': quantity - sold - lost}
+def stock(db, opening_id, as_of=None):
+    """Quantity, sold (active sales), not recovered, on hand, from the
+    entry's dated movements (lots.py, M2.1)."""
+    from .lots import lot_summary
+    lot = lot_summary(db, 'opening_stock', opening_id, as_of)
+    return {'quantity': lot['received'], 'sold': lot['sold'], 'not_recovered': lot['not_recovered'],
+            'on_hand': lot['on_hand']}
 
 
 def take_opening_stock(db, opening_id, quantity, taken=ZERO):

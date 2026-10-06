@@ -113,6 +113,9 @@ export interface Order {
 export interface OrderDetail extends Order {
   collection_notes: string;
   collection_photos: string[];
+  // Build plan M2.5: the day the order counts as a sale, and any reopen or return.
+  recognized_on?: string | null;
+  reversals?: { id: string; kind: 'reopen' | 'return'; recognized_on: string | null; reversed_on: string; revenue: string; cost: string; reason: string; created_at: string }[];
   suppliers: {
     listing_id: string;
     supplier_id: string;
@@ -214,9 +217,14 @@ export interface SupplierRow {
 }
 
 export interface SupplierCollection { id: string; collection_number: string; supplier_id: string; supplier_name: string; supplier_phone: string; batch_id: string; category: string; subtype: string; unit: string; received_on: string; delivered_quantity: string; accepted_quantity: string; rejected_quantity: string; average_weight_kg: string | null; unit_cost: string; amount: string; sold: string; on_hand: string; notes: string; debt_id: string | null; created_at: string; cancelled_at: string | null; cancel_reason: string; }
+export interface BatchFlow { registered: string; reserved: string; received: string; sold: string; lost: string; returned: string; at_kitchens: string; at_omoterra: string; sold_elsewhere: string; left: string; }
 export interface SupplierBatch { id: string; category: string; subtype: string; initial_quantity: string; current_quantity: string; reserved_quantity: string; sold_quantity: string; externally_sold_quantity: string; available_to_commit: string; current_age: string | null; age_unit: string; expected_ready_date: string | null; expected_min_weight_kg: string | null; expected_max_weight_kg: string | null; actual_average_weight_kg: string | null; form: string; asking_price_per_unit: string | null; supplier_payout_price_per_unit: string | null; buyer_price_per_unit: string | null; region: string; private_pickup_location: string; photos: string[]; status: string; approved_at: string | null; collections: SupplierCollection[];
   // Breakdown (backend batch_stock.batch_breakdown).
   registered: string; taken_by_omoterra: string; received_on_notes: string; sold_direct: string; sold_elsewhere: string; reserved: string; remaining: string;
+  /** Where the batch's birds are, the same for staff, the app and the portal (M2.1). */
+  flow?: BatchFlow;
+  /** Reservations still holding birds on the batch; a delivery names the one it fills (M2.1). */
+  commitments?: { kind: 'demand_allocation' | 'market_reservation'; id: string; label: string; outstanding: string }[];
   elsewhere_history: { quantity: string; note: string; at: string; by_staff: boolean }[]; }
 
 export interface SupplierDetail extends Omit<SupplierRow, 'live_listings' | 'pending_listings' | 'pending_settlement_total' | 'batches_total' | 'batches_open' | 'birds_left' | 'birds_bought' | 'paid_total' | 'owed_total' | 'last_activity'> {

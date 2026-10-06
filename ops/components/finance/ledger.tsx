@@ -5,6 +5,7 @@ import { Status } from '@/components/ui';
 import { applySupplierCredit, cancelDebt, correctDebt, recordLedgerPayment, reverseLedgerPayment } from '@/lib/finance-actions';
 import { ADJUSTMENT_LABELS, METHODS, day, methodLabel, type Debt, type DebtDetail, type LedgerPayment, type Parties } from '@/lib/finance';
 import { dateTime, tzs, type Tone } from '@/lib/format';
+import { AccountSelect } from '@/components/finance/account-select';
 
 export function debtTone(debt: Pick<Debt, 'status' | 'overdue'>): Tone {
   if (debt.status === 'settled') return 'positive';
@@ -46,7 +47,8 @@ export function PaymentsTable({ payments, admin, direction, supplier = false }: 
               <td>{day(p.paid_on)}<div className="meta">entered {dateTime(p.created_at)}</div></td>
               <td className="numeric money" style={p.reversed ? { textDecoration: 'line-through' } : undefined}>{tzs(p.amount)}</td>
               <td className="small">{methodLabel(p.method)}</td>
-              <td className="small">{p.reference || '—'}{p.note && <div className="meta">{p.note}</div>}</td>
+              <td className="small">{p.reference || '—'}{p.note && <div className="meta">{p.note}</div>}
+                {p.buyer_payment_id && <div className="meta">Part of one customer payment over several debts</div>}</td>
               <td className="small">
                 {p.recorded_by ?? '—'}
                 {p.reversed && <div className="meta">{p.moved_to_credit ? 'Moved to supplier credit' : 'Reversed'} by {p.reversed_by}: {p.reverse_reason}</div>}
@@ -111,6 +113,7 @@ export function PaymentForm({ debt, today, saleId }: { debt: Debt; today: string
             {METHODS.map(([id, label]) => <option key={id} value={id}>{label}</option>)}
           </select>
         </div>
+        <AccountSelect id={`account-${debt.id}`} />
         <div className="field">
           <label htmlFor={`reference-${debt.id}`}>Transaction reference</label>
           <input id={`reference-${debt.id}`} name="reference" className="input" placeholder="e.g. M-Pesa code" />

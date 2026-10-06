@@ -51,7 +51,7 @@ from fastapi.concurrency import run_in_threadpool
 from sqlalchemy import Date, Text, and_, cast, exists, func, or_, select
 
 from . import auth, contracts as c, models as m, notifications as notes, paging, services as s, supplier_payment_sms
-from . import reporting as rp, transfers as tr
+from . import accounts, duplicates as dup, reporting as rp, transfers as tr
 from .opening_stock import cost_state_for, take_opening_stock
 from .db import database
 from .i18n import M, fail
@@ -70,7 +70,7 @@ def _result(value, status_code=200):
 # ---- views ------------------------------------------------------------------
 
 def payment_view(db, row, debt=None):
-    view = {k: getattr(row, k) for k in ('id', 'debt_id', 'supplier_payment_id', 'amount', 'paid_on', 'method',
+    view = {k: getattr(row, k) for k in ('id', 'debt_id', 'supplier_payment_id', 'buyer_payment_id', 'amount', 'paid_on', 'method',
         'reference', 'note', 'created_at', 'reversed_at', 'reverse_reason')}
     view['reversed'] = row.reversed_at is not None
     # A supplier payment taken off its invoice stayed with the supplier.
@@ -141,11 +141,106 @@ def sale_view(db, sale, detail=False):
             .where(m.OpeningStock.id.in_(openings))).all()) if openings else {}
         for row in view['items']:
             row['opening_stock_number'] = numbers.get(row['opening_stock_id'])
+        sources = stock_sources(db, items)
+        for row in view['items']:
+            row['stock_source'] = sources.get(row['id'])
         view['cost_adjustments'] = [adjustment_view(db, row) for row in db.scalars(select(m.FinancialAdjustment)
             .where(m.FinancialAdjustment.sale_id == sale.id, m.FinancialAdjustment.kind == 'cost_resolved')
             .order_by(m.FinancialAdjustment.created_at))]
         view['debts'] = [{**debt_view(d), 'payments': [payment_view(db, p) for p in _payments(db, d.id)]} for d in debts]
+        # The staff buyer order this sale delivered (M2.5), if any.
+        order = db.scalar(select(m.BuyerOrder).where(m.BuyerOrder.sale_id == sale.id))
+        view['buyer_order'] = {'id': order.id, 'order_number': order.order_number, 'ordered_on': order.ordered_on} \
+            if order else None
     return view
+
+
+def _invoice_view(db, debt, credit_paid):
+    """One receipt invoice and how far it is paid: by transfers, or from
+    credit the supplier already held (a reallocation moves no money, R4)."""
+    from_credit = credit_paid.get(debt.id, ZERO)
+    return {'debt_id': debt.id, 'description': debt.description, 'incurred_on': debt.incurred_on,
+        'amount': debt.amount, 'paid_amount': debt.paid_amount, 'balance': debt.balance if debt.status != 'cancelled' else ZERO,
+        'status': debt.status, 'paid_from_credit': from_credit, 'paid_by_transfer': debt.paid_amount - from_credit}
+
+
+def _payment_state(invoices):
+    live = [row for row in invoices if row['status'] != 'cancelled']
+    if not invoices:
+        return 'no_invoice'
+    if not live:
+        return 'cancelled'
+    paid = sum((row['paid_amount'] for row in live), ZERO)
+    if all(row['balance'] == 0 for row in live):
+        return 'paid'
+    return 'part_paid' if paid > 0 else 'unpaid'
+
+
+def stock_sources(db, items):
+    """Where each sale line's received stock came from, and how far the
+    supplier side of that receipt is paid (build plan M2.4, audit F08).
+
+    Information only: the receipt's payable belongs to the receipt (R1, M1.6),
+    so nothing here is added to the sale's own supplier balance or margin.
+    A delivery note has one invoice (its `batch_receipt` debt); an LPO line
+    has one per receipt that brought it in; opening stock has none.
+    {sale item id: source}."""
+    notes_ = {i.supplier_collection_id for i in items if i.supplier_collection_id}
+    lines = {i.lpo_line_id for i in items if i.lpo_line_id}
+    openings = {i.opening_stock_id for i in items if i.opening_stock_id}
+    if not (notes_ or lines or openings):
+        return {}
+    collections = {row.id: row for row in db.scalars(select(m.SupplierCollection)
+        .where(m.SupplierCollection.id.in_(notes_)))} if notes_ else {}
+    lpo_of = dict(db.execute(select(m.LpoLine.id, m.LpoLine.lpo_id).where(m.LpoLine.id.in_(lines))).all()) if lines else {}
+    lpos = {row.id: row for row in db.scalars(select(m.Lpo).where(m.Lpo.id.in_(set(lpo_of.values()))))} if lpo_of else {}
+    receipt_debts = defaultdict(list)
+    if lines:
+        for line_id, debt_id in db.execute(select(m.LpoReceiptLine.lpo_line_id, m.LpoReceipt.debt_id)
+                .join(m.LpoReceipt, m.LpoReceipt.id == m.LpoReceiptLine.receipt_id)
+                .where(m.LpoReceiptLine.lpo_line_id.in_(lines), m.LpoReceiptLine.accepted_quantity > 0,
+                       m.LpoReceipt.debt_id.is_not(None))
+                .order_by(m.LpoReceipt.received_on, m.LpoReceipt.created_at)).all():
+            if debt_id not in receipt_debts[line_id]:
+                receipt_debts[line_id].append(debt_id)
+    debt_ids = {row.debt_id for row in collections.values() if row.debt_id} | {d for ids in receipt_debts.values() for d in ids}
+    debts = {row.id: row for row in db.scalars(select(m.LedgerDebt).where(m.LedgerDebt.id.in_(debt_ids)))} if debt_ids else {}
+    # Paid from supplier credit: allocations made by applying credit.
+    credit_paid = dict(db.execute(select(m.LedgerPayment.debt_id, func.sum(m.LedgerPayment.amount))
+        .join(m.TransferEvent, and_(m.TransferEvent.allocation_id == m.LedgerPayment.id, m.TransferEvent.kind == 'reallocation'))
+        .where(m.LedgerPayment.debt_id.in_(debt_ids), m.LedgerPayment.reversed_at.is_(None))
+        .group_by(m.LedgerPayment.debt_id)).all()) if debt_ids else {}
+    suppliers = {row.supplier_id for row in debts.values() if row.supplier_id}
+    held = tr.credit_by_supplier(db, suppliers) if suppliers else {}
+    opening_numbers = dict(db.execute(select(m.OpeningStock.id, m.OpeningStock.receipt_number)
+        .where(m.OpeningStock.id.in_(openings))).all()) if openings else {}
+
+    def source(kind, id, number, invoice_rows, supplier_id=None, supplier_name='', lpo_id=None):
+        live = [row for row in invoice_rows if row['status'] != 'cancelled']
+        return {'kind': kind, 'id': id, 'number': number, 'lpo_id': lpo_id, 'supplier_id': supplier_id,
+            'supplier_name': supplier_name, 'invoices': invoice_rows, 'state': _payment_state(invoice_rows),
+            'invoice_amount': sum((row['amount'] for row in live), ZERO),
+            'paid_amount': sum((row['paid_amount'] for row in live), ZERO),
+            'balance': sum((row['balance'] for row in live), ZERO),
+            # Unapplied credit the supplier holds: it could pay this balance.
+            'supplier_credit': held.get(supplier_id, ZERO) if supplier_id else ZERO}
+
+    out = {}
+    for item in items:
+        if item.supplier_collection_id and item.supplier_collection_id in collections:
+            note = collections[item.supplier_collection_id]
+            debt = debts.get(note.debt_id)
+            out[item.id] = source('delivery_note', note.id, note.collection_number,
+                [_invoice_view(db, debt, credit_paid)] if debt else [], note.supplier_id,
+                debt.party_name if debt else item.supplier_name)
+        elif item.lpo_line_id and item.lpo_line_id in lpo_of:
+            lpo = lpos[lpo_of[item.lpo_line_id]]
+            rows = [_invoice_view(db, debts[d], credit_paid) for d in receipt_debts.get(item.lpo_line_id, []) if d in debts]
+            out[item.id] = source('lpo', lpo.id, lpo.lpo_number, rows, lpo.supplier_id,
+                (lpo.supplier_snapshot or {}).get('name') or item.supplier_name, lpo.id)
+        elif item.opening_stock_id:
+            out[item.id] = source('opening_stock', item.opening_stock_id, opening_numbers.get(item.opening_stock_id), [])
+    return out
 
 
 # ---- writes -----------------------------------------------------------------
@@ -203,7 +298,10 @@ def _lock_debt(db, id):
     return debt
 
 
-def record_payment(db, debt, data, operator, supplier_payment_id=None):
+def record_payment(db, debt, data, operator, supplier_payment_id=None, buyer_payment_id=None, earlier=None):
+    """One payment on one debt. New money (not an allocation of a transfer
+    or customer payment already recorded) claims its transaction reference
+    (M2.6); `earlier` is the possible duplicate staff said it is not."""
     if debt.status == 'cancelled':
         fail('err.debt_cancelled_no_payments')
     if data.amount > debt.balance:
@@ -212,18 +310,43 @@ def record_payment(db, debt, data, operator, supplier_payment_id=None):
             m.LedgerPayment.method == data.method, m.LedgerPayment.reference == data.reference,
             m.LedgerPayment.reversed_at.is_(None))):
         fail('err.payment_reference_already_recorded')
+    # New money names its account (M2.3); an allocation of a transfer or
+    # credit already recorded moves no money and names none.
+    # A customer payment spread over several debts names its account once,
+    # on the payment itself.
+    grouped = supplier_payment_id is not None or buyer_payment_id is not None
+    account = accounts.require_account(db, getattr(data, 'money_account_id', None)) if not grouped else None
     if supplier_payment_id is None and debt.direction == 'payable' and debt.supplier_id:
         # Money to a registered supplier is always a transfer (M1.2), even
         # when it pays one invoice: that record is what money out counts.
         supplier_payment_id = tr.new_transfer(db, debt.supplier_id, data.amount, data.paid_on, data.method,
             data.reference, data.note, operator.id, 'single').id
-    row = m.LedgerPayment(debt_id=debt.id, supplier_payment_id=supplier_payment_id,
-        recorded_by=operator.id, **data.model_dump())
+        accounts.assign(db, 'supplier_payments', supplier_payment_id, account, operator)
+        dup.claim(db, 'supplier_payments', supplier_payment_id, data.method, account, data.reference, 'out', operator)
+        dup.record_override(db, earlier, 'supplier_payments', supplier_payment_id, data, 'out', data.amount,
+            data.paid_on, operator)
+        account, grouped = None, True
+    row = m.LedgerPayment(debt_id=debt.id, supplier_payment_id=supplier_payment_id, buyer_payment_id=buyer_payment_id,
+        recorded_by=operator.id, **data.model_dump(exclude={'money_account_id', *c.OVERRIDE_FIELDS}))
     db.add(row)
     debt.paid_amount += data.amount
     debt.status = 'settled' if debt.paid_amount == debt.amount else 'open'
     db.flush()
+    accounts.assign(db, 'ledger_payments', row.id, account, operator)
+    if not grouped:
+        flow = 'in' if debt.direction == 'receivable' else 'out'
+        dup.claim(db, 'ledger_payments', row.id, data.method, account, data.reference, flow, operator)
+        dup.record_override(db, earlier, 'ledger_payments', row.id, data, flow, data.amount, data.paid_on, operator)
     return row
+
+
+def _duplicate_party(debt):
+    """Who a payment on this debt is with, for the possible-duplicate check."""
+    if debt.supplier_id:
+        return {'supplier_id': debt.supplier_id}
+    if debt.buyer_profile_id:
+        return {'buyer_profile_id': debt.buyer_profile_id}
+    return {'party_name': debt.party_name}
 
 
 def _party_key(row):
@@ -303,15 +426,39 @@ def _known_cost(items):
     return sum((i.cost_total or ZERO for i in items if i.cost_state != 'unknown'), ZERO)
 
 
+def _sells_received(lines):
+    """Whether any line sells received stock (a delivery note, an LPO line,
+    opening stock, or birds collected from a batch with the sale)."""
+    return any(line.opening_stock_id or line.supplier_collection_id or line.lpo_line_id
+        or (line.supplier_batch_id and line.receipt_confirmed) for line in lines)
+
+
 @router.post('/sales', status_code=201)
 def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operator=Depends(auth.ops), db=Depends(database)):
     key, fingerprint, prior = s.replay(db, operator.id, 'sale', idempotency_key, data.model_dump())
     if prior:
         return _result(sale_view(db, db.get(m.Sale, prior), True), 201)
+    sale = record_sale(db, data, operator)
+    s.remember(db, key, fingerprint, sale.id)
+    return _result(sale_view(db, sale, True), 201)
+
+
+def record_sale(db, data, operator):
+    """Record one direct sale with its debts, stock and payments. Also the
+    path a staff buyer order takes when it is delivered (M2.5), so every
+    sale rule applies to it."""
     from .locations import location, take_location_stock, whole_quantity
     if data.location_id:
         location(db, data.location_id, active=True)
     profile = _sale_buyer(db, data)
+    # Received stock is checked on every date from the sale onward (R8,
+    # M2.2), and selling it more than a week back is a late entry.
+    from .lots import StockGuard, late_entry, log_late
+    guard = StockGuard(db)
+    for line in data.items:
+        guard.watch('opening_stock', line.opening_stock_id).watch('supplier_collections', line.supplier_collection_id)
+        guard.watch('lpo_lines', line.lpo_line_id)
+    late = late_entry(operator, data.sold_on, data.late_reason) if _sells_received(data.items) else None
     sale_id = m.identifier()
     number = 'SL-' + sale_id.replace('-', '')[:8].upper()
     items, costs = [], defaultdict(lambda: {'amount': ZERO, 'lines': []})
@@ -411,7 +558,7 @@ def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operat
         grouped = defaultdict(lambda: ZERO)
         details = {}
         for amount, payment in payments:
-            payment_key = (payment.paid_on, payment.method, payment.reference, payment.note)
+            payment_key = (payment.paid_on, payment.method, payment.reference, payment.note, payment.money_account_id)
             grouped[payment_key] += amount
             details[payment_key] = payment
         for payment_key, amount in grouped.items():
@@ -424,8 +571,9 @@ def create_sale(data: c.DirectSaleInput, idempotency_key: str = Header(), operat
                 **line.cost_payment.model_dump()), operator)
     if data.payment:
         record_payment(db, receivable, data.payment, operator)
-    s.remember(db, key, fingerprint, sale.id)
-    return _result(sale_view(db, sale, True), 201)
+    guard.check()
+    log_late(db, late, 'sales', sale.id, data.sold_on, operator)
+    return sale
 
 
 @router.put('/sales/{id}')
@@ -453,6 +601,18 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
 
     profile = _sale_buyer(db, data)
     old_items = db.scalars(select(m.SaleItem).where(m.SaleItem.sale_id == id).order_by(m.SaleItem.position)).all()
+    # Every lot the old or new version touches is replayed by date (R8,
+    # M2.2); changing received stock on a sale more than a week old is a
+    # late entry.
+    from .lots import StockGuard, late_entry, log_late
+    guard = StockGuard(db)
+    for row in (*old_items, *data.items):
+        guard.watch('opening_stock', row.opening_stock_id).watch('supplier_collections', row.supplier_collection_id)
+        guard.watch('lpo_lines', row.lpo_line_id)
+    touches_stock = _sells_received(data.items) or any(
+        item.opening_stock_id or item.supplier_collection_id or item.lpo_line_id for item in old_items)
+    earliest = min(sale.sold_on, data.sold_on)
+    late = late_entry(operator, earliest, data.late_reason) if touches_stock else None
     old_lpo = defaultdict(lambda: ZERO)
     old_collections = defaultdict(lambda: ZERO)
     # Birds the old version took from supplier batches go back first, so
@@ -625,6 +785,8 @@ def update_sale(id: str, data: c.DirectSaleInput, operator=Depends(auth.ops), db
                 description=f"Stock for sale {sale.sale_number}: {', '.join(owed['lines'])}"[:500], amount=owed['amount'],
                 incurred_on=data.sold_on, source='sale_cost', sale_id=id, created_by=operator.id))
     db.flush()
+    guard.check()
+    log_late(db, late, 'sales', sale.id, earliest, operator)
     return _result(sale_view(db, sale, True))
 
 
@@ -737,7 +899,11 @@ def add_payment(id: str, data: c.LedgerPaymentInput, idempotency_key: str = Head
     key, fingerprint, prior = s.replay(db, operator.id, 'ledger-payment', idempotency_key, {'id': id, **data.model_dump()})
     debt = _lock_debt(db, id)
     if not prior:
-        record_payment(db, debt, data, operator)
+        earlier = None
+        if debt.status != 'cancelled' and data.amount <= debt.balance:
+            earlier = dup.check_possible(db, data, 'in' if debt.direction == 'receivable' else 'out', data.amount,
+                data.paid_on, **_duplicate_party(debt))
+        record_payment(db, debt, data, operator, earlier=earlier)
         s.remember(db, key, fingerprint, id)
     return _result(_debt_detail(db, debt), 201)
 
@@ -833,10 +999,15 @@ def pay_supplier(supplier_id: str, data: c.SupplierPaymentInput, idempotency_key
     available = sum((row.balance for row in debts), ZERO)
     if not debts or data.amount + data.use_credit > available:
         fail('err.payment_more_than_balance', 422, balance=f'{available:,.2f}')
+    earlier = dup.check_possible(db, data, 'out', data.amount, data.paid_on, supplier_id=supplier_id)
+    account = accounts.require_account(db, data.money_account_id)
     if data.use_credit > 0:
         _apply_credit(db, supplier_id, data.use_credit, debts, operator, data.note.strip())
     group = tr.new_transfer(db, supplier_id, data.amount, data.paid_on, data.method, data.reference, data.note,
         operator.id, 'pay_supplier', data.sms_text, data.receipt_media_id)
+    accounts.assign(db, 'supplier_payments', group.id, account, operator)
+    dup.claim(db, 'supplier_payments', group.id, data.method, account, data.reference, 'out', operator)
+    dup.record_override(db, earlier, 'supplier_payments', group.id, data, 'out', data.amount, data.paid_on, operator)
     if data.send_receipt_sms:
         group.receipt_sms_language = data.receipt_language
         group.receipt_sms_phone = supplier_phone
@@ -875,6 +1046,107 @@ def apply_supplier_credit(supplier_id: str, data: c.SupplierCreditInput, idempot
         _apply_credit(db, supplier_id, data.amount, debts, operator, data.note.strip(), data.transfer_id)
         s.remember(db, key, fingerprint, supplier_id)
     return _result(_supplier_credit(db, supplier_id), 201)
+
+
+# ---- customer payments over several debts ------------------------------------
+
+def _buyer(db, buyer_profile_id):
+    profile = db.get(m.BuyerProfile, buyer_profile_id)
+    if not profile:
+        fail('err.buyer_crm_record_not_found', 404)
+    return profile
+
+
+def _open_buyer_debts(db, buyer_profile_id, lock=False):
+    """What the customer still owes, oldest debt first: the order one payment
+    pays them in."""
+    query = (select(m.LedgerDebt).where(m.LedgerDebt.buyer_profile_id == buyer_profile_id,
+        m.LedgerDebt.direction == 'receivable', m.LedgerDebt.status == 'open')
+        .order_by(m.LedgerDebt.incurred_on, m.LedgerDebt.created_at, m.LedgerDebt.id))
+    return db.scalars(query.with_for_update() if lock else query).all()
+
+
+def _split(debts, amount):
+    """How `amount` falls on `debts`, in their order: each debt is paid off
+    before the next one gets anything."""
+    pieces, remaining = [], amount
+    for debt in debts:
+        take = min(remaining, debt.balance)
+        if take <= ZERO:
+            break
+        pieces.append((debt, take))
+        remaining -= take
+    return pieces
+
+
+def buyer_payment_view(db, row):
+    allocations = db.execute(select(m.LedgerPayment, m.LedgerDebt).join(m.LedgerDebt,
+        m.LedgerDebt.id == m.LedgerPayment.debt_id).where(m.LedgerPayment.buyer_payment_id == row.id)
+        .order_by(m.LedgerDebt.incurred_on, m.LedgerDebt.created_at)).all()
+    return {**{k: getattr(row, k) for k in ('id', 'buyer_profile_id', 'amount', 'paid_on', 'method', 'reference',
+        'note', 'created_at')}, 'recorded_by': _operator_name(db, row.recorded_by),
+        'allocations': [{'payment_id': p.id, 'debt_id': d.id, 'description': d.description, 'sale_id': d.sale_id,
+            'incurred_on': d.incurred_on, 'amount': p.amount, 'balance_after': d.balance,
+            'reversed': p.reversed_at is not None} for p, d in allocations]}
+
+
+@router.get('/ledger/buyer-balances')
+def buyer_balances(operator=Depends(auth.ops), db=Depends(database)):
+    """Customers who owe on open debts, largest balance first."""
+    D, B = m.LedgerDebt, m.BuyerProfile
+    owed = func.sum(D.amount - D.paid_amount)
+    rows = db.execute(select(B.id, B.business_name, B.contact_person, B.phone, owed.label('balance'),
+            func.count(D.id).label('debts'), func.min(D.incurred_on).label('oldest'))
+        .join(D, D.buyer_profile_id == B.id).where(D.direction == 'receivable', D.status == 'open')
+        .group_by(B.id).having(owed > 0).order_by(owed.desc(), B.business_name)).all()
+    return _result({'items': [{'id': r.id, 'name': r.business_name or r.contact_person or r.phone, 'phone': r.phone,
+        'balance': r.balance, 'debts': r.debts, 'oldest': r.oldest} for r in rows]})
+
+
+@router.get('/ledger/buyers/{buyer_profile_id}/open-debts')
+def buyer_open_debts(buyer_profile_id: str, operator=Depends(auth.ops), db=Depends(database)):
+    """The customer's open debts in the order a payment pays them."""
+    profile = _buyer(db, buyer_profile_id)
+    debts = _open_buyer_debts(db, buyer_profile_id)
+    return _result({'buyer': {'id': profile.id, 'name': profile.business_name or profile.contact_person or profile.phone,
+        'phone': profile.phone}, 'balance': sum((d.balance for d in debts), ZERO),
+        'debts': [debt_view(d) for d in debts]})
+
+
+@router.post('/ledger/buyers/{buyer_profile_id}/payments', status_code=201)
+def pay_buyer_debts(buyer_profile_id: str, data: c.BuyerPaymentInput, idempotency_key: str = Header(),
+                    operator=Depends(auth.ops), db=Depends(database)):
+    """One amount a customer paid, entered once. It pays their oldest open
+    debt first, then the next, until it is used up. The cash book shows it
+    as one payment; each debt it touched shows its part."""
+    key, fingerprint, prior = s.replay(db, operator.id, 'buyer-payment', idempotency_key,
+        {'buyer_profile_id': buyer_profile_id, **data.model_dump()})
+    if prior:
+        return _result(buyer_payment_view(db, db.get(m.BuyerPayment, prior)), 201)
+    _buyer(db, buyer_profile_id)
+    debts = _open_buyer_debts(db, buyer_profile_id, lock=True)
+    owed = sum((d.balance for d in debts), ZERO)
+    if not debts or data.amount > owed:
+        fail('err.payment_more_than_balance', 422, balance=f'{owed:,.2f}')
+    if data.reference and db.scalar(select(m.BuyerPayment.id).join(m.LedgerPayment,
+            m.LedgerPayment.buyer_payment_id == m.BuyerPayment.id).where(
+            m.BuyerPayment.buyer_profile_id == buyer_profile_id, m.BuyerPayment.method == data.method,
+            m.BuyerPayment.reference == data.reference, m.LedgerPayment.reversed_at.is_(None)).limit(1)):
+        fail('err.payment_reference_already_recorded')
+    earlier = dup.check_possible(db, data, 'in', data.amount, data.paid_on, buyer_profile_id=buyer_profile_id)
+    account = accounts.require_account(db, data.money_account_id)
+    group = m.BuyerPayment(buyer_profile_id=buyer_profile_id, amount=data.amount, paid_on=data.paid_on,
+        method=data.method, reference=data.reference, note=data.note, recorded_by=operator.id)
+    db.add(group)
+    db.flush()
+    accounts.assign(db, 'buyer_payments', group.id, account, operator)
+    dup.claim(db, 'buyer_payments', group.id, data.method, account, data.reference, 'in', operator)
+    dup.record_override(db, earlier, 'buyer_payments', group.id, data, 'in', data.amount, data.paid_on, operator)
+    for debt, take in _split(debts, data.amount):
+        record_payment(db, debt, c.LedgerPaymentInput(amount=take, paid_on=data.paid_on, method=data.method,
+            reference=data.reference, note=data.note), operator, buyer_payment_id=group.id)
+    s.remember(db, key, fingerprint, group.id)
+    return _result(buyer_payment_view(db, group), 201)
 
 
 @router.post('/ledger/payments/{id}/reverse')
@@ -916,8 +1188,20 @@ def _take_off_invoice(db, debt, row, reason, operator, credit=True):
         transfer = tr.new_transfer(db, debt.supplier_id, row.amount, row.paid_on, row.method, row.reference,
             row.note, row.recorded_by, 'legacy')
         row.supplier_payment_id = transfer.id
+        # The money is now counted from the transfer: its account and its
+        # reference go with it.
+        accounts.follow(db, 'ledger_payments', row.id, 'supplier_payments', transfer.id)
+        dup.follow(db, 'ledger_payments', row.id, 'supplier_payments', transfer.id)
     row.reversed_at, row.reversed_by, row.reverse_reason = m.now(), operator.id, reason
     debt.paid_amount -= row.amount
+    if transfer is None:
+        # Recorded in error and no longer counted: its reference is free
+        # again (a customer payment once none of its parts count).
+        if row.buyer_payment_id is None:
+            dup.release(db, 'ledger_payments', row.id, reason)
+        elif not db.scalar(select(m.LedgerPayment.id).where(m.LedgerPayment.buyer_payment_id == row.buyer_payment_id,
+                m.LedgerPayment.id != row.id, m.LedgerPayment.reversed_at.is_(None)).limit(1)):
+            dup.release(db, 'buyer_payments', row.buyer_payment_id, reason)
     if transfer is not None and credit:
         db.add(m.TransferEvent(supplier_payment_id=transfer.id, supplier_id=transfer.supplier_id, kind='credit',
             amount=row.amount, source_payment_id=row.id, occurred_on=c.business_today(), reason=reason,
@@ -946,10 +1230,16 @@ def refund_transfer(id: str, data: c.TransferRefundInput, idempotency_key: str =
         credit = tr.buckets(db, [id])[id]['credit']
         if data.amount > credit:
             fail('err.more_than_supplier_credit', 422, credit=f'{credit:,.2f}')
-        db.add(m.TransferEvent(supplier_payment_id=id, supplier_id=transfer.supplier_id, kind='refund',
+        earlier = dup.check_possible(db, data, 'in', data.amount, data.received_on, supplier_id=transfer.supplier_id)
+        account = accounts.require_account(db, data.money_account_id)
+        refund = m.TransferEvent(supplier_payment_id=id, supplier_id=transfer.supplier_id, kind='refund',
             amount=data.amount, occurred_on=data.received_on, method=data.method, reference=data.reference,
-            evidence=data.evidence, receipt_media_id=data.receipt_media_id, reason=data.note, recorded_by=operator.id))
+            evidence=data.evidence, receipt_media_id=data.receipt_media_id, reason=data.note, recorded_by=operator.id)
+        db.add(refund)
         db.flush()
+        accounts.assign(db, 'transfer_events', refund.id, account, operator)
+        dup.claim(db, 'transfer_events', refund.id, data.method, account, data.reference, 'in', operator)
+        dup.record_override(db, earlier, 'transfer_events', refund.id, data, 'in', data.amount, data.received_on, operator)
         s.remember(db, key, fingerprint, id)
     return _result(_transfer_detail(db, transfer), 201)
 
@@ -1512,9 +1802,14 @@ def _cash_totals(db, where, q):
     chosen = [*where, PAYMENTS.search(q)] if q else list(where)
     money_in, money_out = rp.moved(db, *chosen)
     disputed = rp.disputed_out(db, *chosen)
+    # M2.7: payouts sent but not yet confirmed as debited are not money out.
+    in_flight = rp.payouts_in_flight(db)
+    unassigned = accounts.unassigned_totals(db)
     return {'money_in': money_in, 'money_out': money_out, 'net': money_in - money_out,
             'disputed_out': disputed['amount'], 'disputed_out_count': disputed['count'],
-            'recorded_net_cash': rp.recorded_net_cash(db)}
+            'payouts_in_flight': in_flight['amount'], 'payouts_in_flight_count': in_flight['count'],
+            'recorded_net_cash': rp.recorded_net_cash(db),
+            'unassigned_count': unassigned['count'], 'unassigned_in': unassigned['in'], 'unassigned_out': unassigned['out']}
 
 
 def movement_view(db, row):
@@ -1524,14 +1819,24 @@ def movement_view(db, row):
     view['moved_to_credit'] = view['reversed'] and view['kind'] == 'allocation'
     view['recorded_by'] = _operator_name(db, view['recorded_by'])
     view['reversed_by'] = _operator_name(db, view['reversed_by'])
+    assigned = db.execute(select(m.MoneyAccount.id, m.MoneyAccount.name).join(m.AccountAssignment,
+        m.AccountAssignment.account_id == m.MoneyAccount.id).where(m.AccountAssignment.source_table == view['source_table'],
+        m.AccountAssignment.source_id == view['id'])).first()
+    view['account_id'], view['account_name'] = (assigned.id, assigned.name) if assigned else (None, None)
     return view
 
 
 @router.get('/ledger/payments')
 def cash_book(params: Paging = Depends(), start: Optional[date] = None, end: Optional[date] = None,
-              method: Optional[str] = None, operator=Depends(auth.ops), db=Depends(database)):
-    """Every movement of money in and out, newest first: the cash book."""
+              method: Optional[str] = None, account: Optional[str] = None, operator=Depends(auth.ops),
+              db=Depends(database)):
+    """Every movement of money in and out, newest first: the cash book.
+    `account` is a money account id, or 'unassigned' (M2.3)."""
     where = []
+    if account == 'unassigned':
+        where.append(accounts.unassigned_filter())
+    elif account:
+        where.append(accounts.account_filter(account))
     if start:
         where.append(CASH.c.paid_on >= start)
     if end:
@@ -1606,8 +1911,9 @@ def finance_summary(start: Optional[date] = None, end: Optional[date] = None,
         'profit_today': without_days(rp.profit(db, today, today)),
         'profit_month': without_days(rp.profit(db, month, today)),
         'owed_to_me': _balance(owed),
-        'i_owe': _balance(owe, 'disputed', 'disputed_count', 'credit', 'unresolved'),
-        'commitments': {k: pending[k] for k in ('total', 'unpaid', 'deposits', 'count')},
+        'i_owe': _balance(owe, 'disputed', 'disputed_count', 'payouts_in_flight', 'payouts_in_flight_count',
+                          'credit', 'unresolved'),
+        'commitments': {k: pending[k] for k in rp.COMMITMENT_FIELDS},
         'by_method': everything['by_method'],
         'debtors': _parties(owed['rows'])[:100], 'creditors': _parties(owe['rows'])[:100],
         'recent_payments': [payment_view(db, p, db.get(m.LedgerDebt, p.debt_id)) for p in recent],

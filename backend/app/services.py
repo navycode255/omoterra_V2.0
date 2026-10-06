@@ -87,7 +87,11 @@ def release(db, hold, listing, status):
     before = inv.balances(listing)
     listing.quantity_reserved -= hold.quantity
     hold.status = status
-    inv.movement(db, listing, 'hold_' + status, before, f'hold:{hold.id}:{status}')
+    reference = f'hold:{hold.id}:{status}'
+    if db.scalar(select(m.StockMovement.id).where(m.StockMovement.reference == reference)):
+        # The same hold released again after its order was reopened (M2.5).
+        reference += f':again:{m.identifier()[:8]}'
+    inv.movement(db, listing, 'hold_' + status, before, reference)
     if listing.listing_status == 'sold_out' and listing.quantity_available > 0:
         listing.listing_status = 'live' if listing.confirmation_due_at and listing.confirmation_due_at > m.now() else 'needs_confirmation'
     db.flush()
@@ -269,13 +273,15 @@ def advance(db, order, data, by_buyer=False):
             if listing.quantity_available == 0:
                 listing.listing_status = 'sold_out'
             if accepted > 0:
-                db.add(m.StockSale(listing_id=listing.id, supplier_id=listing.supplier_id, source='omoterra', quantity=accepted, sold_at=m.now(), order_item_id=item.id))
-                inv.movement(db, listing, 'sale_omoterra', before_sale, f'order-item:{item.id}:sold', 'Delivered through Omoterra')
-            if accepted > 0:
-                db.add(m.Settlement(supplier_id=listing.supplier_id, order_item_id=item.id,
-                    farmer_asking_price_per_unit=item.asking_snapshot, supplier_payout_price_per_unit=item.payout_snapshot,
-                    commission_amount_per_unit=item.asking_snapshot - item.payout_snapshot,
-                    quantity=accepted, total_payable=money(accepted * item.payout_snapshot)))
+                # A delivery after a reopen (M2.5) records its own stock sale
+                # and makes the cancelled payout pending again.
+                from .recognition import delivery_settlement, record_delivery_stock
+                record_delivery_stock(db, listing, item, accepted)
+                reference = f'order-item:{item.id}:sold'
+                if db.scalar(select(m.StockMovement.id).where(m.StockMovement.reference == reference)):
+                    reference += f':again:{m.identifier()[:8]}'
+                inv.movement(db, listing, 'sale_omoterra', before_sale, reference, 'Delivered through Omoterra')
+                delivery_settlement(db, listing, item, accepted)
             profile = db.get(m.SupplierProfile, listing.supplier_id)
             if accepted > 0:
                 profile.completed_supplies_count += 1
@@ -285,6 +291,10 @@ def advance(db, order, data, by_buyer=False):
                     allocation.accepted_quantity = accepted
                     allocation.rejected_quantity = item.rejected_quantity or Decimal('0')
                     allocation.status = 'delivered'
+    if target == 'delivered':
+        # Build plan M2.5 (D7): the order counts as a sale on this business day.
+        from .contracts import business_today
+        order.recognized_on, order.recognition_note = business_today(), 'Marked delivered'
     if target == 'completed' and order.payment_status != 'paid':
         fail('err.reconcile_buyer_payment_before_completing')
     order.internal_status = target

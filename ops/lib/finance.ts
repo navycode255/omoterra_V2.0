@@ -46,6 +46,8 @@ export interface LedgerPayment {
   reverse_reason: string;
   /** The supplier transfer this payment is part of (supplier invoices only). */
   supplier_payment_id?: string | null;
+  /** The customer payment this is part of, when one payment covered several debts. */
+  buyer_payment_id?: string | null;
   /** Taken off its invoice; the money stayed with the supplier as credit. */
   moved_to_credit?: boolean;
   // On cash book rows only.
@@ -63,7 +65,10 @@ export interface LedgerPayment {
  */
 export interface CashMovement {
   id: string;
-  kind: 'payment' | 'allocation' | 'transfer' | 'refund' | 'receipt' | 'payout';
+  kind: 'payment' | 'allocation' | 'transfer' | 'refund' | 'buyer_payment' | 'receipt' | 'payout' | 'fee';
+  /** The money account it went through (M2.3); null when not assigned. */
+  account_id?: string | null;
+  account_name?: string | null;
   source: Source;
   source_table: string;
   order_id: string | null;
@@ -135,6 +140,12 @@ export interface Debt {
 }
 
 /** One reasoned correction of a supplier debt (backend financial_adjustments, M1.4). */
+/** A customer with open debts (GET /ops/ledger/buyer-balances). */
+export interface BuyerBalance { id: string; name: string; phone: string; balance: string; debts: number; oldest: string }
+
+/** A customer's open debts, oldest first: the order one payment pays them. */
+export interface BuyerOpenDebts { buyer: { id: string; name: string; phone: string }; balance: string; debts: Debt[] }
+
 export interface FinancialAdjustment {
   id: string;
   kind: 'wrong_supplier' | 'duplicate_liability' | 'free_stock' | 'cost_never_existed'
@@ -282,6 +293,41 @@ export interface SaleItem {
   /** Rule R5: an unknown cost has no margin ("cost unknown"), never 0. */
   cost_state: CostState;
   margin: string | null;
+  /** Where received stock came from and how far its receipt is paid (M2.4). */
+  stock_source?: StockSource | null;
+}
+
+/** One receipt invoice behind a sale line's stock. */
+export interface StockSourceInvoice {
+  debt_id: string;
+  description: string;
+  incurred_on: string;
+  amount: string;
+  paid_amount: string;
+  balance: string;
+  status: 'open' | 'settled' | 'cancelled';
+  paid_from_credit: string;
+  paid_by_transfer: string;
+}
+
+/**
+ * The receipt a sale line sold from (delivery note, LPO, opening stock) and
+ * its supplier payment status. Information only: the receipt's payable
+ * belongs to the receipt, never to the sale's own figures (M2.4, R1).
+ */
+export interface StockSource {
+  kind: 'delivery_note' | 'lpo' | 'opening_stock';
+  id: string;
+  number: string | null;
+  lpo_id: string | null;
+  supplier_id: string | null;
+  supplier_name: string;
+  invoices: StockSourceInvoice[];
+  state: 'no_invoice' | 'unpaid' | 'part_paid' | 'paid' | 'cancelled';
+  invoice_amount: string;
+  paid_amount: string;
+  balance: string;
+  supplier_credit: string;
 }
 
 export type CostState = 'known' | 'free' | 'unknown';
@@ -330,7 +376,9 @@ export interface SalesSummary {
 }
 
 /** App orders not delivered yet: never revenue or money owed to Omoterra. */
-export interface Commitments { total: string; unpaid: string; deposits: string; count: number }
+// Orders not delivered yet: app orders (marketplace) and orders staff took
+// for a buyer (ledger, M2.5). Never sales or debts.
+export interface Commitments { total: string; unpaid: string; deposits: string; count: number; ledger?: string; ledger_count?: number; marketplace?: string; marketplace_count?: number }
 
 export interface Sale {
   location_id: string | null;
@@ -364,6 +412,8 @@ export interface SaleDetail extends Sale {
   items: SaleItem[];
   debts: (Debt & { payments: LedgerPayment[] })[];
   cost_adjustments: { id: string; kind: string; reason: string; before: Record<string, unknown>; after: Record<string, unknown>; linked_ids: Record<string, unknown>; created_at: string; recorded_by: string | null }[];
+  // The staff buyer order this sale delivered (M2.5).
+  buyer_order?: { id: string; order_number: string; ordered_on: string } | null;
 }
 
 export interface Party {

@@ -40,7 +40,9 @@ export async function receiveSupplierBatch(_: ActionResult | null, form: FormDat
     average_weight_kg: text(form, 'average_weight_kg') || null,
     unit_cost: text(form, 'unit_cost'), payment_terms_days: Number(text(form, 'payment_terms_days') || '0'),
     notes: text(form, 'notes'),
-  }, randomUUID()), ['/suppliers/' + supplier, '/sales/new', '/finance', '/finance/debts', '/finance/supplier-payments']);
+    // "kind:id" of the reservation this delivery fills, if any (M2.1).
+    ...(text(form, 'commitment') ? { commitment_kind: text(form, 'commitment').split(':')[0], commitment_id: text(form, 'commitment').split(':')[1] } : {}),
+  }, randomUUID()), ['/suppliers/' + supplier, '/sales/new', '/finance', '/finance/debts', '/finance/supplier-payments', '/stock']);
 }
 
 // The supplier sold some of this batch to someone else.
@@ -75,7 +77,7 @@ export async function correctReceipt(_: ActionResult | null, form: FormData) {
 export async function returnToSupplier(_: ActionResult | null, form: FormData) {
   const note = text(form, 'collection_id');
   return run(() => post(`/ops/supplier-collections/${encodeURIComponent(note)}/returns`, {
-    quantity: text(form, 'quantity'), returned_on: text(form, 'returned_on'), reason: text(form, 'reason'),
+    quantity: text(form, 'quantity'), returned_on: text(form, 'returned_on'), reason: text(form, 'reason'), late_reason: text(form, 'late_reason'),
   }, text(form, 'idempotency_key') || randomUUID()), NOTE_PATHS(note, text(form, 'supplier_id')));
 }
 
@@ -94,7 +96,7 @@ export async function recordSupplierCreditNote(_: ActionResult | null, form: For
 export async function recordDeliveryLoss(_: ActionResult | null, form: FormData) {
   const note = text(form, 'collection_id');
   return run(() => post(`/ops/supplier-collections/${encodeURIComponent(note)}/losses`, {
-    quantity: text(form, 'quantity'), lost_on: text(form, 'lost_on'), reason: text(form, 'reason'), note: text(form, 'note'),
+    quantity: text(form, 'quantity'), lost_on: text(form, 'lost_on'), reason: text(form, 'reason'), note: text(form, 'note'), late_reason: text(form, 'late_reason'),
   }, text(form, 'idempotency_key') || randomUUID()), [...NOTE_PATHS(note, text(form, 'supplier_id')), '/finance/profit', '/finance/reports']);
 }
 

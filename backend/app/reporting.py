@@ -21,12 +21,18 @@ only:
   their cost of goods is the sale line that sold them (`sale_items`);
 - a marketplace order's cost is its settlements, so cost ties to the payable.
 
-Recognition (decision D2): a direct sale counts on its sale date; an app
-order counts on the day it was delivered (Dar es Salaam time), read from its
-activity log until M2.5 stores it. A delivered order without a dated
-"Delivered" entry is *unresolved*: listed, and kept out of period revenue and
-cost (R5, R6). An order not yet delivered is a *commitment*, reported on its
-own and never as revenue or as money owed to Omoterra.
+Recognition (decisions D2, D7; M2.5): a direct sale counts on its sale
+date; an app order counts on the day it was delivered (Dar es Salaam time),
+stored as `orders.recognized_on` when it is marked delivered. A delivered
+order with no recognition date (history too ambiguous to backfill) is
+*unresolved*: listed, and kept out of period revenue and cost (R5, R6). A
+delivered order that is reopened or returned stays in the period it was
+recognised in; its `order_recognition_reversals` row takes the same revenue
+and cost out on the day of the reversal (recognition.py), so a period never
+changes after the fact. An order not yet delivered is a *commitment*: app
+orders and orders staff took for a buyer (`buyer_orders`), reported on their
+own and never as revenue or as money owed to Omoterra. A staff order becomes
+a direct sale dated its delivery day.
 
 Cost states (M1.3, rule R5): a sale line's buying cost is known, free (a
 known zero an admin approved) or unknown. An unknown line counts for nothing
@@ -34,8 +40,11 @@ in cost of goods and makes every period containing it `provisional`:
 profit is shown as "Provisional: buying costs incomplete" with the sales and
 revenue affected, never as a final, minimum or range figure.
 
-Not yet here (later milestones): money accounts and a verified cash balance
-(M2.3); payout attempts and disputed exposure from them (M2.7).
+App payouts (M2.7, payouts.py): what is owed on a settlement is its amount
+less its net paid (debited attempts less refunds). Money out is each debited
+attempt on its debit day and a refund is money in on its own day; an attempt
+sent but not confirmed is in flight (beside money out, never in it), and
+money possibly paid twice is the disputed exposure, shown beside I owe.
 """
 from __future__ import annotations
 
@@ -44,7 +53,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from sqlalchemy import Date, Integer, String, Text, and_, case, cast, exists, func, literal, literal_column, null, or_, select, union_all
+from sqlalchemy import Date, Integer, String, Text, and_, case, cast, exists, func, literal, null, or_, select, union_all
 
 from . import contracts as c, models as m, transfers as tr
 
@@ -100,12 +109,21 @@ def local_day_of(value):
 
 
 def delivered_on():
-    """The day an app order reached 'delivered', from its activity log (null
-    when the log has no such entry). M2.5 replaces it with a stored column."""
-    return literal_column(
-        "(SELECT min(CAST(timezone('Africa/Dar_es_Salaam', CAST(entry->>'at' AS timestamptz)) AS date))"
-        " FROM json_array_elements(CAST(orders.activity AS json)) AS entry WHERE entry->>'label' = 'Delivered')",
-        Date)
+    """The day an app order counts as a sale: its stored recognition date
+    (M2.5), null while unresolved."""
+    return m.Order.recognized_on
+
+
+def held_deposits(db, order_ids=None):
+    """Deposits held on staff buyer orders: paid, not voided, not given back
+    and not yet applied to the order's sale. {buyer_order_id: amount}."""
+    P = m.BuyerOrderPayment
+    refunded = select(P.refund_of).where(P.kind == 'refund', P.refund_of.is_not(None))
+    query = (select(P.buyer_order_id, func.sum(P.amount)).where(P.kind == 'deposit', P.voided_at.is_(None),
+        P.applied_payment_id.is_(None), P.id.not_in(refunded)).group_by(P.buyer_order_id))
+    if order_ids is not None:
+        query = query.where(P.buyer_order_id.in_(list(order_ids)))
+    return {id: amount for id, amount in db.execute(query)}
 
 
 def _buyers(db, orders):
@@ -169,10 +187,21 @@ def receivables(db):
 
 
 def commitments(db):
-    """App orders not delivered yet (and not cancelled): ordered value, the
-    part still unpaid and any money the buyer paid ahead (a customer
-    deposit). Never revenue and never a receivable."""
+    """Orders not delivered yet (and not cancelled): app orders and orders
+    staff took for a buyer (M2.5). Ordered value, the part still unpaid and
+    any money the buyer paid ahead (a customer deposit, held for them).
+    Never revenue and never a receivable; no stock is taken for them."""
     rows = []
+    staff = db.scalars(select(m.BuyerOrder).where(m.BuyerOrder.status == 'open')).all()
+    held = held_deposits(db, [order.id for order in staff]) if staff else {}
+    for order in staff:
+        paid = held.get(order.id, ZERO)
+        due = f', due {order.expected_on:%d %b}' if order.expected_on else ''
+        rows.append(_row('ledger', 'buyer_orders', order.id, order.ordered_on, order.total_amount,
+            party=order.buyer_name, party_phone=order.buyer_phone, party_kind='buyer',
+            buyer_profile_id=order.buyer_profile_id, buyer_user_id=None, order_id=None, status='open',
+            expected_on=order.expected_on, paid=paid, unpaid=order.total_amount - paid,
+            description=f'Order {order.order_number} (not delivered{due})', href=f'/sales/orders/{order.id}'))
     orders = db.execute(select(m.Order, m.Payment).outerjoin(m.Payment, m.Payment.order_id == m.Order.id)
         .where(m.Order.internal_status.not_in((*RECOGNISED, *DEAD)))).all()
     names = _buyers(db, [order for order, _payment in orders])
@@ -185,60 +214,81 @@ def commitments(db):
             href=f'/orders/{order.id}'))
     rows = dedupe(rows)
     return {'total': total(rows), 'unpaid': total(rows, 'unpaid'), 'deposits': total(rows, 'paid'),
-            'count': len(rows), 'rows': rows}
+            'count': len(rows), 'ledger': total(r for r in rows if r['source'] == 'ledger'),
+            'ledger_count': sum(1 for r in rows if r['source'] == 'ledger'),
+            'marketplace': total(r for r in rows if r['source'] == 'marketplace'),
+            'marketplace_count': sum(1 for r in rows if r['source'] == 'marketplace'), 'rows': rows}
 
 
 def payables(db, supplier_ids=None):
     """Owed by Omoterra now (metric 2): open ledger payables (sale costs,
-    delivery notes, LPO receipts, manual debts, expenses) plus app payouts
-    still pending. Beside it, never netted: payouts a supplier says never
-    arrived (disputed), and money suppliers hold from transfers as credit
+    delivery notes, LPO receipts, manual debts, expenses) plus what is still
+    outstanding on app payouts (M2.7: the amount less debited attempts less
+    refunds). Beside it, never netted: the disputed exposure on payouts
+    (money possibly paid twice, M2.7), payouts sent but not yet confirmed as
+    debited (in flight), and money suppliers hold from transfers as credit
     or not yet classified (unresolved)."""
+    from . import payouts
     today = c.business_today()
     query = select(m.LedgerDebt).where(m.LedgerDebt.direction == 'payable', m.LedgerDebt.status == 'open')
     settlements = (select(m.Settlement, delivered_on()).join(m.OrderItem, m.OrderItem.id == m.Settlement.order_item_id)
         .join(m.Order, m.Order.id == m.OrderItem.order_id).where(m.Settlement.status == 'pending'))
-    disputed = select(m.Settlement).where(m.Settlement.status == 'paid', m.Settlement.supplier_confirmation == 'not_received')
+    attempted = select(m.Settlement).where(m.Settlement.status != 'cancelled',
+        m.Settlement.id.in_(select(m.SettlementTransfer.settlement_id)))
     if supplier_ids is not None:
         supplier_ids = list(supplier_ids)
         query = query.where(m.LedgerDebt.supplier_id.in_(supplier_ids))
         settlements = settlements.where(m.Settlement.supplier_id.in_(supplier_ids))
-        disputed = disputed.where(m.Settlement.supplier_id.in_(supplier_ids))
+        attempted = attempted.where(m.Settlement.supplier_id.in_(supplier_ids))
     rows = [_ledger_row(debt, today) for debt in db.scalars(query)]
     pending = db.execute(settlements).all()
     names = _supplier_names(db, [row.supplier_id for row, _on in pending])
+    owed = payouts.settlement_figures(db, [row for row, _on in pending])
     for row, delivered in pending:
-        rows.append(_settlement_row(row, names, local_day_of(row.created_at), delivered, today))
+        rows.append(_settlement_row(row, names, local_day_of(row.created_at), delivered, today,
+            owed[row.id]['outstanding']))
     rows = dedupe(rows)
     held = tr.by_supplier(db, supplier_ids)
-    disputes = db.scalars(disputed).all()
+    money = payouts.settlement_figures(db, db.scalars(attempted).all()).values()
+    exposed = [n['exposure'] for n in money if n['exposure'] > 0]
+    flying = [n['in_flight'] for n in money if n['in_flight'] > 0]
     return {**_split(rows), 'overdue': total(r for r in rows if r['overdue']),
             'overdue_count': sum(1 for r in rows if r['overdue']),
-            'disputed': sum((row.total_payable for row in disputes), ZERO), 'disputed_count': len(disputes),
+            # M2.7: money possibly paid twice on app payouts, until refunded.
+            'disputed': sum(exposed, ZERO), 'disputed_count': len(exposed),
+            'payouts_in_flight': sum(flying, ZERO), 'payouts_in_flight_count': len(flying),
             'credit': sum((row['credit'] for row in held.values()), ZERO),
             'unresolved': sum((row['unresolved'] for row in held.values()), ZERO), 'rows': rows}
 
 
-def _settlement_row(row, names, on, delivered=None, today=None):
+def _settlement_row(row, names, on, delivered=None, today=None, amount=None):
     """An app payout, due PAYOUT_DAYS after its order was delivered; an
-    undelivered order's payout has no due date yet."""
+    undelivered order's payout has no due date yet. `amount` is what is
+    still outstanding on it (M2.7)."""
     due = delivered + timedelta(days=PAYOUT_DAYS) if delivered else None
-    return _row('marketplace', 'settlements', row.id, on, row.total_payable,
+    return _row('marketplace', 'settlements', row.id, on, row.total_payable if amount is None else amount,
         party=names.get(row.supplier_id, 'Supplier'), party_phone='', party_kind='supplier', party_key=row.supplier_id,
         buyer_profile_id=None, supplier_id=row.supplier_id, description='App order payout', due_on=due,
         overdue=due is not None and today is not None and due < today, order_item_id=row.order_item_id, href='/settlements')
 
 
 def settlement_totals(db):
-    """App payouts (metric 5): pending, paid to date, and paid ones the
-    supplier says never arrived (shown separately until M2.7)."""
-    rows = {status: (amount, n) for status, amount, n in db.execute(select(m.Settlement.status,
-        func.coalesce(func.sum(m.Settlement.total_payable), 0), func.count()).group_by(m.Settlement.status))}
-    disputed = db.execute(select(func.coalesce(func.sum(m.Settlement.total_payable), 0), func.count())
-        .where(m.Settlement.status == 'paid', m.Settlement.supplier_confirmation == 'not_received')).one()
-    pending, paid = rows.get('pending', (ZERO, 0)), rows.get('paid', (ZERO, 0))
-    return {'pending': pending[0], 'pending_count': pending[1], 'paid': paid[0], 'paid_count': paid[1],
-            'disputed': disputed[0], 'disputed_count': disputed[1]}
+    """App payouts (metric 5, M2.7): still outstanding on unpaid ones, net
+    paid to date (debited attempts less refunds, every attempt counted), the
+    refunds, payouts in flight (sent, debit not confirmed: not money out)
+    and the disputed exposure (money possibly paid twice)."""
+    from . import payouts
+    rows = db.scalars(select(m.Settlement).where(m.Settlement.status != 'cancelled')).all()
+    money = payouts.settlement_figures(db, rows)
+    pending = [row for row in rows if row.status == 'pending']
+    exposed = [n for n in money.values() if n['exposure'] > 0]
+    flying = [n for n in money.values() if n['in_flight'] > 0]
+    return {'pending': sum((money[row.id]['outstanding'] for row in pending), ZERO), 'pending_count': len(pending),
+            'paid': sum((n['net_paid'] for n in money.values()), ZERO),
+            'paid_count': sum(1 for row in rows if row.status == 'paid'),
+            'refunded': sum((n['refunded'] for n in money.values()), ZERO),
+            'in_flight': sum((n['in_flight'] for n in flying), ZERO), 'in_flight_count': len(flying),
+            'disputed': sum((n['exposure'] for n in exposed), ZERO), 'disputed_count': len(exposed)}
 
 
 def supplier_totals(db, supplier_ids=None):
@@ -250,8 +300,7 @@ def supplier_totals(db, supplier_ids=None):
     today = c.business_today()
     query = select(m.LedgerDebt).where(m.LedgerDebt.direction == 'payable', m.LedgerDebt.status != 'cancelled',
         m.LedgerDebt.supplier_id.is_not(None))
-    settlements = select(m.Settlement.supplier_id, m.Settlement.status, func.sum(m.Settlement.total_payable)).group_by(
-        m.Settlement.supplier_id, m.Settlement.status)
+    settlements = select(m.Settlement).where(m.Settlement.status != 'cancelled')
     if supplier_ids is not None:
         supplier_ids = list(supplier_ids)
         query = query.where(m.LedgerDebt.supplier_id.in_(supplier_ids))
@@ -276,9 +325,13 @@ def supplier_totals(db, supplier_ids=None):
             row['due_now'] += debt.balance
         if debt.due_on is not None and debt.due_on < today:
             row['overdue'] += debt.balance
-    for supplier_id, status, amount in db.execute(settlements):
-        if status in ('pending', 'paid'):
-            out[supplier_id][f'settlements_{status}'] += amount or ZERO
+    # App payouts (M2.7): still outstanding, and net paid (debited less refunds).
+    from . import payouts
+    rows = db.scalars(settlements).all()
+    for row, money in zip(rows, map(payouts.settlement_figures(db, rows).get, (r.id for r in rows))):
+        if row.status == 'pending':
+            out[row.supplier_id]['settlements_pending'] += money['outstanding']
+        out[row.supplier_id]['settlements_paid'] += money['net_paid']
     for supplier_id, held in tr.by_supplier(db, supplier_ids).items():
         out[supplier_id]['credit'] = held['credit']
         out[supplier_id]['unresolved'] = held['unresolved']
@@ -290,6 +343,22 @@ def supplier_totals(db, supplier_ids=None):
 def _orders_recognised(db):
     """Delivered app orders with their delivery day (None: unresolved)."""
     return db.execute(select(m.Order, delivered_on()).where(m.Order.internal_status.in_(RECOGNISED))).all()
+
+
+REVERSAL_WORDS = {'reopen': 'reopened', 'return': 'returned by the buyer'}
+
+
+def _reversals(db, start, end):
+    """Delivered app orders later reopened or returned (M2.5): each gives
+    a row on the day it was recognised (the sale as it was counted then) and
+    one taking it out on the day it was reversed, each only when that day is
+    in the period. (reversal, order, buyer name, recognised, reversed)."""
+    rows = db.execute(select(m.OrderRecognitionReversal, m.Order).join(m.Order,
+        m.Order.id == m.OrderRecognitionReversal.order_id).where(m.OrderRecognitionReversal.recognized_on.is_not(None))
+        .order_by(m.OrderRecognitionReversal.created_at)).all()
+    names = _buyers(db, [order for _row_, order in rows])
+    return [(row, order, names[order.id], _within(row.recognized_on, start, end), _within(row.reversed_on, start, end))
+            for row, order in rows]
 
 
 def revenue(db, start=None, end=None):
@@ -315,11 +384,24 @@ def revenue(db, start=None, end=None):
             unresolved.append(row)
         elif _within(on, start, end):
             rows.append(row)
+    for reversal, order, name, counted, reversed_ in _reversals(db, start, end):
+        label, context = f'App order {order.id[:8].upper()}', dict(party=name, buyer_profile_id=None,
+            buyer_user_id=order.buyer_id, order_id=order.id, href=f'/orders/{order.id}')
+        if counted:
+            rows.append(_row('marketplace', 'order_recognition_reversals', f'{reversal.id}:recognised',
+                reversal.recognized_on, reversal.revenue, description=f'{label} (later {REVERSAL_WORDS[reversal.kind]})',
+                **context))
+        if reversed_:
+            rows.append(_row('marketplace', 'order_recognition_reversals', reversal.id, reversal.reversed_on,
+                -reversal.revenue, description=f'{label} {REVERSAL_WORDS[reversal.kind]}: {reversal.reason}',
+                reversal=True, **context))
     rows = dedupe(rows)
     return {'total': total(rows), 'direct': total(r for r in rows if r['source'] == 'ledger'),
             'marketplace': total(r for r in rows if r['source'] == 'marketplace'),
             'direct_count': sum(1 for r in rows if r['source'] == 'ledger'),
-            'marketplace_count': sum(1 for r in rows if r['source'] == 'marketplace'), 'count': len(rows),
+            'marketplace_count': sum(1 for r in rows if r['source'] == 'marketplace' and not r.get('reversal')),
+            'reversed_count': sum(1 for r in rows if r.get('reversal')),
+            'count': sum(1 for r in rows if not r.get('reversal')),
             'unresolved': {'count': len(unresolved), 'amount': total(unresolved), 'rows': unresolved}, 'rows': rows}
 
 
@@ -358,14 +440,18 @@ def sales_summary(db, chosen, start=None, end=None, match=None):
     lines = db.scalar(select(func.count()).select_from(unknown.subquery())) or 0
     affected, affected_revenue = db.execute(select(func.count(), func.coalesce(func.sum(m.Sale.total_amount), 0))
         .where(m.Sale.id.in_(unknown))).one()
+    market_count = sum(1 for row in market if not row.get('reversal'))
     return {'sales_total': direct + total(market), 'direct_total': direct, 'sales_count': count,
             'unknown_cost': {'lines': lines, 'sales': affected, 'revenue': affected_revenue},
             'provisional': lines > 0,
-            'marketplace_total': total(market), 'marketplace_count': len(market),
+            'marketplace_total': total(market), 'marketplace_count': market_count,
             'received': db.scalar(paid) or ZERO, 'buyer_owes': buyer_owes, 'buyer_owes_count': owing,
             'supplier_owed': supplier_owed, 'supplier_owed_count': supplier_sales,
             'expenses_owed': expenses_owed, 'expenses_owed_count': expense_sales,
-            'commitments': {k: pending[k] for k in ('total', 'unpaid', 'deposits', 'count')}}
+            'commitments': {k: pending[k] for k in COMMITMENT_FIELDS}}
+
+
+COMMITMENT_FIELDS = ('total', 'unpaid', 'deposits', 'count', 'ledger', 'ledger_count', 'marketplace', 'marketplace_count')
 
 
 def cost_state(item):
@@ -401,12 +487,27 @@ def cost_of_goods(db, start=None, end=None):
     orders = {order.id: on for order, on in _orders_recognised(db) if _within(on, start, end)}
     if orders:
         settled = db.execute(select(m.Settlement, m.OrderItem.order_id).join(m.OrderItem,
-            m.OrderItem.id == m.Settlement.order_item_id).where(m.OrderItem.order_id.in_(list(orders)))).all()
+            m.OrderItem.id == m.Settlement.order_item_id).where(m.OrderItem.order_id.in_(list(orders)),
+            m.Settlement.status != 'cancelled')).all()
         names = _supplier_names(db, [row.supplier_id for row, _order in settled])
         for row, order_id in settled:
             rows.append({**_settlement_row(row, names, orders[order_id]), 'cost_state': 'known',
                 'order_id': order_id, 'description': f'App order {order_id[:8].upper()} payout',
                 'href': f'/orders/{order_id}'})
+    # Reopened or returned orders (M2.5): cost counted on the day the order
+    # was recognised and taken out on the day it was reversed, like revenue.
+    for reversal, order, _name, counted, reversed_ in _reversals(db, start, end):
+        if not reversal.cost:
+            continue
+        context = dict(cost_state='known', order_id=order.id, party='', supplier_id=None, href=f'/orders/{order.id}')
+        label = f'App order {order.id[:8].upper()} payout'
+        if counted:
+            rows.append(_row('marketplace', 'order_recognition_reversals', f'{reversal.id}:recognised',
+                reversal.recognized_on, reversal.cost, description=f'{label} (later {REVERSAL_WORDS[reversal.kind]})',
+                **context))
+        if reversed_:
+            rows.append(_row('marketplace', 'order_recognition_reversals', reversal.id, reversal.reversed_on,
+                -reversal.cost, description=f'{label} cancelled: order {REVERSAL_WORDS[reversal.kind]}', **context))
     rows = dedupe(rows)
     lines = sum(1 for r in rows if r['cost_state'] == 'unknown')
     return {'total': total(rows), 'direct': total(r for r in rows if r['source'] == 'ledger'),
@@ -430,6 +531,14 @@ def expenses(db, start=None, end=None):
     rows = [_row('ledger', 'ledger_debts', debt.id, debt.incurred_on, debt.amount, category=debt.expense_category,
         party=debt.party_name, description=debt.description, href=f'/finance/debts/{debt.id}')
         for debt in db.scalars(query)]
+    # Bank and wallet charges (M2.3), on the day they were charged.
+    fees = select(m.AccountFee, m.MoneyAccount.name).join(m.MoneyAccount, m.MoneyAccount.id == m.AccountFee.account_id)
+    if start:
+        fees = fees.where(m.AccountFee.charged_on >= start)
+    if end:
+        fees = fees.where(m.AccountFee.charged_on <= end)
+    rows += [_row('ledger', 'account_fees', fee.id, fee.charged_on, fee.amount, category='bank_charges', party=name,
+        description=fee.description, href=f'/finance/accounts/{fee.account_id}') for fee, name in db.execute(fees)]
     from .locations import depreciation_rows
     assets = list(db.scalars(select(m.BusinessAsset)))
     if assets:
@@ -444,7 +553,8 @@ def expenses(db, start=None, end=None):
 def stock_lost(db, start=None, end=None):
     """Received stock lost before it was sold, at cost, by the day it was
     recorded: LPO stock losses and delivery-note losses (died, culled,
-    stolen, spoiled, or not recovered from a cancelled or reduced sale)."""
+    stolen, spoiled, or not recovered from a cancelled or reduced sale),
+    opening stock losses, and stock count differences (M2.1)."""
     lpo = select(m.StockLoss).where(m.StockLoss.cancelled_at.is_(None))
     notes = select(m.CollectionMovement).where(m.CollectionMovement.kind.in_(m.COLLECTION_LOSSES),
         m.CollectionMovement.cancelled_at.is_(None))
@@ -473,6 +583,17 @@ def stock_lost(db, start=None, end=None):
         location_losses = location_losses.where(m.LocationStockEvent.occurred_on <= end)
     rows += [_row('ledger', 'location_stock_events', e.id, e.occurred_on, money(e.quantity * a.unit_cost),
         description=e.note, href=f'/locations/{a.location_id}') for e, a in db.execute(location_losses)]
+    # M2.1: opening stock losses, and stock count differences (a shortage
+    # adds to stock lost, a surplus found on a count reduces it).
+    adjustments = select(m.LotAdjustment).where(m.LotAdjustment.cancelled_at.is_(None))
+    if start:
+        adjustments = adjustments.where(m.LotAdjustment.occurred_on >= start)
+    if end:
+        adjustments = adjustments.where(m.LotAdjustment.occurred_on <= end)
+    rows += [_row('ledger', 'lot_adjustments', row.id, row.occurred_on,
+        money((row.quantity if row.kind == 'lost' else -row.quantity) * row.unit_cost),
+        description=('Stock count difference: ' if row.kind == 'count' else 'Opening stock lost: ') + row.reason,
+        href=f'/stock/{row.lot_table}/{row.lot_id}') for row in db.scalars(adjustments)]
     rows = dedupe(rows)
     return {'total': total(rows), 'count': len(rows), 'rows': rows}
 
@@ -589,11 +710,23 @@ def _cash_movements():
     - buyer receipts recorded on delivery (`payment_receipts`), and pay-now
       payments confirmed by the provider (which have no receipt rows): each
       payment is counted from one of the two, never both;
-    - supplier payouts, on the day they were marked paid. A payout re-sent
-      after "not received" overwrites the first one's date until M2.7.
+    - supplier payouts (M2.7): each debited payout attempt on its debit day
+      (a resend is a second outflow), and each refund of one as money in on
+      its own day. Initiated attempts (debit not confirmed) and failed ones
+      are not money out.
+
+    Staff buyer orders (M2.5)
+    - deposits paid before delivery, and deposits given back, until the
+      order is delivered and each held deposit becomes a sale payment.
+
+    Accounts (M2.3)
+    - bank and wallet charges (`account_fees`). Transfers between two
+      Omoterra accounts are not here: they move no money in or out of the
+      business, only between its accounts (accounts.py).
 
     `flow` is 'in' or 'out'; `kind` is payment, allocation (a reversed one),
-    transfer, refund, receipt or payout; `source` is ledger or marketplace."""
+    transfer, refund, buyer_payment (one customer payment over several debts),
+    receipt or payout; `source` is ledger or marketplace."""
     P, D, T, E, U, S = m.LedgerPayment, m.LedgerDebt, m.SupplierPayment, m.TransferEvent, m.User, m.SupplierProfile
     text_ = lambda value: cast(literal(value), Text)
     nothing = lambda kind: cast(null(), kind)
@@ -611,7 +744,7 @@ def _cash_movements():
             P.reverse_reason.label('reverse_reason'), text_('ledger').label('source'),
             text_('ledger_payments').label('source_table'), nothing(String(36)).label('order_id'))
         .join(D, D.id == P.debt_id)
-        .where(or_(P.supplier_payment_id.is_(None), P.reversed_at.is_not(None))))
+        .where(or_(and_(P.supplier_payment_id.is_(None), P.buyer_payment_id.is_(None)), P.reversed_at.is_not(None))))
     corrected = (select(func.coalesce(func.sum(E.amount), 0)).where(E.supplier_payment_id == T.id,
         E.kind == 'entry_error').correlate(T).scalar_subquery())
     def first(column):
@@ -635,6 +768,23 @@ def _cash_movements():
             nothing(String(36)))
         .join(U, U.id == E.supplier_id).outerjoin(S, S.user_id == E.supplier_id)
         .where(E.kind == 'refund'))
+    # A customer payment over several debts (buyer_payments) is one row: what
+    # its unreversed allocations still count. A reversed allocation shows as
+    # its own reversed row above.
+    BP = m.BuyerPayment
+    still = (select(func.coalesce(func.sum(P.amount), 0)).where(P.buyer_payment_id == BP.id,
+        P.reversed_at.is_(None)).correlate(BP).scalar_subquery())
+    def first_debt(column):
+        return (select(column).select_from(P).join(D, D.id == P.debt_id).where(P.buyer_payment_id == BP.id)
+            .order_by(D.incurred_on, D.created_at).limit(1).correlate(BP).scalar_subquery())
+    paid_debts = (select(func.count(func.distinct(P.debt_id))).where(P.buyer_payment_id == BP.id,
+        P.reversed_at.is_(None)).correlate(BP).scalar_subquery())
+    buyer_payments = (select(BP.id, text_('buyer_payment'), text_('in'), BP.paid_on, still, BP.method,
+            BP.reference, BP.note, first_debt(D.party_name), first_debt(D.description), first_debt(D.id),
+            first_debt(D.sale_id), nothing(String(36)), nothing(String(36)), paid_debts, BP.created_at,
+            BP.recorded_by, nothing(when), nothing(String(36)), text_(''), text_('ledger'),
+            text_('buyer_payments'), nothing(String(36)))
+        .where(still > 0))
     R, PM, O, ST, OI = m.PaymentReceipt, m.Payment, m.Order, m.Settlement, m.OrderItem
     buyer = func.coalesce(func.nullif(U.name, ''), U.phone, text_('App buyer'))
     order_label = func.concat(text_('App order '), func.upper(func.substr(O.id, 1, 8)))
@@ -651,15 +801,48 @@ def _cash_movements():
             text_('payments'), O.id)
         .join(O, O.id == PM.order_id).outerjoin(U, U.id == O.buyer_id)
         .where(PM.received_amount > 0, PM.paid_at.is_not(None), no_receipt))
-    payouts = (select(ST.id, text_('payout'), text_('out'), local_day(ST.paid_at), ST.total_payable,
-            text_('app_payout'), func.coalesce(ST.payment_reference, text_('')), text_(''), supplier,
-            func.concat(text_('Payout for app order '), func.upper(func.substr(OI.order_id, 1, 8))),
+    PT, PR = m.SettlementTransfer, m.SettlementRefund
+    app_method = lambda column: func.coalesce(func.nullif(column, ''), text_('app_payout'))
+    for_order = lambda label: func.concat(text_(label), func.upper(func.substr(OI.order_id, 1, 8)))
+    payouts = (select(PT.id, text_('payout'), text_('out'), PT.debited_on, PT.amount, app_method(PT.method),
+            PT.reference, case((PT.is_resend, func.concat(text_('Resend, attempt '), cast(PT.attempt_no, Text))),
+                else_=text_('')), supplier, for_order('Payout for app order '),
             nothing(String(36)), nothing(String(36)), ST.supplier_id, nothing(String(36)), cast(literal(0), Integer),
-            ST.paid_at, nothing(String(36)), nothing(when), nothing(String(36)), text_(''), text_('marketplace'),
-            text_('settlements'), OI.order_id)
-        .join(OI, OI.id == ST.order_item_id).join(U, U.id == ST.supplier_id).outerjoin(S, S.user_id == ST.supplier_id)
-        .where(ST.status == 'paid', ST.paid_at.is_not(None)))
-    return union_all(payments, transfers, refunds, receipts, paid_now, payouts).subquery('cash_movements')
+            PT.created_at, func.coalesce(PT.debit_confirmed_by, PT.initiated_by), nothing(when), nothing(String(36)),
+            text_(''), text_('marketplace'), text_('settlement_transfers'), OI.order_id)
+        .join(ST, ST.id == PT.settlement_id).join(OI, OI.id == ST.order_item_id).join(U, U.id == ST.supplier_id)
+        .outerjoin(S, S.user_id == ST.supplier_id).where(PT.state == 'debited'))
+    payout_refunds = (select(PR.id, text_('payout_refund'), text_('in'), PR.refunded_on, PR.amount, app_method(PR.method),
+            PR.reference, PR.evidence, supplier, for_order('Payout refund, app order '),
+            nothing(String(36)), nothing(String(36)), ST.supplier_id, nothing(String(36)), cast(literal(0), Integer),
+            PR.created_at, PR.recorded_by, nothing(when), nothing(String(36)), text_(''), text_('marketplace'),
+            text_('settlement_refunds'), OI.order_id)
+        .join(ST, ST.id == PR.settlement_id).join(OI, OI.id == ST.order_item_id).join(U, U.id == ST.supplier_id)
+        .outerjoin(S, S.user_id == ST.supplier_id))
+    # Bank and wallet charges (M2.3): money out of their account.
+    F, A = m.AccountFee, m.MoneyAccount
+    fees = (select(F.id, text_('fee'), text_('out'), F.charged_on, F.amount, text_('account_fee'), F.reference,
+            text_(''), A.name, F.description, nothing(String(36)), nothing(String(36)), nothing(String(36)),
+            nothing(String(36)), cast(literal(0), Integer), F.created_at, F.recorded_by, nothing(when),
+            nothing(String(36)), text_(''), text_('ledger'), text_('account_fees'), nothing(String(36)))
+        .join(A, A.id == F.account_id))
+    # Deposits on orders staff took for a buyer (M2.5): money in when paid,
+    # a deposit given back is money out. Once the order is delivered a held
+    # deposit becomes a payment on its sale (same day, method, reference and
+    # account) and is counted from that payment instead. A voided deposit
+    # (entered in error) shows as reversed.
+    BOP, BO = m.BuyerOrderPayment, m.BuyerOrder
+    is_deposit = BOP.kind == 'deposit'
+    deposits = (select(BOP.id, case((is_deposit, text_('deposit')), else_=text_('deposit_refund')),
+            case((is_deposit, text_('in')), else_=text_('out')), BOP.paid_on, BOP.amount, BOP.method, BOP.reference,
+            BOP.note, BO.buyer_name, func.concat(case((is_deposit, text_('Deposit on order ')),
+                else_=text_('Deposit given back, order ')), BO.order_number),
+            nothing(String(36)), nothing(String(36)), nothing(String(36)), nothing(String(36)), cast(literal(0), Integer),
+            BOP.created_at, BOP.recorded_by, BOP.voided_at, BOP.voided_by, BOP.void_reason, text_('ledger'),
+            text_('buyer_order_payments'), nothing(String(36)))
+        .join(BO, BO.id == BOP.buyer_order_id).where(BOP.applied_payment_id.is_(None)))
+    return union_all(payments, transfers, refunds, buyer_payments, receipts, paid_now, payouts, payout_refunds, fees,
+        deposits).subquery('cash_movements')
 
 
 CASH = _cash_movements()
@@ -675,13 +858,20 @@ def moved(db, *conditions):
 
 
 def disputed_out(db, *conditions):
-    """App payouts inside the matching money out that the supplier says
-    never arrived. They stay money out (rule R3: a recorded outflow is never
-    removed) and are shown beside it until payout attempts (M2.7) settle
-    whether the debit happened."""
-    disputed = select(m.Settlement.id).where(m.Settlement.supplier_confirmation == 'not_received')
+    """Debited payout attempts inside the matching money out that the
+    supplier says never arrived. They stay money out (rule R3: a debited
+    outflow is never removed; money that comes back is a refund)."""
+    disputed = select(m.SettlementTransfer.id).where(m.SettlementTransfer.supplier_confirmation == 'not_received')
     amount, count = db.execute(select(func.coalesce(func.sum(CASH.c.amount), 0), func.count())
-        .where(COUNTED, CASH.c.source_table == 'settlements', CASH.c.id.in_(disputed), *conditions)).one()
+        .where(COUNTED, CASH.c.source_table == 'settlement_transfers', CASH.c.id.in_(disputed), *conditions)).one()
+    return {'amount': amount, 'count': count}
+
+
+def payouts_in_flight(db):
+    """Payout attempts sent but not yet confirmed as debited (M2.7): pending
+    exposure, never money out until a statement or the provider confirms."""
+    amount, count = db.execute(select(func.coalesce(func.sum(m.SettlementTransfer.amount), 0), func.count())
+        .where(m.SettlementTransfer.state == 'initiated')).one()
     return {'amount': amount, 'count': count}
 
 
@@ -728,9 +918,12 @@ def balance_trends(db, today, days=30):
         live = and_(m.LedgerDebt.direction == direction, m.LedgerDebt.status != 'cancelled')
         owed = dict(db.execute(select(m.LedgerDebt.incurred_on, func.sum(m.LedgerDebt.amount)).where(live)
             .group_by(m.LedgerDebt.incurred_on)).all())
-        paid = dict(db.execute(select(m.LedgerPayment.paid_on, func.sum(m.LedgerPayment.amount))
+        # A deposit paid before its order was delivered (M2.5) reduces the
+        # sale's receivable from the day that receivable exists.
+        on = func.greatest(m.LedgerPayment.paid_on, m.LedgerDebt.incurred_on)
+        paid = dict(db.execute(select(on, func.sum(m.LedgerPayment.amount))
             .join(m.LedgerDebt, m.LedgerDebt.id == m.LedgerPayment.debt_id)
-            .where(live, m.LedgerPayment.reversed_at.is_(None)).group_by(m.LedgerPayment.paid_on)).all())
+            .where(live, m.LedgerPayment.reversed_at.is_(None)).group_by(on)).all())
         series, balance = [], (sum((v for d, v in owed.items() if d < start), ZERO)
             - sum((v for d, v in paid.items() if d < start), ZERO))
         for d in window:
@@ -754,12 +947,25 @@ def balance_trends(db, today, days=30):
             if on is None or on <= d:
                 owed_to_me[n] += max(ZERO, amount - sum((a for day_, a in received[payment_id] if day_ <= d), ZERO))
     i_owe = ledger('payable')
-    payouts = db.execute(select(local_day(m.Settlement.created_at), m.Settlement.status, local_day(m.Settlement.paid_at),
-        m.Settlement.total_payable)).all()
+    # App payouts (M2.7): owed from the day the settlement exists, less what
+    # was debited (and not refunded) by each day.
+    paid_by = defaultdict(list)
+    for settlement_id, on, amount in db.execute(select(m.SettlementTransfer.settlement_id, m.SettlementTransfer.debited_on,
+            m.SettlementTransfer.amount).where(m.SettlementTransfer.state == 'debited')):
+        paid_by[settlement_id].append((on, amount))
+    for settlement_id, on, amount in db.execute(select(m.SettlementRefund.settlement_id, m.SettlementRefund.refunded_on,
+            -m.SettlementRefund.amount)):
+        paid_by[settlement_id].append((on, amount))
+    payouts = db.execute(select(m.Settlement.id, local_day(m.Settlement.created_at), m.Settlement.total_payable,
+        m.Settlement.status, local_day(m.Settlement.paid_at)).where(m.Settlement.status != 'cancelled')).all()
+    for settlement_id, _created, amount, status, paid_on in payouts:
+        if status == 'paid' and not paid_by[settlement_id] and paid_on is not None:
+            paid_by[settlement_id].append((paid_on, amount))  # marked paid before attempts existed
+    payouts = [(settlement_id, created, amount) for settlement_id, created, amount, _status, _paid in payouts]
     for n, d in enumerate(window):
-        for created, status, paid_on, amount in payouts:
-            if created <= d and (status == 'pending' or (paid_on is not None and paid_on > d)):
-                i_owe[n] += amount
+        for settlement_id, created, amount in payouts:
+            if created <= d:
+                i_owe[n] += max(ZERO, amount - sum((a for on, a in paid_by[settlement_id] if on <= d), ZERO))
     return {'owed_to_me': owed_to_me, 'i_owe': i_owe}
 
 

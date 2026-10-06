@@ -79,6 +79,13 @@ export async function updateSale(_: ActionResult | null, formData: FormData): Pr
   redirect(`/sales/${sale.id}?updated=1`);
 }
 
+// "This is a separate payment" and why, sent after the backend refused a
+// possible duplicate entered without a reference (build plan M2.6).
+function overrideBody(formData: FormData) {
+  return text(formData, 'duplicate_override') === 'true'
+    ? { duplicate_override: true, duplicate_reason: text(formData, 'duplicate_reason') } : {};
+}
+
 function paymentBody(formData: FormData) {
   return {
     amount: text(formData, 'amount').replace(/,/g, ''),
@@ -86,6 +93,8 @@ function paymentBody(formData: FormData) {
     method: text(formData, 'method'),
     reference: text(formData, 'reference'),
     note: text(formData, 'note'),
+    money_account_id: text(formData, 'money_account_id') || null,
+    ...overrideBody(formData),
   };
 }
 
@@ -94,6 +103,24 @@ export async function recordLedgerPayment(_: ActionResult | null, formData: Form
   const sale = text(formData, 'sale_id');
   return run(() => post(`/ops/ledger/debts/${id}/payments`, paymentBody(formData), key(formData)),
     [...FINANCE, `/finance/debts/${id}`, ...(sale ? [`/sales/${sale}`] : [])]);
+}
+
+/**
+ * One amount a customer paid. The backend puts it on their oldest open debt
+ * first, then the next, and keeps it as one payment in the cash book.
+ */
+export async function recordBuyerPayment(_: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  await requireSession();
+  const buyer = text(formData, 'buyer_profile_id');
+  if (!buyer) return { ok: false, error: 'Choose the customer who paid.' };
+  try {
+    await post(`/ops/ledger/buyers/${encodeURIComponent(buyer)}/payments`, paymentBody(formData), key(formData));
+  } catch (error) {
+    if (error instanceof ApiError) return { ok: false, error: error.message };
+    throw error;
+  }
+  for (const path of [...FINANCE, '/finance/debts', '/finance/cash-book', '/buyers']) revalidatePath(path, 'layout');
+  redirect(`/finance/debts/receive?buyer=${encodeURIComponent(buyer)}&paid=1`);
 }
 
 /** The dedicated supplier-payment screen returns to a clean, refreshed list. */
@@ -215,7 +242,7 @@ export async function recordTransferRefund(_: ActionResult | null, formData: For
   return run(() => post(`/ops/ledger/transfers/${encodeURIComponent(id)}/refunds`, {
     amount: text(formData, 'amount').replace(/,/g, ''), received_on: text(formData, 'received_on'),
     method: text(formData, 'method'), reference: text(formData, 'reference'), evidence: text(formData, 'evidence'),
-    note: text(formData, 'note'),
+    note: text(formData, 'note'), money_account_id: text(formData, 'money_account_id') || null, ...overrideBody(formData),
   }, key(formData)), [...FINANCE, '/suppliers', '/account']);
 }
 
@@ -307,7 +334,7 @@ export async function createExpense(_: ActionResult | null, formData: FormData) 
     due_on: text(formData, 'due_on') || null,
     payment: paidAmount ? {
       amount: paidAmount, paid_on: text(formData, 'spent_on'), method: text(formData, 'method'),
-      reference: text(formData, 'reference'), note: '',
+      reference: text(formData, 'reference'), note: '', money_account_id: text(formData, 'money_account_id') || null,
     } : null,
   };
   return run(() => post('/ops/expenses', body, key(formData)),

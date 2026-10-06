@@ -83,7 +83,8 @@ export default async function OpeningStockPage({ searchParams }: { searchParams:
         <table className={list.table}>
           <thead><tr><th data-phone-first>Entry</th><th>On hand</th><th>Quantity</th><th>Cost each (TZS)</th><th>Value (TZS)</th><th>Valued as of</th><th>Evidence</th><th>Sold</th>{admin && <th>Correct</th>}</tr></thead>
           <tbody>{stock.items.map((row) => <tr key={row.id}>
-            <td data-label="Entry"><div><b className={row.cancelled_at ? styles.cancelled : undefined}>{row.receipt_number}</b>
+            <td data-label="Entry"><div>{row.cancelled_at ? <b className={styles.cancelled}>{row.receipt_number}</b>
+              : <Link className={list.name} href={`/stock/opening_stock/${row.id}`}>{row.receipt_number}</Link>}
               <small><span className={styles.label}>{row.label}</span> {row.category ? label(row.category) : row.description}</small></div></td>
             <td data-label="On hand">{row.cancelled_at ? 'Cancelled' : `${quantity(row.on_hand)} ${row.unit}`}</td>
             <td data-label="Quantity">{quantity(row.quantity)} {row.unit}</td>

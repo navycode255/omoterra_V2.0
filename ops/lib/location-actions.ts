@@ -26,7 +26,7 @@ export async function saveLocationForm(kind: string, id: string, data: FormData)
     }
     case 'sale': {
       const amount = t('payment_amount');
-      body={allocation_id:t('allocation_id'),sold_on:t('sold_on'),quantity:t('quantity'),unit_price:t('unit_price'),notes:t('notes'),payment:Number(amount)>0 ? {amount,paid_on:t('sold_on'),method:t('method'),reference:t('reference')} : null};
+      body={allocation_id:t('allocation_id'),sold_on:t('sold_on'),quantity:t('quantity'),unit_price:t('unit_price'),notes:t('notes'),payment:Number(amount)>0 ? {amount,paid_on:t('sold_on'),method:t('method'),reference:t('reference'),money_account_id:t('money_account_id')||null} : null};
       path=`/ops/locations/${id}/sales`;break;
     }
     case 'stock-event':

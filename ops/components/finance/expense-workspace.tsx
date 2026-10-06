@@ -7,6 +7,7 @@ import { createExpense } from '@/lib/finance-actions';
 import { EXPENSE_CATEGORIES, METHODS } from '@/lib/finance';
 import styles from './expenses.module.css';
 import { Busy } from '@/components/spinner';
+import { AccountSelect } from '@/components/finance/account-select';
 
 const OpenExpense = createContext<() => void>(() => {});
 export function RecordExpenseButton() {
@@ -55,6 +56,7 @@ export function ExpenseWorkspace({ children, now, saleId, saleNumber, locationId
           <section className={styles.paymentDetails}><h3><Icons.card size={19}/>{paid==='none' ? 'Expense details' : 'Payment details'}</h3>
             {paid==='part' && <label>Amount paid now (TZS)<input name="paid_amount" type="number" min="0.01" step="0.01" inputMode="decimal" required/></label>}
             {paid!=='none' && <label>Payment method<select name="method" defaultValue="cash">{METHODS.map(([id,label]) => <option key={id} value={id}>{label}</option>)}</select></label>}
+            {paid!=='none' && <AccountSelect inline label="Paid from account" />}
             <label>{paid==='none' ? 'Owed to' : 'Paid to'}<input name="paid_to" placeholder="e.g. Juma transport"/></label>
             {paid!=='none' && <label>Reference (optional)<input name="reference"/></label>}
             {paid!=='full' && <label>Due date (optional)<input name="due_on" type="date"/></label>}

@@ -4,6 +4,8 @@ import { ActionForm } from '@/components/form';
 import { ProgressForm } from '@/components/progress-form';
 import { Card, Definition, Notice, PageHeader, Status } from '@/components/ui';
 import { reconcilePayment, uploadCollectionPhoto } from '@/lib/actions';
+import { reverseOrderDelivery } from '@/lib/buyer-order-actions';
+import { randomUUID } from 'node:crypto';
 import { ApiError, get } from '@/lib/api';
 import {
   CUSTOMER_STATUS,
@@ -20,6 +22,7 @@ import {
   tzs,
 } from '@/lib/format';
 import type { OrderDetail } from '@/lib/types';
+import { AccountSelect } from '@/components/finance/account-select';
 
 export default async function OrderWorkspace({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
@@ -93,6 +96,33 @@ export default async function OrderWorkspace({ params }: { params: Promise<{ id:
                 items={order.items}
               />
             </Card>
+
+            {/* M2.5: the day it counts as a sale; a reopen or return is
+                counted on its own day, the earlier period never changes. */}
+            {(order.internal_status === 'delivered' || order.internal_status === 'completed' || (order.reversals?.length ?? 0) > 0) && <Card title="Sale recognition">
+              <Definition items={[
+                ['Counts as a sale on', order.recognized_on ? date(order.recognized_on) : order.internal_status === 'delivered' || order.internal_status === 'completed' ? 'Unresolved (no delivery date)' : '—'],
+                ...(order.reversals ?? []).map((r) => [r.kind === 'reopen' ? 'Reopened' : 'Returned', `${date(r.reversed_on)} · ${r.reason}`] as [string, string]),
+              ]} />
+              {(order.internal_status === 'delivered' || order.internal_status === 'completed') && <details style={{ marginTop: 'var(--s4)' }} data-reverse-delivery>
+                <summary className="small">Reverse this delivery (admin)</summary>
+                <ActionForm action={reverseOrderDelivery} label="Reverse delivery" variant="danger" confirm="Reverse this delivery? It is taken out of sales on the date you give."
+                  hidden={{ id: order.id, idempotency_key: randomUUID() }}>
+                  <div className="grid-2">
+                    <div className="field"><label htmlFor="reverse-kind">What happened</label>
+                      <select id="reverse-kind" name="kind" className="input" defaultValue="reopen">
+                        <option value="reopen">Not really delivered: back on its way</option>
+                        <option value="return">Buyer returned the goods</option>
+                      </select></div>
+                    <div className="field"><label htmlFor="reverse-on">Date</label>
+                      <input id="reverse-on" name="reversed_on" type="date" className="input" required /></div>
+                  </div>
+                  <div className="field"><label htmlFor="reverse-reason">Reason and condition of the goods</label>
+                    <input id="reverse-reason" name="reason" className="input" required minLength={3} /></div>
+                  <span className="meta">The sale stays in the period it was delivered; this takes it out on the date above.</span>
+                </ActionForm>
+              </details>}
+            </Card>}
 
             <Card title="Collection verification">
               <Definition
@@ -211,6 +241,7 @@ export default async function OrderWorkspace({ params }: { params: Promise<{ id:
                         <label htmlFor="payment_reference">Reference</label>
                         <input id="payment_reference" name="payment_reference" className="input" required />
                       </div>
+                      <AccountSelect id="receipt-account" label="Received into account" />
                     </div>
                     <span className="meta">
                       Record this only after the money has actually been received. Each reference is

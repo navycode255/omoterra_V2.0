@@ -9,6 +9,7 @@ import { CATEGORY, CONTACT, FORMS, categoryImage, date, label, media, number, un
 import { Icon, type IconName } from './icons';
 import { PortalImage } from './portal-image';
 import type { MarketReservation, MarketSlot } from '@/lib/market';
+import type { BatchFlow } from '@/lib/types';
 import type { PriceBoard } from '@/lib/market-prices';
 import { MarketPricesCard } from './market-prices-card';
 
@@ -28,6 +29,8 @@ export type Batch = {
   sold_quantity: string; externally_sold_quantity: string; expected_ready_date: string | null;
   expected_min_weight_kg: string | null; expected_max_weight_kg: string | null; form: string; photos: string[];
   status: string; approved_at: string | null; asking_price_per_unit: string | null; collections: BatchCollection[];
+  /** Where the batch's birds are: the same figures Omoterra staff see (M2.1). */
+  flow?: BatchFlow;
 };
 export type Listing = { id: string; listing_status: string };
 export type { SupplierOrder as Hold, PayoutRow as Payout } from './supplier-orders';
@@ -204,9 +207,19 @@ export function SupplierPanel({ phone, profile, batches, listings, orders, payou
                     <span><b>{amount}</b><small>Quantity</small></span>
                     <span><b>{weight || '—'}</b><small>Expected weight</small></span>
                     <span><b>{readiness(batch.expected_ready_date)}</b><small>{batch.expected_ready_date ? date.format(new Date(batch.expected_ready_date)) : 'Availability'}</small></span>
-                    <span><b>{number.format(collected)}</b><small>Collected by Omoterra</small></span>
-                    <span><b>{number.format(remaining)}</b><small>Still with you</small></span>
-                    <span><b>{number.format(onHand)}</b><small>Omoterra stock on hand</small></span>
+                    {batch.flow ? <>
+                      {Number(batch.flow.reserved) > 0 && <span><b>{number.format(Number(batch.flow.reserved))}</b><small>Reserved for buyers</small></span>}
+                      <span><b>{number.format(Number(batch.flow.received))}</b><small>Received by Omoterra</small></span>
+                      <span><b>{number.format(Number(batch.flow.sold))}</b><small>Sold by Omoterra</small></span>
+                      {Number(batch.flow.lost) > 0 && <span><b>{number.format(Number(batch.flow.lost))}</b><small>Died or lost at Omoterra</small></span>}
+                      {Number(batch.flow.returned) > 0 && <span><b>{number.format(Number(batch.flow.returned))}</b><small>Returned to you</small></span>}
+                      <span><b>{number.format(Number(batch.flow.at_omoterra))}</b><small>Still at Omoterra</small></span>
+                      <span><b>{number.format(Number(batch.flow.left))}</b><small>Still with you</small></span>
+                    </> : <>
+                      <span><b>{number.format(collected)}</b><small>Collected by Omoterra</small></span>
+                      <span><b>{number.format(remaining)}</b><small>Still with you</small></span>
+                      <span><b>{number.format(onHand)}</b><small>Omoterra stock on hand</small></span>
+                    </>}
                     {batch.asking_price_per_unit && <span><b>TZS {number.format(Number(batch.asking_price_per_unit))}</b><small>Asking price / {CATEGORY[batch.category]?.[1] ?? 'unit'} · {FORMS[batch.form] ?? batch.form}</small></span>}
                   </div>
                   {collections.length > 0 && <div className="portal-collection-history"><h3>Collected by Omoterra</h3>{collections.map((row) => <div key={row.id}><span><b>{date.format(new Date(row.received_on))}</b><small>{row.collection_number}</small></span><span><b>{number.format(Number(row.accepted_quantity))} accepted</b><small>{number.format(Number(row.rejected_quantity))} rejected</small></span></div>)}</div>}
