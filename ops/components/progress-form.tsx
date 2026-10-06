@@ -6,6 +6,8 @@ import { progressOrder } from '@/lib/actions';
 import { TRANSITIONS, titleCase } from '@/lib/format';
 import type { InternalStatus } from '@/lib/types';
 
+const LATE_ENTRY_DAYS = 3;
+
 // Collection verification fields only apply at the quality check, and a pickup
 // date only when scheduling one, so the form reveals them per target status.
 export function ProgressForm({
@@ -14,15 +16,24 @@ export function ProgressForm({
   expected,
   paymentRecorded,
   items,
+  today,
+  placedOn,
 }: {
   id: string;
   current: InternalStatus;
   expected: string;
   paymentRecorded: boolean;
   items: { id: string; category: string; unit_type: string; quantity: string }[];
+  /** Today and the day the order was placed (Dar es Salaam, YYYY-MM-DD). */
+  today: string;
+  placedOn: string;
 }) {
   const options = TRANSITIONS[current];
   const [target, setTarget] = useState<InternalStatus | ''>('');
+  const [deliveredOn, setDeliveredOn] = useState(today);
+  // More than 3 days back is a late entry: an admin and a reason (the server decides).
+  const late = target === 'delivered' && Boolean(deliveredOn)
+    && (Date.parse(today) - Date.parse(deliveredOn)) / 86_400_000 > LATE_ENTRY_DAYS;
 
   if (options.length === 0) {
     return <p className="muted small">This order has reached a final state. No further changes are possible.</p>;
@@ -88,6 +99,33 @@ export function ProgressForm({
             <label htmlFor="collection_notes">Collection notes</label>
             <textarea id="collection_notes" name="collection_notes" className="input" />
           </div>
+        </>
+      )}
+
+      {target === 'delivered' && (
+        <>
+          <div className="field">
+            <label htmlFor="delivered_on">Date delivered</label>
+            <input
+              id="delivered_on"
+              name="delivered_on"
+              type="date"
+              className="input"
+              required
+              min={placedOn}
+              max={today}
+              value={deliveredOn}
+              onChange={(event) => setDeliveredOn(event.target.value)}
+            />
+            <span className="meta">The order counts as a sale on this day, and its supplier payouts fall due from it.</span>
+          </div>
+          {late && (
+            <div className="field">
+              <label htmlFor="late_reason">Why it is recorded late (admin)</label>
+              <input id="late_reason" name="late_reason" className="input" required minLength={3} placeholder="e.g. Driver reported the delivery late" />
+              <span className="meta">More than {LATE_ENTRY_DAYS} days ago: only an admin can record it, with a reason.</span>
+            </div>
+          )}
         </>
       )}
 

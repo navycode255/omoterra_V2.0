@@ -22,8 +22,12 @@
 .check input { margin-top: 3px; }
 .approval { display: grid; gap: 6px; padding: 12px 14px; border: 1px solid #e4ebe8; border-radius: 10px; }
 .meta { color: #667895; font-size: 12px; }
+.span2 { grid-column: span 2; }
+.stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; }
 .statusLine { display: block; margin-top: 2px; color: #667895; font-size: 12px; }
 
 @media (max-width: 760px) {
+  .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .span2 { grid-column: auto; }
   .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }

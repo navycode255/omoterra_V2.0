@@ -13,7 +13,8 @@ import { listPath, param, type ListParams, type Page } from '@/lib/paging';
 
 export const metadata = { title: 'Cash book · Omoterra Operations' };
 type CashBook = Page<CashMovement> & { summary: { money_in: string; money_out: string; net: string; recorded_net_cash: string;
-  disputed_out: string; disputed_out_count: number; unassigned_count: number; unassigned_in: string; unassigned_out: string } };
+  disputed_out: string; disputed_out_count: number; payouts_in_flight: string; payouts_in_flight_count: number;
+  unassigned_count: number; unassigned_in: string; unassigned_out: string } };
 const tabs = [['', 'All'], ['in', 'Money in'], ['out', 'Money out'], ['reversed', 'Reversed']];
 const plain = (value: string) => Number(value).toLocaleString('en-US', { maximumFractionDigits: 2 });
 const signed = (value: string) => `${Number(value) < 0 ? '-' : ''}${tzs(String(Math.abs(Number(value))))}`;
@@ -79,8 +80,10 @@ export default async function CashBookPage({ searchParams }: { searchParams: Pro
         <div><span>Money in</span><strong>{tzs(total.money_in)}</strong></div></Link>
       <Link href={href({ status: 'out', page: '' })} className={styles.stat} data-tone="red"><span className={styles.statIcon}><Icons.arrowDown size={26} /></span>
         <div><span>Money out</span><strong>{tzs(total.money_out)}</strong>
-          {/* Still money out (R3) until payout attempts (M2.7) show whether the debit happened. */}
-          {total.disputed_out_count > 0 && <small>Includes {tzs(total.disputed_out)} in {total.disputed_out_count === 1 ? 'a payout' : `${total.disputed_out_count} payouts`} the supplier says never arrived</small>}</div></Link>
+          {/* A debited payout stays money out (R3) even when the supplier says it never arrived;
+              a payout sent but not confirmed as debited is not money out yet (M2.7). */}
+          {total.disputed_out_count > 0 && <small>Includes {tzs(total.disputed_out)} in {total.disputed_out_count === 1 ? 'a payout' : `${total.disputed_out_count} payouts`} the supplier says never arrived</small>}
+          {total.payouts_in_flight_count > 0 && <small data-in-flight>Not included: {tzs(total.payouts_in_flight)} in {total.payouts_in_flight_count === 1 ? 'a payout' : `${total.payouts_in_flight_count} payouts`} sent, debit not confirmed</small>}</div></Link>
       <article className={styles.stat} data-tone="in"><span className={styles.statIcon}><Icons.chart size={26} /></span>
         <div><span>Net for period</span><strong>{signed(total.net)}</strong>
           {/* M2.3: money with no account is in no account's balance until assigned with evidence. */}
@@ -115,6 +118,7 @@ export default async function CashBookPage({ searchParams }: { searchParams: Pro
           const who = p.debt_id && p.kind !== 'transfer' ? `/finance/debts/${p.debt_id}` : p.supplier_id ? `/suppliers/${p.supplier_id}#money`
             : p.order_id ? `/orders/${p.order_id}` : null;
           const what = p.kind === 'refund' ? 'Refund from supplier'
+            : p.kind === 'payout_refund' ? p.description ?? 'App payout refund'
             : p.kind === 'buyer_payment' && p.invoices > 1 ? `Customer payment over ${p.invoices} debts`
             : p.kind === 'transfer' ? (p.invoices > 1 ? `Supplier transfer over ${p.invoices} invoices` : p.description ?? 'Supplier transfer')
             : p.description ?? '';

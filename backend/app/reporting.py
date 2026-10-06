@@ -41,7 +41,9 @@ profit is shown as "Provisional: buying costs incomplete" with the sales and
 revenue affected, never as a final, minimum or range figure.
 
 App payouts (M2.7, payouts.py): what is owed on a settlement is its amount
-less its net paid (debited attempts less refunds). Money out is each debited
+less what settled it (debited attempts less refunds, less money possibly
+paid twice that was resolved, plus supplier payout credit set off against
+it; 7 October 2026). Money out is each debited
 attempt on its debit day and a refund is money in on its own day; an attempt
 sent but not confirmed is in flight (beside money out, never in it), and
 money possibly paid twice is the disputed exposure, shown beside I owe.
@@ -114,16 +116,44 @@ def delivered_on():
     return m.Order.recognized_on
 
 
-def held_deposits(db, order_ids=None):
-    """Deposits held on staff buyer orders: paid, not voided, not given back
-    and not yet applied to the order's sale. {buyer_order_id: amount}."""
-    P = m.BuyerOrderPayment
-    refunded = select(P.refund_of).where(P.kind == 'refund', P.refund_of.is_not(None))
-    query = (select(P.buyer_order_id, func.sum(P.amount)).where(P.kind == 'deposit', P.voided_at.is_(None),
-        P.applied_payment_id.is_(None), P.id.not_in(refunded)).group_by(P.buyer_order_id))
+def _deposit_entries():
+    """Signed entries of every deposit's money on staff buyer orders
+    (7 October 2026): (deposit_id, order_id, amount). The deposit on its own
+    order (unless voided), moves in and out, part refunds given back from an
+    order, and the parts applied to an order's sale on delivery."""
+    P, MV, AP = m.BuyerOrderPayment, m.BuyerOrderDepositMove, m.BuyerOrderDepositApplication
+    return union_all(
+        select(P.id.label('deposit_id'), P.buyer_order_id.label('order_id'), P.amount.label('amount'))
+            .where(P.kind == 'deposit', P.voided_at.is_(None)),
+        select(MV.deposit_id, MV.to_order_id, MV.amount),
+        select(MV.deposit_id, MV.from_order_id, -MV.amount),
+        select(P.refund_of, P.buyer_order_id, -P.amount).where(P.kind == 'refund'),
+        select(AP.deposit_id, AP.buyer_order_id, -AP.amount)).subquery('deposit_entries')
+
+
+def deposit_portions(db, order_ids=None, deposit_ids=None):
+    """Deposit money held now, per deposit and order:
+    {(deposit_id, order_id): amount}. A deposit is held where it was paid
+    and where part of it was moved, less what was given back from, moved
+    away from or applied on each order."""
+    E = _deposit_entries()
+    held = func.sum(E.c.amount)
+    query = select(E.c.deposit_id, E.c.order_id, held).group_by(E.c.deposit_id, E.c.order_id).having(held > 0)
     if order_ids is not None:
-        query = query.where(P.buyer_order_id.in_(list(order_ids)))
-    return {id: amount for id, amount in db.execute(query)}
+        query = query.where(E.c.order_id.in_(list(order_ids)))
+    if deposit_ids is not None:
+        query = query.where(E.c.deposit_id.in_(list(deposit_ids)))
+    return {(deposit, order): amount for deposit, order, amount in db.execute(query)}
+
+
+def held_deposits(db, order_ids=None):
+    """Deposits held on staff buyer orders: paid, not voided, not given back,
+    not moved away and not yet applied to the order's sale; a part moved in
+    from another order of the same buyer counts here. {buyer_order_id: amount}."""
+    out = defaultdict(lambda: ZERO)
+    for (_deposit, order), amount in deposit_portions(db, order_ids).items():
+        out[order] += amount
+    return dict(out)
 
 
 def _buyers(db, orders):
@@ -249,6 +279,7 @@ def payables(db, supplier_ids=None):
             owed[row.id]['outstanding']))
     rows = dedupe(rows)
     held = tr.by_supplier(db, supplier_ids)
+    payout_credit = payouts.credit_by_supplier(db, supplier_ids)
     money = payouts.settlement_figures(db, db.scalars(attempted).all()).values()
     exposed = [n['exposure'] for n in money if n['exposure'] > 0]
     flying = [n['in_flight'] for n in money if n['in_flight'] > 0]
@@ -258,6 +289,9 @@ def payables(db, supplier_ids=None):
             'disputed': sum(exposed, ZERO), 'disputed_count': len(exposed),
             'payouts_in_flight': sum(flying, ZERO), 'payouts_in_flight_count': len(flying),
             'credit': sum((row['credit'] for row in held.values()), ZERO),
+            # App payout money a supplier kept as credit (7 October 2026),
+            # set off against their next payouts.
+            'payout_credit': sum(payout_credit.values(), ZERO),
             'unresolved': sum((row['unresolved'] for row in held.values()), ZERO), 'rows': rows}
 
 
@@ -288,7 +322,11 @@ def settlement_totals(db):
             'paid_count': sum(1 for row in rows if row.status == 'paid'),
             'refunded': sum((n['refunded'] for n in money.values()), ZERO),
             'in_flight': sum((n['in_flight'] for n in flying), ZERO), 'in_flight_count': len(flying),
-            'disputed': sum((n['exposure'] for n in exposed), ZERO), 'disputed_count': len(exposed)}
+            'disputed': sum((n['exposure'] for n in exposed), ZERO), 'disputed_count': len(exposed),
+            # Possibly paid twice and resolved (7 October 2026).
+            'resolved': sum((n['resolved'] for n in money.values()), ZERO),
+            'written_off': sum((n['written_off'] for n in money.values()), ZERO),
+            'payout_credit': sum(payouts.credit_by_supplier(db).values(), ZERO)}
 
 
 def supplier_totals(db, supplier_ids=None):
@@ -307,7 +345,7 @@ def supplier_totals(db, supplier_ids=None):
         settlements = settlements.where(m.Settlement.supplier_id.in_(supplier_ids))
     blank = lambda: {'bought': ZERO, 'paid': ZERO, 'owed': ZERO, 'open_invoices': 0, 'due_now': ZERO,
         'overdue': ZERO, 'earliest_due': None, 'undated': False, 'settlements_pending': ZERO,
-        'settlements_paid': ZERO, 'credit': ZERO, 'unresolved': ZERO}
+        'settlements_paid': ZERO, 'credit': ZERO, 'unresolved': ZERO, 'payout_credit': ZERO}
     out = defaultdict(blank)
     for debt in db.scalars(query):
         row = out[debt.supplier_id]
@@ -332,6 +370,8 @@ def supplier_totals(db, supplier_ids=None):
         if row.status == 'pending':
             out[row.supplier_id]['settlements_pending'] += money['outstanding']
         out[row.supplier_id]['settlements_paid'] += money['net_paid']
+    for supplier_id, credit in payouts.credit_by_supplier(db, supplier_ids).items():
+        out[supplier_id]['payout_credit'] = credit
     for supplier_id, held in tr.by_supplier(db, supplier_ids).items():
         out[supplier_id]['credit'] = held['credit']
         out[supplier_id]['unresolved'] = held['unresolved']
@@ -539,6 +579,14 @@ def expenses(db, start=None, end=None):
         fees = fees.where(m.AccountFee.charged_on <= end)
     rows += [_row('ledger', 'account_fees', fee.id, fee.charged_on, fee.amount, category='bank_charges', party=name,
         description=fee.description, href=f'/finance/accounts/{fee.account_id}') for fee, name in db.execute(fees)]
+    # Money possibly paid twice on an app payout and written off (7 October
+    # 2026): "Payout loss" on the resolution day. No money moves then: it
+    # left on its debit day (rule R3).
+    from .payouts import payout_losses
+    rows += [_row('marketplace', 'settlement_resolutions', row.id, row.resolved_on, row.amount, category='payout_loss',
+        party='', description=f'Payout loss, app order {order_id[:8].upper()}: {row.evidence}'[:200],
+        settlement_id=row.settlement_id, href=f'/settlements/{row.settlement_id}')
+        for row, order_id in payout_losses(db, start, end)]
     from .locations import depreciation_rows
     assets = list(db.scalars(select(m.BusinessAsset)))
     if assets:
@@ -831,16 +879,22 @@ def _cash_movements():
     # deposit becomes a payment on its sale (same day, method, reference and
     # account) and is counted from that payment instead. A voided deposit
     # (entered in error) shows as reversed.
-    BOP, BO = m.BuyerOrderPayment, m.BuyerOrder
+    # A deposit applied in parts (7 October 2026: part moved to another
+    # order of the buyer, delivered separately) is counted from each payment
+    # for its applied part and from the deposit for the rest.
+    BOP, BO, AP = m.BuyerOrderPayment, m.BuyerOrder, m.BuyerOrderDepositApplication
     is_deposit = BOP.kind == 'deposit'
+    applied = (select(func.coalesce(func.sum(AP.amount), 0)).where(AP.deposit_id == BOP.id).correlate(BOP)
+        .scalar_subquery())
+    remaining = case((is_deposit, BOP.amount - applied), else_=BOP.amount)
     deposits = (select(BOP.id, case((is_deposit, text_('deposit')), else_=text_('deposit_refund')),
-            case((is_deposit, text_('in')), else_=text_('out')), BOP.paid_on, BOP.amount, BOP.method, BOP.reference,
+            case((is_deposit, text_('in')), else_=text_('out')), BOP.paid_on, remaining, BOP.method, BOP.reference,
             BOP.note, BO.buyer_name, func.concat(case((is_deposit, text_('Deposit on order ')),
                 else_=text_('Deposit given back, order ')), BO.order_number),
             nothing(String(36)), nothing(String(36)), nothing(String(36)), nothing(String(36)), cast(literal(0), Integer),
             BOP.created_at, BOP.recorded_by, BOP.voided_at, BOP.voided_by, BOP.void_reason, text_('ledger'),
             text_('buyer_order_payments'), nothing(String(36)))
-        .join(BO, BO.id == BOP.buyer_order_id).where(BOP.applied_payment_id.is_(None)))
+        .join(BO, BO.id == BOP.buyer_order_id).where(BOP.applied_payment_id.is_(None), remaining > 0))
     return union_all(payments, transfers, refunds, buyer_payments, receipts, paid_now, payouts, payout_refunds, fees,
         deposits).subquery('cash_movements')
 

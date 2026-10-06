@@ -673,6 +673,11 @@ class Progress(Input):
     actual_weight: Optional[Annotated[Decimal, Field(ge=0, max_digits=14, decimal_places=3)]] = None
     collection_results: Optional[list[CollectionResult]] = None
     collection_notes: str = Field(default='', max_length=1000)
+    # Marking delivered (7 October 2026): the real delivery day, default
+    # today. More than lots.LATE_ENTRY_DAYS back is a late entry: an admin
+    # and a reason.
+    delivered_on: Optional[date] = None
+    late_reason: str = Field(default='', max_length=500)
 
 
 class PayoutConfirm(Input):

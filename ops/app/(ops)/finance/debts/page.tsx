@@ -71,7 +71,7 @@ export default async function Debts({ searchParams }: { searchParams: Promise<Li
         <span className={styles.statIcon}><Icons.trend size={26} /></span>
         <div><span>I owe</span><strong>{tzs(owe.total)}</strong>
           <small>{count(owe.count)}{appPart(owe.marketplace, 'app payouts')}</small>
-          {Number(owe.disputed) > 0 && <small>Payouts disputed: {tzs(owe.disputed)}</small>}
+          {Number(owe.disputed) > 0 && <small>App payouts possibly paid twice: {tzs(owe.disputed)}</small>}
           {Number(owe.credit) > 0 && <small>Suppliers hold {tzs(owe.credit)} credit</small>}
           {/* Rule R6: money paid out but not yet classified stays visible until the finance owner decides. */}
           {Number(owe.unresolved) > 0 && <small>Unresolved supplier money: {tzs(owe.unresolved)}</small>}</div>

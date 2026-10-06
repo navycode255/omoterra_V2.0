@@ -16,13 +16,17 @@ changes or removes the outflow, and it can never exceed what that attempt
 debited (less earlier refunds).
 
     net paid    = debited outflows - refunds
-    outstanding = settlement amount - net paid (never below zero)
-    status      = paid once net paid reaches the settlement amount, else pending
+    resolved    = possibly-paid-twice money resolved (supplier credit or
+                  write-off, see below)
+    credit used = the supplier's payout credit set off against this payout
+    settled     = net paid - resolved + credit used
+    outstanding = settlement amount - settled (never below zero)
+    status      = paid once settled reaches the settlement amount, else pending
     in flight   = initiated attempts (sent, debit not confirmed)
     disputed    = debited money (less its refunds) on attempts the supplier
                   says never arrived
-    exposure    = money possibly paid twice: the larger of the disputed money
-                  and (net paid + in flight - settlement amount)
+    exposure    = money possibly paid twice: the larger of (disputed -
+                  resolved) and (settled + in flight - settlement amount)
 
 Resend controls (D9): every attempt after the first, and a first attempt over
 approvals.SECOND_ADMIN_THRESHOLD, needs an approval request that a second
@@ -30,6 +34,26 @@ admin (not the requester) approved. While an earlier attempt is unresolved
 (initiated, or debited and the supplier says not received) a resend also
 needs the acknowledgement that two outflows may exist, and may be up to the
 settlement amount; otherwise an attempt may be up to what is outstanding.
+A retry after every earlier attempt was proven failed (with evidence: no
+money left, so nothing can be paid twice) needs no second admin; it is
+treated as a first attempt, so the over-threshold rule still applies
+(finance owner, 7 October 2026).
+
+Possibly paid twice, not returned (7 October 2026): an admin asks, a second
+admin approves (approvals.py, used once), and the excess is resolved with
+evidence, up to the current exposure, in parts if need be. Append-only
+(`settlement_resolutions`):
+
+- supplier credit: the supplier received the excess and keeps it. It is
+  their payout credit; their next payout attempts use it first
+  (`payout_credit_uses`), so the credited part needs no new outflow. Using
+  credit moves no money (R4); the outflows stay on their dates (R3).
+- write-off: the excess is lost (wrong number, fraud): an expense "Payout
+  loss" on the resolution day (reporting.expenses). No money moves: it left
+  on its debit day.
+
+A refund after a resolution can never bring back more than the payout's net
+paid less what was resolved.
 
 The supplier answers "received" / "not received" about the current attempt
 (the latest one sent that has not failed or come back in full). The
@@ -58,18 +82,47 @@ EAT = ZoneInfo('Africa/Dar_es_Salaam')
 STALE_INITIATED_DAYS = 3
 LIVE = ('initiated', 'debited')
 RESEND, OVER_THRESHOLD = 'payout_resend', 'payout_over_threshold'
+# Resolving money possibly paid twice (approval kinds = 'payout_' + kind).
+RESOLUTIONS = ('supplier_credit', 'write_off')
 ST, SR = m.SettlementTransfer, m.SettlementRefund
+RS, CU = m.SettlementResolution, m.PayoutCreditUse
 
 
 # ---- figures ------------------------------------------------------------------------
 
-def figures(total, debited=ZERO, refunded=ZERO, initiated=ZERO, disputed=ZERO):
+def figures(total, debited=ZERO, refunded=ZERO, initiated=ZERO, disputed=ZERO, resolved=ZERO, credit_used=ZERO,
+            credited=ZERO, written_off=ZERO):
     """A settlement's money from its attempt sums (see the module notes)."""
     net = debited - refunded
+    settled = net - resolved + credit_used
     out = {'debited': debited, 'refunded': refunded, 'net_paid': net, 'in_flight': initiated,
-        'outstanding': max(ZERO, total - net), 'disputed': disputed,
-        'exposure': max(disputed, max(ZERO, net + initiated - total))}
+        'resolved': resolved, 'credited': credited, 'written_off': written_off, 'credit_used': credit_used,
+        'settled': settled, 'outstanding': max(ZERO, total - settled), 'disputed': disputed,
+        'exposure': max(ZERO, disputed - resolved, settled + initiated - total)}
     return {k: s.money(v) for k, v in out.items()}
+
+
+def _resolved(db, settlement_ids):
+    """{settlement_id: {'supplier_credit': x, 'write_off': y}}."""
+    out = {}
+    query = select(RS.settlement_id, RS.kind, func.sum(RS.amount)).group_by(RS.settlement_id, RS.kind)
+    if settlement_ids is not None:
+        query = query.where(RS.settlement_id.in_(list(settlement_ids)))
+    for settlement_id, kind, amount in db.execute(query):
+        out.setdefault(settlement_id, {})[kind] = amount
+    return out
+
+
+def _credit_used(db, settlement_ids):
+    query = select(CU.settlement_id, func.sum(CU.amount)).group_by(CU.settlement_id)
+    if settlement_ids is not None:
+        query = query.where(CU.settlement_id.in_(list(settlement_ids)))
+    return dict(db.execute(query).all())
+
+
+def _resolution_sums(resolved, used):
+    credited, written = resolved.get('supplier_credit', ZERO), resolved.get('write_off', ZERO)
+    return {'resolved': credited + written, 'credited': credited, 'written_off': written, 'credit_used': used or ZERO}
 
 
 def state(db, settlement, lock=False):
@@ -78,6 +131,7 @@ def state(db, settlement, lock=False):
     query = select(ST).where(ST.settlement_id == settlement.id).order_by(ST.attempt_no)
     attempts = db.scalars(query.with_for_update() if lock else query).all()
     refunds = db.scalars(select(SR).where(SR.settlement_id == settlement.id).order_by(SR.refunded_on, SR.created_at)).all()
+    resolutions = db.scalars(select(RS).where(RS.settlement_id == settlement.id).order_by(RS.created_at)).all()
     back = {}
     for refund in refunds:
         back[refund.transfer_id] = back.get(refund.transfer_id, ZERO) + refund.amount
@@ -85,25 +139,34 @@ def state(db, settlement, lock=False):
     debited = sum((a.amount for a in attempts if a.state == 'debited'), ZERO)
     initiated = sum((a.amount for a in attempts if a.state == 'initiated'), ZERO)
     disputed = sum((kept(a) for a in attempts if a.state == 'debited' and a.supplier_confirmation == 'not_received'), ZERO)
+    by_kind = {}
+    for row in resolutions:
+        by_kind[row.kind] = by_kind.get(row.kind, ZERO) + row.amount
+    sums = _resolution_sums(by_kind, _credit_used(db, [settlement.id]).get(settlement.id))
     live = [a for a in attempts if a.state == 'initiated' or (a.state == 'debited' and kept(a) > 0)]
-    unresolved = [a for a in live if a.state == 'initiated' or a.supplier_confirmation == 'not_received']
-    return {'attempts': attempts, 'refunds': refunds, 'refunded_by_attempt': back,
+    # A disputed attempt stops being unresolved once its money is resolved
+    # (supplier credit or write-off) with a second admin's approval.
+    still_disputed = disputed - sums['resolved'] > 0
+    unresolved = [a for a in live if a.state == 'initiated' or (a.supplier_confirmation == 'not_received' and still_disputed)]
+    return {'attempts': attempts, 'refunds': refunds, 'resolutions': resolutions, 'refunded_by_attempt': back,
         'current': live[-1] if live else None, 'unresolved': unresolved,
-        **figures(settlement.total_payable, debited, sum(back.values(), ZERO), initiated, disputed)}
+        **figures(settlement.total_payable, debited, sum(back.values(), ZERO), initiated, disputed, **sums)}
 
 
 def by_settlement(db, settlement_ids=None):
-    """{settlement_id: {debited, refunded, initiated, disputed}} for many
-    settlements at once (reporting)."""
+    """{settlement_id: {debited, refunded, initiated, disputed, resolved,
+    credited, written_off, credit_used}} for many settlements at once
+    (reporting)."""
     refunded_q = select(SR.transfer_id, func.sum(SR.amount).label('back')).group_by(SR.transfer_id).subquery()
     query = (select(ST.settlement_id, ST.state, ST.supplier_confirmation, func.sum(ST.amount),
             func.sum(func.coalesce(refunded_q.c.back, 0)))
         .outerjoin(refunded_q, refunded_q.c.transfer_id == ST.id).group_by(ST.settlement_id, ST.state, ST.supplier_confirmation))
     if settlement_ids is not None:
         query = query.where(ST.settlement_id.in_(list(settlement_ids)))
+    blank = lambda: {'debited': ZERO, 'refunded': ZERO, 'initiated': ZERO, 'disputed': ZERO}
     out = {}
     for settlement_id, state_, answer, amount, back in db.execute(query):
-        row = out.setdefault(settlement_id, {'debited': ZERO, 'refunded': ZERO, 'initiated': ZERO, 'disputed': ZERO})
+        row = out.setdefault(settlement_id, blank())
         if state_ == 'debited':
             row['debited'] += amount
             row['refunded'] += back
@@ -111,6 +174,10 @@ def by_settlement(db, settlement_ids=None):
                 row['disputed'] += amount - back
         elif state_ == 'initiated':
             row['initiated'] += amount
+    resolved, used = _resolved(db, settlement_ids), _credit_used(db, settlement_ids)
+    for settlement_id in set(resolved) | set(used):
+        out.setdefault(settlement_id, blank()).update(_resolution_sums(resolved.get(settlement_id, {}),
+            used.get(settlement_id)))
     return out
 
 
@@ -125,6 +192,46 @@ def settlement_figures(db, settlements):
             found = {'debited': row.total_payable}
         return figures(row.total_payable, **(found or {}))
     return {row.id: of(row) for row in settlements}
+
+
+# ---- supplier payout credit (7 October 2026) ---------------------------------------------
+
+def credit_available(db, supplier_id):
+    """A supplier's payout credit not yet used: supplier-credit resolutions
+    less what their payouts used (a use on a payout cancelled with its
+    order's delivery gives the credit back)."""
+    granted = db.scalar(select(func.coalesce(func.sum(RS.amount), 0)).where(RS.supplier_id == supplier_id,
+        RS.kind == 'supplier_credit')) or ZERO
+    used = db.scalar(select(func.coalesce(func.sum(CU.amount), 0)).join(m.Settlement, m.Settlement.id == CU.settlement_id)
+        .where(CU.supplier_id == supplier_id, m.Settlement.status != 'cancelled')) or ZERO
+    return s.money(granted - used)
+
+
+def credit_by_supplier(db, supplier_ids=None):
+    """{supplier_id: payout credit available} for suppliers with any."""
+    granted = select(RS.supplier_id, func.sum(RS.amount)).where(RS.kind == 'supplier_credit').group_by(RS.supplier_id)
+    used = (select(CU.supplier_id, func.sum(CU.amount)).join(m.Settlement, m.Settlement.id == CU.settlement_id)
+        .where(m.Settlement.status != 'cancelled').group_by(CU.supplier_id))
+    if supplier_ids is not None:
+        granted = granted.where(RS.supplier_id.in_(list(supplier_ids)))
+        used = used.where(CU.supplier_id.in_(list(supplier_ids)))
+    spent = dict(db.execute(used).all())
+    out = {}
+    for supplier_id, amount in db.execute(granted):
+        left = s.money(amount - spent.get(supplier_id, ZERO))
+        if left > 0:
+            out[supplier_id] = left
+    return out
+
+
+def use_credit(db, settlement, amount, operator):
+    if amount <= 0:
+        return None
+    row = CU(supplier_id=settlement.supplier_id, settlement_id=settlement.id, amount=amount,
+        used_on=c.business_today(), recorded_by=operator.id if operator else None)
+    db.add(row)
+    db.flush()
+    return row
 
 
 def _sent_at(attempt):
@@ -142,7 +249,7 @@ def refresh(db, settlement, current=None):
     db.flush()
     st = state(db, settlement)
     if settlement.status != 'cancelled':
-        settlement.status = 'paid' if st['net_paid'] >= settlement.total_payable else 'pending'
+        settlement.status = 'paid' if st['settled'] >= settlement.total_payable else 'pending'
     current = st['current']
     settlement.paid_at = _sent_at(current) if current else None
     settlement.payment_reference = current.reference if current else None
@@ -164,19 +271,27 @@ def current_attempt(db, settlement):
 # ---- what may be sent next --------------------------------------------------------------
 
 def plan(db, settlement, st=None):
-    """Whether another attempt may be recorded, up to how much, and which
-    approval it needs. Never fails: `blocked` names the reason."""
+    """Whether another attempt may be recorded, up to how much, which
+    approval it needs, and how much of the supplier's payout credit it uses
+    first. Never fails: `blocked` names the reason."""
     st = st or state(db, settlement)
     total = settlement.total_payable
     unresolved = bool(st['unresolved'])
-    resend = bool(st['attempts'])
+    # A retry after every earlier attempt was proven failed is not a resend
+    # (7 October 2026): no money left, so nothing can be paid twice.
+    resend = any(a.state != 'failed' for a in st['attempts'])
+    retry = bool(st['attempts']) and not resend
+    base = {'resend': resend, 'retry_after_failure': retry, 'unresolved': unresolved, 'credit': ZERO}
     if settlement.status == 'cancelled':
-        return {'blocked': 'cancelled', 'limit': ZERO, 'resend': resend, 'unresolved': unresolved}
-    limit = total if unresolved else total - st['net_paid'] - st['in_flight']
+        return {**base, 'blocked': 'cancelled', 'limit': ZERO}
+    if unresolved:
+        return {**base, 'blocked': None, 'limit': total, 'threshold': approvals.SECOND_ADMIN_THRESHOLD}
+    owed = total - st['settled'] - st['in_flight']
+    credit = min(credit_available(db, settlement.supplier_id), max(ZERO, owed))
+    limit = owed - credit
     if limit <= 0:
-        return {'blocked': 'paid', 'limit': ZERO, 'resend': resend, 'unresolved': unresolved}
-    return {'blocked': None, 'limit': limit, 'resend': resend, 'unresolved': unresolved,
-        'threshold': approvals.SECOND_ADMIN_THRESHOLD}
+        return {**base, 'credit': credit, 'blocked': 'covered_by_credit' if credit > 0 else 'paid', 'limit': ZERO}
+    return {**base, 'credit': credit, 'blocked': None, 'limit': limit, 'threshold': approvals.SECOND_ADMIN_THRESHOLD}
 
 
 def approval_kind(planned, amount):
@@ -190,7 +305,12 @@ def _check_amount(settlement, planned, amount):
         fail('err.payout_cancelled', 409)
     if planned['blocked'] == 'paid':
         fail('err.settlement_already_paid_amount_does')
+    if planned['blocked'] == 'covered_by_credit':
+        fail('err.payout_covered_by_credit', 409, credit=f"{planned['credit']:,.0f}")
     if amount > planned['limit']:
+        if planned['credit'] > 0:
+            fail('err.payout_attempt_over_limit_credit', 422, limit=f"{planned['limit']:,.0f}",
+                credit=f"{planned['credit']:,.0f}")
         fail('err.payout_attempt_over_limit', 422, limit=f"{planned['limit']:,.0f}")
 
 
@@ -254,6 +374,25 @@ class RefundInput(c.Input):
         return _past(value)
 
 
+class ResolutionRequestInput(c.Input):
+    """Ask a second admin to approve resolving money possibly paid twice."""
+    kind: Literal['supplier_credit', 'write_off']
+    amount: c.Money
+    evidence: str = Field(min_length=3, max_length=1000)
+
+
+class ResolutionInput(c.Input):
+    """Record an approved resolution. Its kind, amount and evidence are the
+    approved request's; the day defaults to today."""
+    approval_id: str = Field(max_length=36)
+    resolved_on: Optional[date] = None
+
+    @field_validator('resolved_on')
+    @classmethod
+    def not_future(cls, value):
+        return _past(value)
+
+
 class ApprovalInput(c.Input):
     amount: c.Money
     reason: str = Field(min_length=3, max_length=1000)
@@ -309,11 +448,13 @@ def create_attempt(db, settlement, data, operator, debited, evidence=''):
         fail('err.payout_debit_evidence', 422)
     account = accounts.require_account(db, data.money_account_id)
     sent_on = data.sent_on or c.business_today()
+    # The supplier's payout credit is used first: no money moves for it.
+    use_credit(db, settlement, planned['credit'], operator)
     number = max((a.attempt_no for a in st['attempts']), default=0) + 1
     row = ST(settlement_id=settlement.id, attempt_no=number, amount=data.amount, method=data.method,
         reference=data.payment_reference.strip(), money_account_id=account.id if account else None, sent_on=sent_on,
         evidence=(data.evidence or '').strip(), state='debited' if debited else 'initiated', initiated_by=operator.id,
-        is_resend=number > 1, approval_id=approval.id if approval else None)
+        is_resend=planned['resend'], approval_id=approval.id if approval else None)
     if debited:
         row.debited_on, row.debit_evidence = sent_on, evidence
         row.debit_confirmed_by, row.debit_confirmed_at = operator.id, m.now()
@@ -366,8 +507,11 @@ def record_refund(db, attempt, data, operator):
     settlement = db.scalar(select(m.Settlement).where(m.Settlement.id == attempt.settlement_id).with_for_update())
     st = state(db, settlement)
     available = attempt.amount - st['refunded_by_attempt'].get(attempt.id, ZERO)
-    if data.amount > available or data.amount > st['net_paid']:
-        fail('err.payout_refund_more_than_debited', 422, available=f'{max(ZERO, min(available, st["net_paid"])):,.0f}')
+    # Money resolved as supplier credit or written off is no longer there to
+    # come back on this payout (7 October 2026).
+    unresolved = st['net_paid'] - st['resolved']
+    if data.amount > available or data.amount > unresolved:
+        fail('err.payout_refund_more_than_debited', 422, available=f'{max(ZERO, min(available, unresolved)):,.0f}')
     account = accounts.require_account(db, data.money_account_id)
     row = SR(settlement_id=settlement.id, transfer_id=attempt.id, amount=data.amount, refunded_on=data.refunded_on,
         method=data.method, reference=data.reference.strip(), money_account_id=account.id if account else None,
@@ -377,6 +521,57 @@ def record_refund(db, attempt, data, operator):
     if account is not None:
         accounts.assign(db, 'settlement_refunds', row.id, account, operator)
     duplicates.claim(db, 'settlement_refunds', row.id, data.method, account, data.reference, 'in', operator)
+    refresh(db, settlement)
+    return row
+
+
+def request_resolution(db, settlement, data, operator):
+    """An admin asks to resolve money possibly paid twice (7 October 2026):
+    up to the current exposure, with evidence; a second admin approves."""
+    st = state(db, settlement, lock=True)
+    if st['exposure'] <= 0:
+        fail('err.payout_nothing_to_resolve', 409)
+    if data.amount > st['exposure']:
+        fail('err.payout_resolution_over_exposure', 422, exposure=f"{st['exposure']:,.0f}")
+    return approvals.request(db, 'settlements', settlement.id, 'payout_' + data.kind, data.amount,
+        data.evidence, False, operator)
+
+
+def resolve(db, settlement, data, operator):
+    """Record a resolution a second admin approved (used once). Supplier
+    credit becomes the supplier's payout credit; a write-off is an expense
+    "Payout loss" on the resolution day. No money moves either way."""
+    st = state(db, settlement, lock=True)
+    row = db.scalar(select(m.ApprovalRequest).where(m.ApprovalRequest.id == data.approval_id))
+    kind = row.kind.removeprefix('payout_') if row is not None else ''
+    if kind not in RESOLUTIONS:
+        fail('err.approval_not_usable', 409)
+    approval = approvals.usable(db, data.approval_id, 'settlements', settlement.id, row.kind, row.amount)
+    if st['exposure'] <= 0:
+        fail('err.payout_nothing_to_resolve', 409)
+    if approval.amount > st['exposure']:
+        fail('err.payout_resolution_over_exposure', 422, exposure=f"{st['exposure']:,.0f}")
+    on = data.resolved_on or c.business_today()
+    debited = [a.debited_on for a in st['attempts'] if a.state == 'debited']
+    if debited and on < min(debited):
+        fail('err.payout_resolution_before_debit', 422, day=min(debited).isoformat())
+    resolution = RS(settlement_id=settlement.id, supplier_id=settlement.supplier_id, kind=kind, amount=approval.amount,
+        resolved_on=on, evidence=approval.reason, approval_id=approval.id, recorded_by=operator.id)
+    db.add(resolution)
+    db.flush()
+    approvals.use(approval, 'settlement_resolutions', resolution.id)
+    refresh(db, settlement)
+    return resolution
+
+
+def settle_with_credit(db, settlement, operator):
+    """The supplier's payout credit covers what is owed: set it off, no
+    money moves (7 October 2026)."""
+    st = state(db, settlement, lock=True)
+    planned = plan(db, settlement, st)
+    if planned['credit'] <= 0 or planned['unresolved'] or planned['blocked'] in ('cancelled', 'paid'):
+        fail('err.payout_no_credit_to_use', 409)
+    row = use_credit(db, settlement, planned['credit'], operator)
     refresh(db, settlement)
     return row
 
@@ -404,6 +599,18 @@ def confirm(db, settlement, supplier_id, received, note):
 
 
 # ---- totals (reporting) ----------------------------------------------------------------------
+
+def payout_losses(db, start=None, end=None):
+    """Write-offs of money possibly paid twice (7 October 2026): expenses
+    "Payout loss" on their resolution day. [(resolution, order_id)]."""
+    query = (select(RS, m.OrderItem.order_id).join(m.Settlement, m.Settlement.id == RS.settlement_id)
+        .join(m.OrderItem, m.OrderItem.id == m.Settlement.order_item_id).where(RS.kind == 'write_off'))
+    if start:
+        query = query.where(RS.resolved_on >= start)
+    if end:
+        query = query.where(RS.resolved_on <= end)
+    return db.execute(query.order_by(RS.resolved_on, RS.created_at)).all()
+
 
 def exposure_totals(db):
     """Payouts in flight (sent, debit not confirmed: not money out) and the
@@ -471,11 +678,19 @@ def detail(db, settlement):
     profile = db.get(m.SupplierProfile, settlement.supplier_id)
     item = db.get(m.OrderItem, settlement.order_item_id)
     planned = plan(db, settlement, st)
+    resolver = _names(db, [r.recorded_by for r in st['resolutions']])
     return {**s.payout_view(settlement, True), 'supplier_id': settlement.supplier_id,
         'order_item_id': settlement.order_item_id, 'order_id': item.order_id if item else None,
         'supplier_alias': profile.public_alias if profile else '', 'supplier_legal_name': profile.legal_name if profile else '',
-        **{k: st[k] for k in ('debited', 'refunded', 'net_paid', 'in_flight', 'outstanding', 'disputed', 'exposure')},
+        **{k: st[k] for k in ('debited', 'refunded', 'net_paid', 'in_flight', 'outstanding', 'disputed', 'exposure',
+            'resolved', 'credited', 'written_off', 'credit_used', 'settled')},
         'unresolved_count': len(st['unresolved']),
+        'supplier_credit': credit_available(db, settlement.supplier_id),
+        'resolutions': [{'id': r.id, 'kind': r.kind, 'amount': r.amount, 'resolved_on': r.resolved_on,
+            'evidence': r.evidence, 'approval_id': r.approval_id, 'recorded_by': resolver.get(r.recorded_by, ''),
+            'created_at': r.created_at} for r in st['resolutions']],
+        'credit_uses': [{'id': u.id, 'amount': u.amount, 'used_on': u.used_on, 'created_at': u.created_at}
+            for u in db.scalars(select(CU).where(CU.settlement_id == settlement.id).order_by(CU.created_at))],
         'next': {**planned, 'approval_kind': approval_kind(planned, planned['limit']) if not planned['blocked'] else None},
         'threshold': approvals.SECOND_ADMIN_THRESHOLD,
         'attempts': [attempt_view(db, a, refunds.get(a.id, []), names, account_names, by_attempt.get(a.id, []))
@@ -490,7 +705,8 @@ def list_extras(db, settlement):
         m.ApprovalRequest.subject_table == 'settlements', m.ApprovalRequest.subject_id == settlement.id,
         m.ApprovalRequest.status == 'pending')) or 0
     current = st['current']
-    return {**{k: st[k] for k in ('net_paid', 'in_flight', 'outstanding', 'exposure', 'refunded')},
+    return {**{k: st[k] for k in ('net_paid', 'in_flight', 'outstanding', 'exposure', 'refunded', 'resolved',
+        'credit_used')},
         'attempt_count': len(st['attempts']), 'approvals_waiting': waiting,
         'current_state': current.state if current else None}
 
@@ -561,3 +777,37 @@ def attempt_refund(id: str, data: RefundInput, idempotency_key: str = Header(), 
         prior = record_refund(db, attempt, data, operator)
         s.remember(db, key, fingerprint, prior.id)
     return _result(detail(db, db.get(m.Settlement, attempt.settlement_id)), 201)
+
+
+@router.post('/ops/settlements/{id}/resolutions/approvals')
+def new_resolution_request(id: str, data: ResolutionRequestInput, idempotency_key: str = Header(),
+                           operator=Depends(auth.ops_admin), db=Depends(database)):
+    key, fingerprint, prior = _replayed(db, idempotency_key, 'settlement_resolution_request',
+        {'id': id, **data.model_dump()}, m.ApprovalRequest)
+    settlement = _settlement(db, id)
+    if prior is None:
+        prior = request_resolution(db, settlement, data, operator)
+        s.remember(db, key, fingerprint, prior.id)
+    return _result(approvals.view(db, prior), 201)
+
+
+@router.post('/ops/settlements/{id}/resolutions')
+def new_resolution(id: str, data: ResolutionInput, idempotency_key: str = Header(), operator=Depends(auth.ops_admin),
+                   db=Depends(database)):
+    key, fingerprint, prior = _replayed(db, idempotency_key, 'settlement_resolution', {'id': id, **data.model_dump()}, RS)
+    settlement = _settlement(db, id)
+    if prior is None:
+        prior = resolve(db, settlement, data, operator)
+        s.remember(db, key, fingerprint, prior.id)
+    return _result(detail(db, settlement), 201)
+
+
+@router.post('/ops/settlements/{id}/use-credit')
+def use_supplier_credit(id: str, idempotency_key: str = Header(), operator=Depends(auth.ops_admin),
+                        db=Depends(database)):
+    key, fingerprint, prior = _replayed(db, idempotency_key, 'settlement_use_credit', {'id': id}, CU)
+    settlement = _settlement(db, id)
+    if prior is None:
+        prior = settle_with_credit(db, settlement, operator)
+        s.remember(db, key, fingerprint, prior.id)
+    return _result(detail(db, settlement), 201)

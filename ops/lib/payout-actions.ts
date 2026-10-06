@@ -73,3 +73,25 @@ export async function recordPayoutRefund(_: ActionResult | null, formData: FormD
     evidence: text(formData, 'evidence'),
   }, key(formData)), text(formData, 'settlement_id'));
 }
+
+/** Ask a second admin to approve resolving money possibly paid twice. */
+export async function requestPayoutResolution(_: ActionResult | null, formData: FormData) {
+  const id = text(formData, 'settlement_id');
+  return run(() => post(`/ops/settlements/${id}/resolutions/approvals`, {
+    kind: text(formData, 'kind'), amount: money(formData, 'amount'), evidence: text(formData, 'evidence'),
+  }, key(formData)), id);
+}
+
+/** Record an approved resolution: supplier credit, or a write-off (payout loss). No money moves. */
+export async function recordPayoutResolution(_: ActionResult | null, formData: FormData) {
+  const id = text(formData, 'settlement_id');
+  return run(() => post(`/ops/settlements/${id}/resolutions`, {
+    approval_id: text(formData, 'approval_id'), resolved_on: optional(text(formData, 'resolved_on')),
+  }, key(formData)), id);
+}
+
+/** The supplier's payout credit covers this payout: set it off. No money moves. */
+export async function useSupplierCredit(_: ActionResult | null, formData: FormData) {
+  const id = text(formData, 'settlement_id');
+  return run(() => post(`/ops/settlements/${id}/use-credit`, {}, key(formData)), id);
+}

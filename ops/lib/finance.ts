@@ -65,7 +65,7 @@ export interface LedgerPayment {
  */
 export interface CashMovement {
   id: string;
-  kind: 'payment' | 'allocation' | 'transfer' | 'refund' | 'buyer_payment' | 'receipt' | 'payout' | 'fee';
+  kind: 'payment' | 'allocation' | 'transfer' | 'refund' | 'buyer_payment' | 'receipt' | 'payout' | 'payout_refund' | 'fee';
   /** The money account it went through (M2.3); null when not assigned. */
   account_id?: string | null;
   account_name?: string | null;
@@ -443,7 +443,9 @@ export interface FinanceSummary {
   profit_month: ProfitTotals;
   owed_to_me: Balance;
   /** Disputed app payouts, supplier credit and unresolved money: beside the total, never netted. */
-  i_owe: Balance & { disputed: string; disputed_count: number; credit: string; unresolved: string };
+  // disputed: app payouts possibly paid twice (M2.7); payouts_in_flight: sent, debit not confirmed.
+  i_owe: Balance & { disputed: string; disputed_count: number; payouts_in_flight: string; payouts_in_flight_count: number;
+    credit: string; unresolved: string };
   commitments: Commitments;
   by_method: { method: string; in: string; out: string; net: string }[];
   debtors: Party[];

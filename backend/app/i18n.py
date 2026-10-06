@@ -1311,4 +1311,41 @@ SW.update({
     'err.payout_refund_more_than_debited': 'Marejesho hayawezi kuzidi pesa iliyotoka kwa malipo haya ambayo bado haijarudi (TZS {available}).',
 })
 
+# Finance-owner decisions of 7 October 2026: order deposits (part refunds,
+# moves), app-order delivery dates, possibly paid twice resolved, retries.
+EN.update({
+    'err.refund_more_than_held': 'You can give back at most what this order still holds of this deposit (TZS {held}).',
+    'err.deposit_move_same_order': 'Choose another order to move the deposit to.',
+    'err.deposit_move_other_buyer': 'A deposit can only move to another order of the same buyer.',
+    'err.deposit_move_order_not_open': 'A deposit can only move to an order that is not delivered or cancelled.',
+    'err.deposit_move_more_than_held': 'You can move at most what this order still holds of this deposit (TZS {held}).',
+    'err.deposit_void_after_use': 'Only a deposit still held whole on the order it was paid on can be voided. Part of it was given back, moved or applied.',
+    'err.delivery_date_in_future': 'The delivery date cannot be in the future.',
+    'err.delivery_before_order_created': 'The delivery date cannot be before the order was placed ({day}).',
+    'err.delivery_before_reversal': 'The delivery date cannot be before the earlier delivery was reversed ({day}).',
+    'err.payout_covered_by_credit': 'The supplier\'s payout credit (TZS {credit}) covers what is owed. Use the credit instead of sending money.',
+    'err.payout_attempt_over_limit_credit': 'TZS {credit} of the supplier\'s payout credit is used first, so this payout can be at most TZS {limit}.',
+    'err.payout_nothing_to_resolve': 'Nothing on this payout is possibly paid twice.',
+    'err.payout_resolution_over_exposure': 'You can resolve at most the money possibly paid twice on this payout (TZS {exposure}).',
+    'err.payout_resolution_before_debit': 'The resolution date cannot be before the payout was debited ({day}).',
+    'err.payout_no_credit_to_use': 'This supplier has no payout credit to use on this payout.',
+})
+SW.update({
+    'err.refund_more_than_held': 'Unaweza kurudisha zaidi ya kiasi ambacho oda hii bado inashikilia kwa malipo haya ya awali (TZS {held}).',
+    'err.deposit_move_same_order': 'Chagua oda nyingine ya kuhamishia malipo ya awali.',
+    'err.deposit_move_other_buyer': 'Malipo ya awali yanaweza kuhamishiwa tu kwenye oda nyingine ya mnunuzi yuleyule.',
+    'err.deposit_move_order_not_open': 'Malipo ya awali yanaweza kuhamishiwa tu kwenye oda ambayo haijafikishwa wala kusitishwa.',
+    'err.deposit_move_more_than_held': 'Unaweza kuhamisha zaidi ya kiasi ambacho oda hii bado inashikilia kwa malipo haya ya awali (TZS {held}).',
+    'err.deposit_void_after_use': 'Malipo ya awali yanayoshikiliwa yote kwenye oda yaliyolipiwa pekee ndiyo yanaweza kubatilishwa. Sehemu yake imerudishwa, imehamishwa au imetumika.',
+    'err.delivery_date_in_future': 'Tarehe ya kufikisha haiwezi kuwa siku zijazo.',
+    'err.delivery_before_order_created': 'Tarehe ya kufikisha haiwezi kuwa kabla ya oda kuwekwa ({day}).',
+    'err.delivery_before_reversal': 'Tarehe ya kufikisha haiwezi kuwa kabla ya ufikishaji wa awali kubatilishwa ({day}).',
+    'err.payout_covered_by_credit': 'Salio la msambazaji (TZS {credit}) linatosha kulipa kinachodaiwa. Tumia salio badala ya kutuma pesa.',
+    'err.payout_attempt_over_limit_credit': 'TZS {credit} za salio la msambazaji zinatumika kwanza, kwa hiyo malipo haya yanaweza kuwa hadi TZS {limit}.',
+    'err.payout_nothing_to_resolve': 'Hakuna kiasi kwenye malipo haya kinachoweza kuwa kimelipwa mara mbili.',
+    'err.payout_resolution_over_exposure': 'Unaweza kutatua hadi kiasi kinachoweza kuwa kimelipwa mara mbili kwenye malipo haya (TZS {exposure}).',
+    'err.payout_resolution_before_debit': 'Tarehe ya utatuzi haiwezi kuwa kabla ya malipo kutoka ({day}).',
+    'err.payout_no_credit_to_use': 'Msambazaji huyu hana salio la kutumia kwenye malipo haya.',
+})
+
 CATALOGUES = {'en': EN, 'sw': SW}

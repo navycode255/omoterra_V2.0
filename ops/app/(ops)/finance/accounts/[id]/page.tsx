@@ -18,7 +18,7 @@ export const metadata = { title: 'Account · Omoterra Operations' };
 const KIND = Object.fromEntries(ACCOUNT_KINDS);
 const LINE_KINDS: Record<string, string> = {
   payment: 'Payment', transfer: 'Supplier transfer', refund: 'Supplier refund', receipt: 'App order receipt',
-  payout: 'App payout', fee: 'Fee', account_transfer: 'Between accounts', allocation: 'Payment',
+  payout: 'App payout', payout_refund: 'App payout refund', fee: 'Fee', account_transfer: 'Between accounts', allocation: 'Payment',
 };
 
 /**

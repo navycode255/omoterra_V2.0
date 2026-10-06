@@ -236,6 +236,12 @@ The finance owner signs it off. After M1.7, a figure that is not defined here ma
   - **Disputed exposure** = settlements with a disputed or unresolved attempt, shown separately.
   - **Paid (net)** = debited outflows minus refunds (M2.7), each counted on its own date in cash movements.
   - Every page uses the same three figures.
+- **Built (M2.7, 6 October; `backend/app/payouts.py`, `reporting.settlement_totals`):**
+  - **Pending** = what is still outstanding on settlements not yet paid: amount − net paid. A settlement is `paid` once net paid reaches its amount. An attempt sent but not confirmed as debited does not reduce it.
+  - **Paid to date (net)** = debited attempts − refunds, every attempt counted (a resend is a second outflow).
+  - **Sent, debit not confirmed** (in flight) = initiated attempts: beside I owe and the cash book's money out, never inside either.
+  - **Possibly paid twice** (disputed exposure, `i_owe.disputed`) = per settlement, the larger of the debited money the supplier says never arrived (less its refunds) and net paid + in flight − amount. Shown on Settlements, the settlement page, Debts and the Finance overview note until a refund brings it back.
+  - Cash movements: each debited attempt is money out on its debit day; each refund is money in on its own day. G4 and G10 are closed for new payouts; resends made before 045 are listed by the exception report.
 
 ---
 

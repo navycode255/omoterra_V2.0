@@ -210,3 +210,196 @@ def test_a_retry_of_mark_delivered_records_one_sale(client, sessions, seeded):
     assert first.status_code == second.status_code == 201 and first.json()['id'] == second.json()['id']
     with sessions() as db:
         assert len(db.scalars(select(m.Sale)).all()) == 1
+
+
+# ---- finance owner, 7 October 2026: part refunds and moving a deposit --------------
+
+def book(client, on):
+    body = get(client, '/ledger/payments', start=on.isoformat(), end=on.isoformat())['summary']
+    return Decimal(body['money_in']), Decimal(body['money_out'])
+
+
+def held(client, order):
+    return Decimal(get(client, f"/buyer-orders/{order['id']}")['deposit_held'])
+
+
+def deposit_of(client, order):
+    return next(p for p in get(client, f"/buyer-orders/{order['id']}")['payments'] if p['kind'] == 'deposit')
+
+
+def give_back(client, order, deposit, amount=None, on=TODAY, **extra):
+    body = {'paid_on': on, 'method': 'cash', **extra}
+    if amount is not None:
+        body['amount'] = str(amount)
+    return post(client, f"/buyer-orders/{order['id']}/deposits/{deposit['id']}/refund", body)
+
+
+def move(client, order, deposit, target, amount=None, reason='Buyer wants it on the next order', headers=OPS):
+    body = {'to_order_id': target['id'], 'reason': reason}
+    if amount is not None:
+        body['amount'] = str(amount)
+    return post(client, f"/buyer-orders/{order['id']}/deposits/{deposit['id']}/move", body, headers)
+
+
+def test_a_deposit_is_given_back_in_parts_each_on_its_own_day(client, sessions, seeded):
+    paid, first, second = DAY - timedelta(days=2), DAY - timedelta(days=1), DAY
+    order = take_order(client, deposit={'amount': '30000', 'paid_on': paid.isoformat(), 'method': 'cash'})
+    deposit = deposit_of(client, order)
+    assert give_back(client, order, deposit, 10000, on=first.isoformat()).status_code == 201
+    assert give_back(client, order, deposit, 5000, on=second.isoformat(), method='mpesa', reference='QPART2').status_code == 201
+    # Each refund is money out on its own day; the deposit stays money in on its day.
+    assert book(client, paid) == (Decimal('30000'), 0)
+    assert book(client, first) == (0, Decimal('10000'))
+    assert book(client, second) == (0, Decimal('5000'))
+    assert held(client, order) == Decimal('15000')
+    view = deposit_of(client, order)
+    assert view['state'] == 'held' and Decimal(view['held']) == Decimal('15000') and Decimal(view['given_back']) == Decimal('15000')
+    # More than is still held: refused. A reference is claimed like other money.
+    over = give_back(client, order, deposit, 15001)
+    assert over.status_code == 422 and 'TZS 15,000' in over.json()['detail']
+    assert give_back(client, order, deposit, 100, method='mpesa', reference='QPART2').status_code == 409
+    with sessions() as db:
+        assert rp.commitments(db)['deposits'] == Decimal('15000')
+    # Cancel still needs nothing held.
+    assert post(client, f"/buyer-orders/{order['id']}/cancel", {'reason': 'Buyer changed their mind'}).status_code == 409
+    assert give_back(client, order, deposit).status_code == 201  # the rest
+    assert held(client, order) == 0 and deposit_of(client, order)['state'] == 'given_back'
+    assert book(client, DAY) == (0, Decimal('20000'))
+    # Nothing left: a further refund or a void is refused.
+    assert give_back(client, order, deposit, 1).status_code == 409
+    assert client.post(API + f"/buyer-orders/{order['id']}/deposits/{deposit['id']}/void",
+        json={'reason': 'Typed twice'}, headers=OPS).status_code == 409
+    assert post(client, f"/buyer-orders/{order['id']}/cancel", {'reason': 'Buyer changed their mind'}).status_code == 200
+
+
+def test_a_deposit_moves_to_another_open_order_of_the_same_buyer_and_moves_no_money(client, sessions, seeded):
+    paid = DAY - timedelta(days=2)
+    with sessions.begin() as db:
+        account = m.MoneyAccount(name='M-Pesa till', kind='mobile_wallet', cutoff_on=DAY - timedelta(days=30),
+            opening_balance=0, opening_evidence='Statement', verified_by='Finance owner')
+        db.add(account); db.flush()
+        account_id = account.id
+    first = take_order(client, deposit={'amount': '20000', 'paid_on': paid.isoformat(), 'method': 'mpesa',
+        'reference': 'QMOVE1', 'money_account_id': account_id})
+    buyer = {'buyer_profile_id': first['buyer_profile_id']}
+    second = take_order(client, **buyer, new_buyer=None,
+        items=[{'category': 'broilers', 'unit': 'bird', 'quantity': '2', 'unit_price': '9000'}])
+    other_buyer = take_order(client, new_buyer={'business_name': 'Mgahawa Mwingine', 'phone': '0754 999 888'})
+    delivered = take_order(client, **buyer, new_buyer=None)
+    own = lambda n: [{'category': 'broilers', 'unit': 'bird', 'quantity': str(n), 'unit_price': '9000', 'unit_cost': '6000'}]
+    assert deliver(client, delivered, own(6)).status_code == 201
+    deposit = deposit_of(client, first)
+    before = {on: book(client, on) for on in (paid, DAY)}
+
+    # Refused: another buyer, a delivered order, the same order, above what is held.
+    assert move(client, first, deposit, other_buyer, 1000).status_code == 422
+    assert move(client, first, deposit, delivered, 1000).status_code == 422
+    assert move(client, first, deposit, first, 1000).status_code == 422
+    assert move(client, first, deposit, second, 20001).status_code == 422
+    # Above the target order's total (18,000): refused too.
+    assert move(client, first, deposit, second, 18001).status_code == 422
+    # Staff may move part of it, with a reason; it is logged.
+    moved = move(client, first, deposit, second, 8000, headers=STAFF)
+    assert moved.status_code == 201, moved.text
+    [log] = moved.json()['moves']
+    assert (log['direction'], Decimal(log['amount']), log['to_order_number']) == ('out', Decimal('8000'), second['order_number'])
+    assert log['reason'] == 'Buyer wants it on the next order' and log['moved_by'] == 'Test Staff'
+    assert (held(client, first), held(client, second)) == (Decimal('12000'), Decimal('8000'))
+    # No money moved: no cash book row, no account movement.
+    assert {on: book(client, on) for on in (paid, DAY)} == before
+    with sessions() as db:
+        from app import accounts
+        assert accounts.balance(db, db.get(m.MoneyAccount, account_id)) == Decimal('20000')
+        assert rp.commitments(db)['deposits'] == Decimal('20000')
+    there = deposit_of(client, second)
+    assert there['state'] == 'held' and there['origin_order_number'] == first['order_number']
+    assert Decimal(there['held']) == Decimal('8000') and there['reference'] == 'QMOVE1'
+    # The moved part can be given back from the order it is on, not more.
+    assert give_back(client, second, there, 8001).status_code == 422
+    # Cancelling the first order still needs its deposit gone.
+    assert post(client, f"/buyer-orders/{first['id']}/cancel", {'reason': 'Merged into the other'}).status_code == 409
+
+    # The second order is delivered: the moved part becomes a payment on its
+    # sale with the deposit's day, method, reference and account, once.
+    done = deliver(client, second, own(2))
+    assert done.status_code == 201, done.text
+    assert Decimal(done.json()['received_amount']) == Decimal('8000')
+    assert held(client, first) == Decimal('12000')
+    assert book(client, paid) == before[paid]
+    # Then the first: the rest of the deposit is applied there.
+    done = deliver(client, first, own(6))
+    assert done.status_code == 201, done.text
+    assert Decimal(done.json()['received_amount']) == Decimal('12000')
+    with sessions() as db:
+        payments = db.scalars(select(m.LedgerPayment).order_by(m.LedgerPayment.amount)).all()
+        assert [(p.amount, p.paid_on, p.reference) for p in payments] == [
+            (Decimal('8000.00'), paid, 'QMOVE1'), (Decimal('12000.00'), paid, 'QMOVE1')]
+        from app import accounts
+        assert accounts.balance(db, db.get(m.MoneyAccount, account_id)) == Decimal('20000')
+        assert rp.commitments(db)['deposits'] == 0
+    rows = get(client, '/ledger/payments', start=paid.isoformat(), end=paid.isoformat())['items']
+    assert sorted((r['source_table'], Decimal(r['amount'])) for r in rows) == [
+        ('ledger_payments', Decimal('8000')), ('ledger_payments', Decimal('12000'))]
+    assert book(client, paid) == before[paid]
+    assert [p['state'] for p in get(client, f"/buyer-orders/{first['id']}")['payments']] == ['applied']
+
+
+def test_migration_046_keeps_deposits_applied_before_it_applied(tmp_path, monkeypatch):
+    """A deposit applied to its sale before 046 (applied_payment_id) becomes
+    one application of its whole amount: held stays 0 and the cash book
+    still counts the payment once."""
+    import os
+    import shutil
+    import uuid
+    import pytest
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.orm import Session
+    from app import migrations
+    url = os.environ.get('OMOTERRA_TEST_DATABASE_URL')
+    if not url:
+        pytest.skip('Set OMOTERRA_TEST_DATABASE_URL to a disposable PostgreSQL database')
+    schema = 'omoterra_m046_' + uuid.uuid4().hex
+    admin = create_engine(url)
+    with admin.begin() as db:
+        db.execute(text(f'CREATE SCHEMA {schema}'))
+    engine = create_engine(url, connect_args={'options': f'-csearch_path={schema}'})
+    try:
+        files = migrations.files()
+        for path in files:
+            if path.name < '046':
+                shutil.copy(path, tmp_path / path.name)
+        monkeypatch.setattr(migrations, 'DIRECTORY', tmp_path)
+        migrations.apply(engine)
+        with Session(engine) as db, db.begin():
+            profile = m.BuyerProfile(business_name='Hoteli')
+            db.add(profile); db.flush()
+            sale = m.Sale(sale_number='SL-OLD1', sold_on=DAY, buyer_profile_id=profile.id, buyer_name='Hoteli',
+                total_amount=30000)
+            db.add(sale); db.flush()
+            debt = m.LedgerDebt(direction='receivable', party_kind='buyer', party_name='Hoteli', amount=30000,
+                paid_amount=10000, incurred_on=DAY, source='sale', sale_id=sale.id, buyer_profile_id=profile.id)
+            db.add(debt); db.flush()
+            payment = m.LedgerPayment(debt_id=debt.id, amount=10000, paid_on=DAY, method='cash')
+            db.add(payment); db.flush()
+            order = m.BuyerOrder(order_number='BO-OLD1', buyer_profile_id=profile.id, buyer_name='Hoteli',
+                ordered_on=DAY, total_amount=30000, status='delivered', sale_id=sale.id, delivered_on=DAY)
+            db.add(order); db.flush()
+            deposit = m.BuyerOrderPayment(buyer_order_id=order.id, kind='deposit', amount=10000, paid_on=DAY,
+                method='cash', applied_payment_id=payment.id)
+            db.add(deposit); db.flush()
+            ids = (order.id, deposit.id, payment.id)
+        for path in files:
+            if path.name >= '046':
+                shutil.copy(path, tmp_path / path.name)
+        migrations.apply(engine)
+        with Session(engine) as db:
+            [applied] = db.scalars(select(m.BuyerOrderDepositApplication)).all()
+            assert (applied.buyer_order_id, applied.deposit_id, applied.ledger_payment_id, applied.amount) == (
+                *ids, Decimal('10000.00'))
+            assert rp.held_deposits(db) == {}
+            assert rp.cash_movements(db, DAY, DAY)['money_in'] == Decimal('10000.00')
+    finally:
+        engine.dispose()
+        with admin.begin() as db:
+            db.execute(text(f'DROP SCHEMA {schema} CASCADE'))
+        admin.dispose()

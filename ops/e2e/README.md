@@ -31,6 +31,7 @@ It starts everything itself and stops it afterwards:
 | `batch-sale.spec.ts` | M1.6 / F09: on New sale, a line from a supplier batch needs "We collected these 20 birds from … on …" ticked; saving records a same-day delivery note (no sale-cost debt); cancelling asks what happened to the goods, and "never left" puts the 20 back on hand on the note while its payable stays. |
 | `cost-states.spec.ts` | M1.3 / F02: a sale of own stock with "Cost unknown" makes Profit show "Provisional: buying costs incomplete" with 1 sale affected; opening stock recorded on Finance → Opening stock and sold from on New sale gives a known margin (20,000); giving the unknown line a cost from that opening stock on its sale page makes Profit show its figure again. |
 | `debt-corrections.spec.ts` | M1.4 / F06: a sale's supplier debt shows the four reasoned corrections; "Wrong supplier" on 100,000 with 40,000 paid leaves the correct supplier owed 100,000, the wrong one holding 40,000 credit, and the buying cost unchanged; both debts link to the correction. |
+| `payout-attempts.spec.ts` | M2.7 / F12 (D9): a payout sent (not money out), marked debited, reported not received by the supplier on the portal, resent after a second admin's approval (the requester cannot approve), then part refunded: net paid 44,000, possibly paid twice 17,000, both outflows and the refund on the cash book. Uses `harness.py seed payout`. |
 
 Needs: a running Postgres the user can create databases on, the backend
 virtualenv (`backend/.venv`, or set `OMOTERRA_E2E_PYTHON`), and Chromium for

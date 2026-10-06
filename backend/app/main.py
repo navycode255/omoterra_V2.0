@@ -1651,14 +1651,19 @@ def convert_requirement_to_order(id: str, data: c.DemandOrderCreate, idempotency
     return result(s.buyer_order(db, order))
 
 
-@app.post(prefix + '/ops/orders/{id}/progress', dependencies=[Depends(auth.ops)])
-def progress(id: str, data: c.Progress, idempotency_key: str = Header(), db=Depends(database)):
+@app.post(prefix + '/ops/orders/{id}/progress')
+def progress(id: str, data: c.Progress, idempotency_key: str = Header(), operator=Depends(auth.ops),
+             db=Depends(database)):
+    """Move an app order on. Marking it delivered takes the real delivery
+    day (`delivered_on`, default today; 7 October 2026): not in the future,
+    not before the order; more than 3 days back is a late entry (an admin
+    and `late_reason`)."""
     key, fingerprint, prior = s.replay(db, 'ops', 'progress', idempotency_key, {'id': id, **data.model_dump()})
     order = db.get(m.Order, id)
     if not order:
         s.fail('err.order_not_found', 404)
     if not prior:
-        s.advance(db, order, data)
+        s.advance(db, order, data, operator=operator)
         s.remember(db, key, fingerprint, id)
     return result(s.buyer_order(db, order))
 

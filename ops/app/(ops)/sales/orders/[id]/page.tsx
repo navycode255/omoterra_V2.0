@@ -9,7 +9,7 @@ import ui from '@/components/finance/expenses.module.css';
 import styles from '@/components/finance/finance-list.module.css';
 import own from '@/components/finance/buyer-orders.module.css';
 import { ApiError, get } from '@/lib/api';
-import { cancelBuyerOrder, recordOrderDeposit, refundOrderDeposit, voidOrderDeposit } from '@/lib/buyer-order-actions';
+import { cancelBuyerOrder, moveOrderDeposit, recordOrderDeposit, refundOrderDeposit, voidOrderDeposit } from '@/lib/buyer-order-actions';
 import type { BuyerOrderDetail, BuyerOrderPayment } from '@/lib/buyer-orders';
 import { METHODS, PRODUCTS, UNITS, day, today } from '@/lib/finance';
 import { phone, tzs } from '@/lib/format';
@@ -17,7 +17,7 @@ import { phone, tzs } from '@/lib/format';
 export const metadata = { title: 'Buyer order · Omoterra Operations' };
 
 const STATUS = { open: 'Not delivered', delivered: 'Delivered', cancelled: 'Cancelled' } as const;
-const STATE: Record<BuyerOrderPayment['state'], string> = { held: 'Held', applied: 'Applied to the sale', given_back: 'Given back', voided: 'Voided' };
+const STATE: Record<BuyerOrderPayment['state'], string> = { held: 'Held', applied: 'Applied to the sale', given_back: 'Given back', moved: 'Moved to another order', voided: 'Voided' };
 const label = (list: [string, string][], id: string) => list.find(([key]) => key === id)?.[1] ?? id;
 
 function MethodFields({ prefix, date }: { prefix: string; date: string }) {
@@ -92,19 +92,46 @@ export default async function BuyerOrderPage({ params, searchParams }: { params:
         <h2>Deposits</h2>
         {!order.payments.length && <p className={own.hint}>No deposit recorded.</p>}
         {order.payments.filter((p) => p.kind === 'deposit').map((p) => {
-          const back = order.payments.find((r) => r.refund_of === p.id);
-          return <div key={p.id} className={own.payment}>
+          const backs = order.payments.filter((r) => r.kind === 'refund' && r.refund_of === p.id);
+          const moves = order.moves.filter((mv) => mv.deposit_id === p.id);
+          const held = Number(p.held);
+          // Void: only a deposit still held whole on the order it was paid on.
+          const voidable = p.state === 'held' && !p.origin_order_id && held === Number(p.amount) && !backs.length && !moves.length;
+          return <div key={p.id} className={own.payment} data-deposit={p.reference || p.id}>
             <header><span>{tzs(p.amount)}</span><span className={own.state} data-state={p.state}>{STATE[p.state]}</span></header>
             <small>{day(p.paid_on)} · {label(METHODS, p.method)}{p.reference ? ` · ${p.reference}` : ''}{p.account_name ? ` · ${p.account_name}` : ''}</small>
-            {back && <small>Given back {day(back.paid_on)} · {label(METHODS, back.method)}{back.reference ? ` · ${back.reference}` : ''}</small>}
+            {p.origin_order_id && <small>Paid on order <Link href={`/sales/orders/${p.origin_order_id}`}>{p.origin_order_number}</Link>; moved here (no money moved).</small>}
+            {p.state === 'held' && held !== Number(p.amount) && <small data-deposit-held>Held on this order: {tzs(p.held)}</small>}
+            {backs.map((back) => <small key={back.id}>Given back {tzs(back.amount)} on {day(back.paid_on)} · {label(METHODS, back.method)}{back.reference ? ` · ${back.reference}` : ''}{back.account_name ? ` · ${back.account_name}` : ''}</small>)}
+            {moves.map((mv) => <small key={mv.id} data-deposit-move>
+              {mv.direction === 'out' ? 'Moved ' : 'Received '}{tzs(mv.amount)} {mv.direction === 'out' ? 'to' : 'from'}{' '}
+              <Link href={`/sales/orders/${mv.direction === 'out' ? mv.to_order_id : mv.from_order_id}`}>{mv.direction === 'out' ? mv.to_order_number : mv.from_order_number}</Link>
+              {' '}· {mv.moved_by ?? '—'} · {day(mv.created_at.slice(0, 10))} · {mv.reason}</small>)}
             {p.state === 'voided' && <small>Voided: {p.void_reason}</small>}
-            {open && p.state === 'held' && <details><summary>Give it back</summary>
+            {open && held > 0 && <details><summary>Give it back</summary>
               <ActionForm action={refundOrderDeposit} label="Record money given back" variant="secondary"
                 hidden={{ order_id: order.id, payment_id: p.id, idempotency_key: randomUUID() }}>
+                <div className="field"><label htmlFor={`refund-amount-${p.id}`}>Amount given back (TZS)</label>
+                  <input id={`refund-amount-${p.id}`} name="amount" className="input" inputMode="decimal" defaultValue={held} required />
+                  <span className="meta">Up to {tzs(p.held)}. Give back part now and the rest later if you need to.</span></div>
                 <MethodFields prefix={`refund-${p.id}`} date={now} />
                 <div className="field"><label htmlFor={`refund-note-${p.id}`}>Note (optional)</label><input id={`refund-note-${p.id}`} name="note" className="input" /></div>
               </ActionForm></details>}
-            {open && p.state === 'held' && <details className={own.danger}><summary>Entered by mistake (admin)</summary>
+            {open && held > 0 && order.move_targets.length > 0 && <details><summary>Move to another order of this buyer</summary>
+              <ActionForm action={moveOrderDeposit} label="Move deposit" variant="secondary"
+                hidden={{ order_id: order.id, payment_id: p.id, idempotency_key: randomUUID() }}>
+                <div className="field"><label htmlFor={`move-to-${p.id}`}>Move to order</label>
+                  <select id={`move-to-${p.id}`} name="to_order_id" className="input" required>
+                    {order.move_targets.map((target) => <option key={target.id} value={target.id}>
+                      {target.order_number} · {day(target.ordered_on)} · {tzs(target.total_amount)}</option>)}
+                  </select></div>
+                <div className="field"><label htmlFor={`move-amount-${p.id}`}>Amount to move (TZS)</label>
+                  <input id={`move-amount-${p.id}`} name="amount" className="input" inputMode="decimal" defaultValue={held} required />
+                  <span className="meta">Up to {tzs(p.held)}. No money moves: the deposit keeps its date, method and reference.</span></div>
+                <div className="field"><label htmlFor={`move-why-${p.id}`}>Why</label>
+                  <input id={`move-why-${p.id}`} name="reason" className="input" required minLength={3} placeholder="e.g. Buyer asked to use it on the next order" /></div>
+              </ActionForm></details>}
+            {open && voidable && <details className={own.danger}><summary>Entered by mistake (admin)</summary>
               <ActionForm action={voidOrderDeposit} label="Void deposit" variant="danger" hidden={{ order_id: order.id, payment_id: p.id }}>
                 <div className="field"><label htmlFor={`void-${p.id}`}>Why (the money never came)</label>
                   <input id={`void-${p.id}`} name="reason" className="input" required minLength={3} /></div>
@@ -122,7 +149,7 @@ export default async function BuyerOrderPage({ params, searchParams }: { params:
             hidden={{ order_id: order.id, idempotency_key: randomUUID() }}>
             <div className="field"><label htmlFor="cancel-reason">Reason</label>
               <input id="cancel-reason" name="reason" className="input" required minLength={3} placeholder="e.g. Buyer no longer needs the birds" /></div>
-            {Number(order.deposit_held) > 0 && <span className="meta">Give the deposit back first.</span>}
+            {Number(order.deposit_held) > 0 && <span className="meta">Give the deposit back, or move it to another order of this buyer, first.</span>}
           </ActionForm></details>}
       </div>
     </div>

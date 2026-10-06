@@ -155,7 +155,7 @@ export interface Settlement {
   commission_amount_per_unit: string;
   quantity: string;
   total_payable: string;
-  status: 'pending' | 'paid';
+  status: 'pending' | 'paid' | 'cancelled';
   paid_at: string | null;
   payment_reference: string | null;
   created_at: string;
@@ -163,6 +163,15 @@ export interface Settlement {
   supplier_confirmation: 'received' | 'not_received' | null;
   supplier_confirmed_at: string | null;
   supplier_note: string;
+  // Payout attempts (build plan M2.7), on the Settlements list.
+  net_paid?: string;
+  in_flight?: string;
+  outstanding?: string;
+  exposure?: string;
+  refunded?: string;
+  attempt_count?: number;
+  approvals_waiting?: number;
+  current_state?: 'initiated' | 'debited' | null;
 }
 
 export interface Payment {

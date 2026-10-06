@@ -1,13 +1,16 @@
 import hashlib
 import json
-from datetime import timedelta
+from datetime import datetime, time, timedelta
 from decimal import Decimal, ROUND_HALF_UP
-from sqlalchemy import select, text
+from zoneinfo import ZoneInfo
+from sqlalchemy import func, select, text
 from . import models as m
 from .config import settings
 from . import inventory as inv
 from . import notifications as notes, i18n
 from .i18n import M, fail  # noqa: F401  (s.fail is used across the app)
+
+_EAT = ZoneInfo('Africa/Dar_es_Salaam')
 
 STATUS = {
     'requested': 'confirmed', 'supply_confirmed': 'confirmed', 'reserved': 'confirmed',
@@ -200,7 +203,35 @@ def _notify_order_update(db, order, target, holds, by_buyer):
                 M('notify.supplier_order_cancelled', **what), f'/stock/{listing.id}')
 
 
-def advance(db, order, data, by_buyer=False):
+def _delivery_day(db, order, data, operator):
+    """The day an app order is marked delivered (7 October 2026): the date
+    staff enter, default today; never in the future, before the order was
+    created or before its last reversed delivery. More than
+    lots.LATE_ENTRY_DAYS back is a late entry: an admin and a reason.
+    Returns (day, late reason or None)."""
+    from .contracts import business_today
+    from .reporting import local_day_of
+    today = business_today()
+    on = getattr(data, 'delivered_on', None) or today
+    if on > today:
+        fail('err.delivery_date_in_future', 422)
+    created = local_day_of(order.created_at)
+    if created and on < created:
+        fail('err.delivery_before_order_created', 422, day=created.isoformat())
+    reversed_on = db.scalar(select(func.max(m.OrderRecognitionReversal.reversed_on))
+        .where(m.OrderRecognitionReversal.order_id == order.id))
+    if reversed_on and on < reversed_on:
+        fail('err.delivery_before_reversal', 422, day=reversed_on.isoformat())
+    from .lots import LATE_ENTRY_DAYS, late_entry
+    late = None
+    if (today - on).days > LATE_ENTRY_DAYS:
+        if operator is None:
+            fail('err.late_entry_needs_admin', 422, days=LATE_ENTRY_DAYS)
+        late = late_entry(operator, on, getattr(data, 'late_reason', ''))
+    return on, late
+
+
+def advance(db, order, data, by_buyer=False, operator=None):
     commerce_lock(db)
     target = data.internal_status
     if data.expected_collection_date is not None:
@@ -257,9 +288,11 @@ def advance(db, order, data, by_buyer=False):
         if order.total_amount == 0:
             payment.status = order.payment_status = 'paid'
             payment.paid_at = m.now()
+    delivered_on = late = None
     if target == 'delivered':
         if order.actual_quantity is None:
             fail('err.complete_quality_check_before_delivery')
+        delivered_on, late = _delivery_day(db, order, data, operator)
         for hold in holds:
             listing = db.scalar(select(m.Listing).where(m.Listing.id == hold.listing_id).with_for_update())
             if hold.status != 'confirmed':
@@ -292,9 +325,18 @@ def advance(db, order, data, by_buyer=False):
                     allocation.rejected_quantity = item.rejected_quantity or Decimal('0')
                     allocation.status = 'delivered'
     if target == 'delivered':
-        # Build plan M2.5 (D7): the order counts as a sale on this business day.
+        # Build plan M2.5 (D7): the order counts as a sale on its delivery
+        # day, the day staff entered (7 October 2026), default today. Its
+        # payout falls due from that day too (reporting.PAYOUT_DAYS).
         from .contracts import business_today
-        order.recognized_on, order.recognition_note = business_today(), 'Marked delivered'
+        note = 'Marked delivered' if delivered_on == business_today() else \
+            f'Marked delivered on {business_today().isoformat()}, delivered {delivered_on.isoformat()}'
+        if late:
+            note += f' (late entry: {late})'
+        order.recognized_on, order.recognition_note = delivered_on, note[:1000]
+        if late:
+            from .lots import log_late
+            log_late(db, late, 'orders', order.id, delivered_on, operator)
     if target == 'completed' and order.payment_status != 'paid':
         fail('err.reconcile_buyer_payment_before_completing')
     order.internal_status = target
@@ -320,7 +362,13 @@ def advance(db, order, data, by_buyer=False):
             elif target in ('delivered', 'completed'):
                 request.status = 'completed'
     if target in ACTIVITY:
-        order.activity = [*order.activity, {'label': ACTIVITY[target], 'at': m.now().isoformat()}]
+        entry = {'label': ACTIVITY[target], 'at': m.now().isoformat()}
+        if target == 'delivered' and delivered_on != (m.now().astimezone(_EAT).date()):
+            # A back-dated delivery: the history says the day it happened
+            # (noon, Dar es Salaam), and when it was recorded.
+            entry = {'label': ACTIVITY[target], 'at': datetime.combine(delivered_on, time(12), tzinfo=_EAT).isoformat(),
+                     'recorded_at': entry['at']}
+        order.activity = [*order.activity, entry]
     _notify_order_update(db, order, target, holds, by_buyer)
     db.flush()
     return order

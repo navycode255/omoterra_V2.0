@@ -74,16 +74,33 @@ export async function recordOrderDeposit(_: ActionResult | null, formData: FormD
   return { ok: true };
 }
 
-/** The whole deposit given back to the buyer: its own dated money out. */
+/** A deposit given back to the buyer, whole or in part: its own dated money out. */
 export async function refundOrderDeposit(_: ActionResult | null, formData: FormData): Promise<ActionResult> {
   const id = text(formData, 'order_id');
   const payment = text(formData, 'payment_id');
+  const amount = text(formData, 'amount').replace(/,/g, '');
   const done = await attempt(() => post(`/ops/buyer-orders/${encodeURIComponent(id)}/deposits/${encodeURIComponent(payment)}/refund`, {
+    ...(amount ? { amount } : {}),
     paid_on: text(formData, 'paid_on'), method: text(formData, 'method'), reference: text(formData, 'reference'),
     note: text(formData, 'note'), money_account_id: text(formData, 'money_account_id') || null, ...overrideBody(formData),
   }, key(formData)));
   if (!done.ok) return done;
   refresh(id);
+  return { ok: true };
+}
+
+/** Move a held deposit (all or part) to another open order of the same buyer. No money moves. */
+export async function moveOrderDeposit(_: ActionResult | null, formData: FormData): Promise<ActionResult> {
+  const id = text(formData, 'order_id');
+  const payment = text(formData, 'payment_id');
+  const target = text(formData, 'to_order_id');
+  const amount = text(formData, 'amount').replace(/,/g, '');
+  const done = await attempt(() => post(`/ops/buyer-orders/${encodeURIComponent(id)}/deposits/${encodeURIComponent(payment)}/move`, {
+    to_order_id: target, reason: text(formData, 'reason'), ...(amount ? { amount } : {}),
+  }, key(formData)));
+  if (!done.ok) return done;
+  refresh(id);
+  if (target) revalidatePath(`/sales/orders/${target}`, 'layout');
   return { ok: true };
 }
 

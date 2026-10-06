@@ -3,6 +3,8 @@
     python harness.py serve          fresh database, schema from the models, uvicorn
     python harness.py seed operator  empty every table, sign in one admin operator
     python harness.py seed debts     the same, plus 66 debts (18 open)
+    python harness.py seed payout    the same, plus a second admin and a delivered
+                                     app order whose payout (27,000) is pending
     python harness.py member <id>    a portal session for an existing user
 
 `seed` and `member` print JSON for the tests. Everything here works on the
@@ -114,6 +116,44 @@ def _debts(db, m):
     return rows
 
 
+def _payout(db, m, digest):
+    """A second admin (approvals, decision D9) and a supplier with a
+    delivered app order whose payout of 27,000 (3 birds at 9,000) is
+    pending (build plan M2.7)."""
+    token = secrets.token_urlsafe(24)
+    second = m.Operator(phone='+255710000009', name='E2E Second Admin', role='admin', pin_hash='e2e-pin-not-checked')
+    db.add(second)
+    db.flush()
+    db.add(m.OperatorSession(operator_id=second.id, token_hash=digest(token), expires_at=m.now() + timedelta(days=1)))
+    buyer = m.User(phone='+255712000901', roles=['buyer'], name='E2E Payout Buyer', region='Dar es Salaam')
+    supplier = m.User(phone='+255712000902', roles=['supplier'], name='E2E Payout Farmer', region='Pwani')
+    db.add_all([buyer, supplier])
+    db.flush()
+    db.add(m.SupplierProfile(user_id=supplier.id, legal_name='E2E Payout Farm Ltd', internal_pickup_address='Farm road',
+        public_alias='E2E Payout Poultry', alias_approved=True, status='approved', categories=['broilers'],
+        primary_category='broilers', district='Kibaha', region='Pwani'))
+    listing = m.Listing(supplier_id=supplier.id, category='broilers', unit_type='bird', specs={}, region='Pwani',
+        quantity_total=10, farmer_asking_price_per_unit=10000, supplier_payout_price_per_unit=9000,
+        buyer_price_per_unit=12000, listing_status='live', approved_at=m.now(), last_confirmed_at=m.now(),
+        confirmation_due_at=m.now() + timedelta(hours=48))
+    db.add(listing)
+    db.flush()
+    order = m.Order(buyer_id=buyer.id, delivery_snapshot={}, preferred_delivery_date=date.today(),
+        payment_method='pay_on_delivery', internal_status='delivered', expected_quantity=3, total_amount=36000,
+        idempotency_key='e2e-payout-order', recognized_on=date.today())
+    db.add(order)
+    db.flush()
+    item = m.OrderItem(order_id=order.id, listing_id=listing.id, quantity=3, unit_price=12000, subtotal=36000,
+        asking_snapshot=10000, payout_snapshot=9000, actual_quantity=3, rejected_quantity=0)
+    db.add(item)
+    db.flush()
+    settlement = m.Settlement(supplier_id=supplier.id, order_item_id=item.id, farmer_asking_price_per_unit=10000,
+        supplier_payout_price_per_unit=9000, commission_amount_per_unit=1000, quantity=3, total_payable=27000)
+    db.add(settlement)
+    db.flush()
+    return {'second_admin_token': token, 'supplier_id': supplier.id, 'settlement_id': settlement.id, 'order_id': order.id}
+
+
 def seed(scenario):
     _check_target()
     from app.auth import digest
@@ -124,6 +164,8 @@ def seed(scenario):
         out = _operator(db, m, digest)
         if scenario == 'debts':
             out['debts'] = _debts(db, m)
+        elif scenario == 'payout':
+            out.update(_payout(db, m, digest))
         elif scenario != 'operator':
             sys.exit(f'Unknown scenario {scenario}')
     out['ops_token'] = OPS_TOKEN

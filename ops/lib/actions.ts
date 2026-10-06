@@ -64,7 +64,7 @@ export async function progressOrder(_: ActionResult | null, formData: FormData) 
     internal_status: String(formData.get('internal_status')),
     collection_notes: String(formData.get('collection_notes') ?? ''),
   };
-  for (const key of ['expected_collection_date', 'actual_quantity', 'rejected_quantity', 'actual_weight']) {
+  for (const key of ['expected_collection_date', 'actual_quantity', 'rejected_quantity', 'actual_weight', 'delivered_on', 'late_reason']) {
     const value = optional(key);
     if (value !== undefined) body[key] = value;
   }

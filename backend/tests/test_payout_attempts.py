@@ -383,3 +383,176 @@ def test_backfill_turns_each_paid_settlement_into_one_debited_attempt(fresh_engi
     assert problems[ids['resent']]['unrecorded_references'] == ['QLEG0002']
     assert any('resent before payout attempts' in reason for reason in problems[ids['resent']]['reasons'])
     assert [r['settlement_id'] for r in report['payout_exposure']['records']] == [ids['disputed']]
+
+
+# ---- finance owner, 7 October 2026: possibly paid twice resolved; retries ----------------
+
+def paid_twice(client, sessions, seeded, birds, idem, approver, first_day=None):
+    """A payout debited, reported not received, resent with approval and
+    debited again: the whole amount possibly paid twice."""
+    settlement = delivered_payout(sessions, seeded, birds, idem)
+    amount = 9000 * birds
+    first_day = first_day or DAY - timedelta(days=4)
+    assert attempt(client, settlement, amount, f'Q{idem[-6:].upper()}A', sent_on=first_day.isoformat(), debited=True,
+        evidence='Statement').status_code == 201
+    not_received(client, settlement)
+    approval = approve_resend(client, settlement, amount, approver)
+    assert attempt(client, settlement, amount, f'Q{idem[-6:].upper()}B', approval_id=approval, debited=True,
+        evidence='Statement', sent_on=(first_day + timedelta(days=1)).isoformat()).status_code == 201
+    assert detail(client, settlement)['exposure'] == f'{amount}.00'
+    return settlement
+
+
+def resolve(client, settlement, kind, amount, approver, evidence='Provider confirms both transfers reached the supplier',
+            on=None):
+    asked = post(client, f'/settlements/{settlement}/resolutions/approvals', {'kind': kind, 'amount': str(amount),
+        'evidence': evidence})
+    assert asked.status_code == 201, asked.text
+    assert asked.json()['kind'] == f'payout_{kind}'
+    # The requester cannot approve it; a second admin can.
+    assert client.post(f"{API}/approvals/{asked.json()['id']}/approve", json={}, headers=OPS).status_code == 403
+    assert client.post(f"{API}/approvals/{asked.json()['id']}/approve", json={}, headers=approver).status_code == 200
+    body = {'approval_id': asked.json()['id']}
+    if on:
+        body['resolved_on'] = on.isoformat()
+    done = post(client, f'/settlements/{settlement}/resolutions', body)
+    assert done.status_code == 201, done.text
+    return asked.json()['id'], done.json()
+
+
+def test_supplier_credit_needs_a_second_admin_and_the_next_payouts_use_it(client, sessions, seeded, second_admin):
+    more_stock(sessions, seeded)
+    settlement = paid_twice(client, sessions, seeded, 3, 'oct7-credit-a', second_admin)  # 27,000 twice
+    out_before = cash_rows(sessions, settlement)
+    # Without approval it cannot be recorded; above the exposure: refused.
+    assert post(client, f'/settlements/{settlement}/resolutions/approvals', {'kind': 'supplier_credit',
+        'amount': '27001', 'evidence': 'Both arrived'}).status_code == 422
+    assert post(client, f'/settlements/{settlement}/resolutions/approvals', {'kind': 'supplier_credit',
+        'amount': '100', 'evidence': ''}).status_code == 422
+    asked = post(client, f'/settlements/{settlement}/resolutions/approvals', {'kind': 'supplier_credit',
+        'amount': '1000', 'evidence': 'Both arrived'}).json()
+    assert post(client, f'/settlements/{settlement}/resolutions', {'approval_id': asked['id']}).status_code == 409
+    client.post(f"{API}/approvals/{asked['id']}/reject", json={}, headers=OPS)
+    approval, view = resolve(client, settlement, 'supplier_credit', 27000, second_admin)
+    assert view['exposure'] == '0.00' and view['credited'] == '27000.00' and view['status'] == 'paid'
+    assert view['supplier_credit'] == '27000.00' and view['resolutions'][0]['kind'] == 'supplier_credit'
+    # Used once; nothing more to resolve.
+    assert post(client, f'/settlements/{settlement}/resolutions', {'approval_id': approval}).status_code == 409
+    assert post(client, f'/settlements/{settlement}/resolutions/approvals', {'kind': 'write_off', 'amount': '1',
+        'evidence': 'More'}).status_code == 409
+    # The outflows stay on their dates (R3); the figure everywhere drops to 0.
+    assert cash_rows(sessions, settlement) == out_before
+    with sessions() as db:
+        assert rp.settlement_totals(db)['disputed'] == 0 and rp.payables(db)['disputed'] == 0
+        assert rp.payables(db)['payout_credit'] == Decimal('27000.00')
+        assert fx.payout_exposure(db)['records'] == []
+    summary = client.get(f'{API}/finance/summary', headers=OPS).json()
+    assert Decimal(summary['i_owe']['disputed']) == 0
+
+    # The next payout (2 birds, 18,000) is covered by the credit: no money is sent.
+    covered = delivered_payout(sessions, seeded, 2, 'oct7-credit-b')
+    assert detail(client, covered)['next']['blocked'] == 'covered_by_credit'
+    assert attempt(client, covered, 18000, 'QCOVERED1').status_code == 409
+    used = post(client, f'/settlements/{covered}/use-credit', {})
+    assert used.status_code == 201, used.text
+    assert used.json()['status'] == 'paid' and used.json()['credit_used'] == '18000.00' and used.json()['debited'] == '0.00'
+    assert cash_rows(sessions, covered) == []
+    # The one after (4 birds, 36,000) uses the 9,000 left first; only 27,000 goes out.
+    partly = delivered_payout(sessions, seeded, 4, 'oct7-credit-c')
+    plan = detail(client, partly)['next']
+    assert (plan['credit'], plan['limit']) == ('9000.00', '27000.00')
+    over = attempt(client, partly, 36000, 'QPARTLY1', debited=True, evidence='SMS')
+    assert over.status_code == 422 and '9,000' in over.json()['detail']
+    sent = attempt(client, partly, 27000, 'QPARTLY1', debited=True, evidence='SMS')
+    assert sent.status_code == 201, sent.text
+    body = sent.json()
+    assert body['status'] == 'paid' and body['credit_used'] == '9000.00' and body['net_paid'] == '27000.00'
+    assert [amount for _d, _f, amount, _t in cash_rows(sessions, partly)] == [Decimal('27000.00')]
+    with sessions() as db:
+        assert payouts.credit_available(db, seeded['supplier']) == 0
+        assert rp.settlement_totals(db)['pending'] == 0
+
+
+def test_a_write_off_is_a_payout_loss_expense_on_its_day_and_moves_no_money(client, sessions, seeded, second_admin):
+    settlement = paid_twice(client, sessions, seeded, 3, 'oct7-writeoff', second_admin)  # 27,000 twice
+    out_before = cash_rows(sessions, settlement)
+    on = DAY - timedelta(days=1)
+    _approval, view = resolve(client, settlement, 'write_off', 20000, second_admin,
+        evidence='Sent to a wrong number; the provider cannot reverse it', on=on)
+    assert view['exposure'] == '7000.00' and view['written_off'] == '20000.00' and view['status'] == 'paid'
+    # Still flagged for the rest; over-resolution refused.
+    asked = post(client, f'/settlements/{settlement}/resolutions/approvals', {'kind': 'write_off', 'amount': '7001',
+        'evidence': 'More'})
+    assert asked.status_code == 422 and '7,000' in asked.json()['detail']
+    # An expense "Payout loss" in Profit on the resolution day; no cash movement.
+    profit = client.get(f'{API}/finance/profit', params={'start': on.isoformat(), 'end': on.isoformat()},
+        headers=OPS).json()
+    assert Decimal(profit['expenses']) == Decimal('20000')
+    assert {r['category']: Decimal(r['amount']) for r in profit['expenses_by_category']} == {'payout_loss': Decimal('20000')}
+    assert Decimal(client.get(f'{API}/finance/profit', params={'start': DAY.isoformat(), 'end': DAY.isoformat()},
+        headers=OPS).json()['expenses']) == 0
+    rows = client.get(f'{API}/finance/rows', params={'metric': 'expenses', 'start': on.isoformat(), 'end': on.isoformat()},
+        headers=OPS).json()
+    assert Decimal(rows['amount']) == Decimal('20000') and rows['items'][0]['source_table'] == 'settlement_resolutions'
+    assert cash_rows(sessions, settlement) == out_before
+    with sessions() as db:
+        assert rp.settlement_totals(db)['disputed'] == Decimal('7000.00')
+        assert [r['exposure'] for r in fx.payout_exposure(db)['records']] == [Decimal('7000.00')]
+    # The rest resolved: nothing possibly paid twice remains.
+    _approval, view = resolve(client, settlement, 'write_off', 7000, second_admin, evidence='Same wrong number')
+    assert view['exposure'] == '0.00'
+    # Records are append-only.
+    from sqlalchemy.exc import DBAPIError
+    with pytest.raises(DBAPIError):
+        with sessions.begin() as db:
+            db.execute(m.SettlementResolution.__table__.update().values(amount=1))
+
+
+def test_a_refund_never_brings_back_money_already_resolved(client, sessions, seeded, second_admin):
+    settlement = delivered_payout(sessions, seeded, 2, 'oct7-refund-bound')  # 18,000
+    sent = attempt(client, settlement, 18000, 'QBOUND01', debited=True, evidence='SMS', sent_on=(DAY - timedelta(days=2)).isoformat())
+    attempt_id = sent.json()['attempts'][0]['id']
+    not_received(client, settlement)
+    # Wrong number: written off. The supplier is still owed the payout.
+    _approval, view = resolve(client, settlement, 'write_off', 18000, second_admin, evidence='Wrong number, confirmed by M-Pesa')
+    assert (view['exposure'], view['outstanding'], view['status']) == ('0.00', '18000.00', 'pending')
+    refused = post(client, f'/settlement-transfers/{attempt_id}/refunds', {'amount': '1', 'refunded_on': DAY.isoformat(),
+        'evidence': 'Reversal'})
+    assert refused.status_code == 422
+    # Resolved: a new payout no longer needs the two-outflows acknowledgement,
+    # but it is still a resend (money left once), so a second admin approves.
+    assert detail(client, settlement)['next']['unresolved'] is False
+    assert attempt(client, settlement, 18000, 'QBOUND02').status_code == 403
+
+
+def test_a_retry_after_a_proven_failure_needs_no_second_admin_up_to_the_threshold(client, sessions, seeded, second_admin):
+    more_stock(sessions, seeded)
+    settlement = delivered_payout(sessions, seeded, 2, 'oct7-retry-small')  # 18,000
+    first = attempt(client, settlement, 18000, 'QRETRY01')
+    first_id = first.json()['attempts'][0]['id']
+    # While it is only sent (initiated), a resend still needs a second admin.
+    assert attempt(client, settlement, 18000, 'QRETRY02').status_code == 403
+    assert client.post(f'{API}/settlement-transfers/{first_id}/failed', headers=OPS,
+        json={'failed_on': DAY.isoformat(), 'evidence': 'Provider: invalid number'}).status_code == 200
+    plan = detail(client, settlement)['next']
+    assert plan['resend'] is False and plan['retry_after_failure'] is True and plan['approval_kind'] is None
+    retry = attempt(client, settlement, 18000, 'QRETRY02', debited=True, evidence='SMS')
+    assert retry.status_code == 201, retry.text
+    assert retry.json()['attempts'][0]['is_resend'] is False and retry.json()['status'] == 'paid'
+    assert post(client, f'/settlements/{settlement}/approvals', {'amount': '18000', 'reason': 'x' * 5}).status_code == 409
+
+    # Over 500,000 the first-payment rule still applies to the retry.
+    large = delivered_payout(sessions, seeded, 2, 'oct7-retry-large')
+    with sessions.begin() as db:
+        db.get(m.Settlement, large).total_payable = approvals.SECOND_ADMIN_THRESHOLD + 1
+    asked = post(client, f'/settlements/{large}/approvals', {'amount': '500001', 'reason': 'Large payout'}).json()
+    client.post(f"{API}/approvals/{asked['id']}/approve", json={}, headers=second_admin)
+    sent = attempt(client, large, '500001', 'QLARGE11', approval_id=asked['id'])
+    assert client.post(f"{API}/settlement-transfers/{sent.json()['attempts'][0]['id']}/failed", headers=OPS,
+        json={'failed_on': DAY.isoformat(), 'evidence': 'Bank rejected the account'}).status_code == 200
+    refused = attempt(client, large, '500001', 'QLARGE12')
+    assert refused.status_code == 403 and '500,000' in refused.json()['detail']
+    again = post(client, f'/settlements/{large}/approvals', {'amount': '500001', 'reason': 'Retry after failure'})
+    assert again.status_code == 201 and again.json()['kind'] == 'payout_over_threshold'
+    client.post(f"{API}/approvals/{again.json()['id']}/approve", json={}, headers=second_admin)
+    assert attempt(client, large, '500001', 'QLARGE12', approval_id=again.json()['id']).status_code == 201

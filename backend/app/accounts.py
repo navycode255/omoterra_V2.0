@@ -158,6 +158,18 @@ def follow(db, from_table, from_id, to_table, to_id):
         row.source_table, row.source_id = to_table, to_id
 
 
+def copy(db, from_table, from_id, to_table, to_id):
+    """Part of a movement now counted from another record (part of an order
+    deposit applied to a sale, 7 October 2026): that part went through the
+    same account, with the same standing (how, evidence, pre-cutoff)."""
+    row = db.scalar(select(AA).where(AA.source_table == from_table, AA.source_id == from_id))
+    if row and not db.scalar(select(AA.id).where(AA.source_table == to_table, AA.source_id == to_id)):
+        db.add(AA(source_table=to_table, source_id=to_id, account_id=row.account_id, how=row.how, evidence=row.evidence,
+            assigned_by=row.assigned_by, confirmed_by=row.confirmed_by, pre_cutoff=row.pre_cutoff,
+            pre_cutoff_note=row.pre_cutoff_note, pre_cutoff_by=row.pre_cutoff_by))
+        db.flush()
+
+
 # ---- balances -------------------------------------------------------------------
 
 def _cash():

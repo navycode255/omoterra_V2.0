@@ -12,7 +12,8 @@ def install_history_guards(engine):
           RAISE EXCEPTION 'Stock history and sale records are append-only';
         END; $$'''))
         for table in ['stock_movements', 'stock_sales', 'stock_sale_reversals', 'payout_confirmations',
-                      'settlement_refunds']:
+                      'settlement_refunds', 'buyer_order_deposit_moves', 'settlement_resolutions',
+                      'payout_credit_uses']:
             connection.execute(text(f'DROP TRIGGER IF EXISTS immutable_history ON {table}'))
             connection.execute(text(f'CREATE TRIGGER immutable_history BEFORE UPDATE OR DELETE ON {table} FOR EACH ROW EXECUTE FUNCTION omoterra_reject_history_edit()'))
 

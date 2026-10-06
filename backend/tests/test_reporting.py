@@ -157,8 +157,47 @@ def payout_attempt_data(client, sessions, seeded):
     assert refund.status_code == 201, refund.text
 
 
+def deposit_move_data(client, sessions, seeded):
+    """7 October 2026: on top of the staff orders, part of the open
+    order's 15,000 deposit is given back (5,000 out today) and 4,000 of it
+    moved to a second open order of the same buyer (no money moves)."""
+    with sessions() as db:
+        order = db.scalar(select(m.BuyerOrder).where(m.BuyerOrder.status == 'open'))
+        deposit = db.scalar(select(m.BuyerOrderPayment).where(m.BuyerOrderPayment.buyer_order_id == order.id))
+    back = post(client, f'/buyer-orders/{order.id}/deposits/{deposit.id}/refund', {'amount': '5000', 'paid_on': TODAY,
+        'method': 'cash'})
+    assert back.status_code == 201, back.text
+    second = post(client, '/buyer-orders', {'buyer_profile_id': order.buyer_profile_id, 'ordered_on': TODAY,
+        'items': [{'category': 'local_chicken', 'unit': 'bird', 'quantity': '1', 'unit_price': '20000'}]})
+    assert second.status_code == 201, second.text
+    moved = post(client, f'/buyer-orders/{order.id}/deposits/{deposit.id}/move', {'to_order_id': second.json()['id'],
+        'amount': '4000', 'reason': 'Buyer asked to use it on the next order'})
+    assert moved.status_code == 201, moved.text
+
+
+def payout_resolution_data(client, sessions, seeded):
+    """7 October 2026: on top of the payout attempts, the fourth order's
+    13,000 possibly paid twice is resolved today with a second admin's
+    approval: 8,000 written off (a "Payout loss" expense, no money moves)
+    and 5,000 kept by the supplier as payout credit."""
+    from test_payout_attempts import make_second_admin
+    second = make_second_admin(sessions)
+    with sessions() as db:
+        row = db.scalar(select(m.Settlement).join(m.SettlementTransfer, m.SettlementTransfer.settlement_id == m.Settlement.id)
+            .where(m.SettlementTransfer.attempt_no == 2))
+    for kind, amount in (('write_off', '8000'), ('supplier_credit', '5000')):
+        asked = post(client, f'/settlements/{row.id}/resolutions/approvals', {'kind': kind, 'amount': amount,
+            'evidence': 'Provider statement checked'})
+        assert asked.status_code == 201, asked.text
+        assert client.post(API + f"/approvals/{asked.json()['id']}/approve", json={}, headers=second).status_code == 200
+        done = post(client, f'/settlements/{row.id}/resolutions', {'approval_id': asked.json()['id']})
+        assert done.status_code == 201, done.text
+
+
 DATA = {'direct': (direct_data,), 'marketplace': (marketplace_data,), 'mixed': (direct_data, marketplace_data),
-        'staff_orders': (direct_data, staff_order_data), 'payout_attempts': (payout_attempt_data,)}
+        'staff_orders': (direct_data, staff_order_data), 'payout_attempts': (payout_attempt_data,),
+        'deposit_moves': (direct_data, staff_order_data, deposit_move_data),
+        'payout_resolutions': (payout_attempt_data, payout_resolution_data)}
 
 
 def drill(client, metric, **params):
@@ -252,8 +291,14 @@ def test_every_headline_equals_its_drilldown(client, sessions, seeded, data):
     assert amount(rows, 'marketplace') == Decimal(profit['marketplace_cost'])
 
     # 14, 16. Expenses, stock lost and the operating result.
-    _rows, spent = drill(client, 'expenses', start=TODAY, end=TODAY)
-    assert spent == Decimal(profit['expenses']) == Decimal(get(client, '/expenses', start=TODAY, end=TODAY)['summary']['incurred'])
+    spent_rows, spent = drill(client, 'expenses', start=TODAY, end=TODAY)
+    assert spent == Decimal(profit['expenses'])
+    # The Expenses page lists recorded expenses; a payout written off (7
+    # October 2026) is an expense in Profit beside them.
+    assert amount([r for r in spent_rows if r['source_table'] == 'ledger_debts']) \
+        == Decimal(get(client, '/expenses', start=TODAY, end=TODAY)['summary']['incurred'])
+    assert amount([r for r in spent_rows if r['source_table'] == 'settlement_resolutions']) \
+        == (Decimal('8000') if data == 'payout_resolutions' else 0)
     _rows, lost = drill(client, 'stock_lost', start=TODAY, end=TODAY)
     assert lost == Decimal(profit['stock_lost'])
     net = sold - cost - spent - lost
@@ -287,17 +332,28 @@ def test_every_headline_equals_its_drilldown(client, sessions, seeded, data):
     # 5,000 in. The first order's payout in flight is still owed, not out.
     extra = {'owed': '24000', 'owe': '0', 'sold': '24000', 'cost': '18000', 'in': '5000', 'out': '36000'}
     expected['payout_attempts'] = {k: str(Decimal(expected['marketplace'][k]) + Decimal(extra[k])) for k in extra}
-    if data == 'payout_attempts':
-        assert (Decimal(payouts['in_flight']), Decimal(payouts['disputed'])) == (Decimal('27000'), Decimal('13000'))
+    # Resolving the 13,000 moves no money and changes no balance.
+    expected['payout_resolutions'] = expected['payout_attempts']
+    # Deposits: 5,000 given back today; the move changes nothing.
+    expected['deposit_moves'] = {**expected['staff_orders'], 'out': str(Decimal(expected['staff_orders']['out']) + 5000)}
+    if data in ('payout_attempts', 'payout_resolutions'):
+        exposure = Decimal('13000') if data == 'payout_attempts' else 0
+        assert (Decimal(payouts['in_flight']), Decimal(payouts['disputed'])) == (Decimal('27000'), exposure)
         assert Decimal(summary['i_owe']['payouts_in_flight']) == Decimal('27000')
-        assert Decimal(summary['i_owe']['disputed']) == Decimal('13000')
+        assert Decimal(summary['i_owe']['disputed']) == exposure
         assert (Decimal(book['payouts_in_flight']), Decimal(book['disputed_out'])) == (Decimal('27000'), Decimal('18000'))
         assert Decimal(payouts['paid']) == Decimal('27000') + Decimal('31000')
     want = {k: Decimal(v) for k, v in expected[data].items()}
     assert (owed, owe, sold, cost) == (want['owed'], want['owe'], want['sold'], want['cost'])
     assert (Decimal(book['money_in']), Decimal(book['money_out'])) == (want['in'], want['out'])
-    assert Decimal(summary['commitments']['total']) == {'direct': 0, 'staff_orders': Decimal('40000')}.get(data, Decimal('24000'))
-    assert Decimal(summary['commitments']['deposits']) == (Decimal('15000') if data == 'staff_orders' else 0)
+    assert Decimal(summary['commitments']['total']) == {'direct': 0, 'staff_orders': Decimal('40000'),
+        'deposit_moves': Decimal('60000')}.get(data, Decimal('24000'))
+    assert Decimal(summary['commitments']['deposits']) == {'staff_orders': Decimal('15000'),
+        'deposit_moves': Decimal('10000')}.get(data, 0)
+    if data == 'payout_resolutions':
+        assert Decimal(summary['i_owe']['payout_credit']) == Decimal('5000')
+        assert Decimal(profit['expenses']) - Decimal('8000') == Decimal(get(client, '/expenses', start=TODAY,
+            end=TODAY)['summary']['incurred'])
 
 
 def test_one_event_reached_from_two_records_counts_once(client, sessions, seeded):

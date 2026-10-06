@@ -657,6 +657,48 @@ class SettlementRefund(Entity, Base):
     )
 
 
+class SettlementResolution(Entity, Base):
+    """Money possibly paid twice on an app payout, resolved with evidence
+    (finance owner, 7 October 2026; D9): requested by an admin, approved by a
+    second admin (`approval_id`, used once).
+
+    - supplier_credit: the supplier received the excess and keeps it; it is
+      their payout credit, set off against their next payouts
+      (`PayoutCreditUse`). No money moves.
+    - write_off: the excess is lost (wrong number, fraud): an expense
+      "Payout loss" on `resolved_on`. No money moves (it left on its debit
+      day).
+    Append-only."""
+    __tablename__ = 'settlement_resolutions'
+    settlement_id: Mapped[str] = mapped_column(ForeignKey('settlements.id'), index=True)
+    supplier_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    kind: Mapped[str] = mapped_column(String(16))
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    resolved_on: Mapped[date] = mapped_column(Date, index=True)
+    evidence: Mapped[str] = mapped_column(Text)
+    approval_id: Mapped[str] = mapped_column(ForeignKey('approval_requests.id'), unique=True)
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint("kind IN ('supplier_credit','write_off')", name='settlement_resolutions_kind_check'),
+        CheckConstraint('amount > 0', name='settlement_resolutions_amount_check'),
+        CheckConstraint('length(btrim(evidence)) >= 3', name='settlement_resolutions_evidence_check'),
+    )
+
+
+class PayoutCreditUse(Entity, Base):
+    """Supplier payout credit (a `supplier_credit` resolution) set off
+    against one of that supplier's settlements. Moves no money (rule R4).
+    Append-only; a use on a settlement later cancelled counts for nothing,
+    so the credit is available again."""
+    __tablename__ = 'payout_credit_uses'
+    supplier_id: Mapped[str] = mapped_column(ForeignKey('users.id'), index=True)
+    settlement_id: Mapped[str] = mapped_column(ForeignKey('settlements.id'), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    used_on: Mapped[date] = mapped_column(Date)
+    recorded_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (CheckConstraint('amount > 0', name='payout_credit_uses_amount_check'),)
+
+
 class Payment(Entity, Base):
     __tablename__ = 'payments'
     order_id: Mapped[str] = mapped_column(ForeignKey('orders.id'), unique=True)
@@ -1540,7 +1582,8 @@ class BuyerOrderPayment(Entity, Base):
     __tablename__ = 'buyer_order_payments'
     buyer_order_id: Mapped[str] = mapped_column(ForeignKey('buyer_orders.id'), index=True)
     kind: Mapped[str] = mapped_column(String(16))
-    refund_of: Mapped[Optional[str]] = mapped_column(ForeignKey('buyer_order_payments.id'), unique=True)
+    # Several part refunds may give back one deposit (7 October 2026).
+    refund_of: Mapped[Optional[str]] = mapped_column(ForeignKey('buyer_order_payments.id'), index=True)
     amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
     paid_on: Mapped[date] = mapped_column(Date, index=True)
     method: Mapped[str] = mapped_column(String(24))
@@ -1558,6 +1601,38 @@ class BuyerOrderPayment(Entity, Base):
         CheckConstraint(f"method IN ({', '.join(repr(v) for v in LEDGER_METHODS)})",
             name='buyer_order_payments_method_check'),
     )
+
+
+class BuyerOrderDepositMove(Entity, Base):
+    """Part or all of a held deposit moved to another open order of the same
+    buyer (finance owner, 7 October 2026). Moves no money (rule R4): no cash
+    book row, no account movement; the deposit keeps its one money-in record.
+    Append-only."""
+    __tablename__ = 'buyer_order_deposit_moves'
+    deposit_id: Mapped[str] = mapped_column(ForeignKey('buyer_order_payments.id'), index=True)
+    from_order_id: Mapped[str] = mapped_column(ForeignKey('buyer_orders.id'), index=True)
+    to_order_id: Mapped[str] = mapped_column(ForeignKey('buyer_orders.id'), index=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    reason: Mapped[str] = mapped_column(Text)
+    moved_by: Mapped[Optional[str]] = mapped_column(ForeignKey('operators.id'))
+    __table_args__ = (
+        CheckConstraint('amount > 0', name='buyer_order_deposit_moves_amount_check'),
+        CheckConstraint('from_order_id <> to_order_id', name='buyer_order_deposit_moves_orders_check'),
+        CheckConstraint('length(btrim(reason)) >= 3', name='buyer_order_deposit_moves_reason_check'),
+    )
+
+
+class BuyerOrderDepositApplication(Entity, Base):
+    """The part of a deposit held on an order that became a payment on that
+    order's sale when it was delivered (same day, method, reference and
+    account as the deposit). From then the cash book counts that part from
+    the payment, and the rest (if any) from the deposit."""
+    __tablename__ = 'buyer_order_deposit_applications'
+    deposit_id: Mapped[str] = mapped_column(ForeignKey('buyer_order_payments.id'), index=True)
+    buyer_order_id: Mapped[str] = mapped_column(ForeignKey('buyer_orders.id'), index=True)
+    ledger_payment_id: Mapped[str] = mapped_column(ForeignKey('ledger_payments.id'), unique=True)
+    amount: Mapped[Decimal] = mapped_column(Numeric(14, 2))
+    __table_args__ = (CheckConstraint('amount > 0', name='buyer_order_deposit_applications_amount_check'),)
 
 
 ACCOUNT_KINDS = ('cash', 'bank', 'mobile_wallet')

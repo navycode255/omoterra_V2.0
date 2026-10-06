@@ -16,10 +16,12 @@ function runHarness(...args: string[]) {
   return JSON.parse(output.trim().split('\n').pop()!);
 }
 
-export type Seeded = { operator_id: string; operator_token: string; debts?: { name: string; status: string }[] };
+export type Seeded = { operator_id: string; operator_token: string; debts?: { name: string; status: string }[];
+  // 'payout' (M2.7): a second admin and a pending app payout of 27,000.
+  second_admin_token?: string; supplier_id?: string; settlement_id?: string; order_id?: string };
 
 /** Empty every table and sign in one admin operator (plus the scenario's rows). */
-export function seed(scenario: 'operator' | 'debts'): Seeded {
+export function seed(scenario: 'operator' | 'debts' | 'payout'): Seeded {
   return runHarness('seed', scenario);
 }
 

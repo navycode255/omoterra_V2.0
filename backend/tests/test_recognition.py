@@ -233,3 +233,73 @@ def test_backfill_dates_unambiguous_history_and_leaves_the_rest_unresolved(fresh
     # A dated order is never dated again.
     assert recognition.main(['--apply', 'one', '--on', '2026-09-05', '--evidence', 'x' * 5, '--by', 'MJ',
         '--confirm', 'one'], bind=fresh_engine) == 2
+
+
+# ---- finance owner, 7 October 2026: staff enter the real delivery day ---------------
+
+def _in_transit(sessions, seeded, idem, created_on, birds=2):
+    id = app_order(sessions, seeded, birds, idem, deliver=False, created_on=created_on)
+    with sessions.begin() as db:
+        row = db.get(m.Order, id)
+        for status in STEPS[:-1]:
+            s.advance(db, row, c.Progress(internal_status=status, actual_quantity=birds, rejected_quantity=0))
+    return id
+
+
+def mark_delivered(client, id, on=None, headers=OPS, **extra):
+    body = {'internal_status': 'delivered', **extra}
+    if on is not None:
+        body['delivered_on'] = on.isoformat()
+    return client.post(API + f'/orders/{id}/progress', json=body, headers={**headers, 'Idempotency-Key': key()})
+
+
+def test_staff_back_date_a_delivery_within_three_days_and_it_counts_that_day(client, sessions, seeded):
+    on = DAY - timedelta(days=2)
+    id = _in_transit(sessions, seeded, 'oct7-delivery-2', DAY - timedelta(days=10))
+    done = mark_delivered(client, id, on, STAFF)
+    assert done.status_code == 200, done.text
+    with sessions() as db:
+        order = db.get(m.Order, id)
+        assert order.recognized_on == on and order.internal_status == 'delivered'
+        # The history says the day it happened, and when it was recorded.
+        [entry] = [e for e in order.activity if e['label'] == 'Delivered']
+        assert recognition.classify(order) == (on, '') and entry['recorded_at']
+        assert db.scalar(select(m.LateEntry.id)) is None
+        # Its payout falls due from the delivery day.
+        [row] = [r for r in rp.payables(db)['rows'] if r['source_table'] == 'settlements']
+        assert row['due_on'] == on + timedelta(days=rp.PAYOUT_DAYS)
+    rows, amount = drill(client, 'revenue', start=on.isoformat(), end=on.isoformat())
+    assert amount == Decimal('24000') and [r['source_id'] for r in rows] == [id]
+    assert drill(client, 'revenue', start=DAY.isoformat(), end=DAY.isoformat())[1] == 0
+    assert drill(client, 'cost_of_goods', start=on.isoformat(), end=on.isoformat())[1] == Decimal('18000')
+
+
+def test_a_delivery_five_days_back_is_a_late_entry_admin_and_reason(client, sessions, seeded):
+    on = DAY - timedelta(days=5)
+    id = _in_transit(sessions, seeded, 'oct7-delivery-5', DAY - timedelta(days=10))
+    refused = mark_delivered(client, id, on, STAFF, late_reason='Driver forgot to report it')
+    assert refused.status_code == 422 and 'admin' in refused.json()['detail']
+    assert mark_delivered(client, id, on, OPS).status_code == 422  # no reason
+    done = mark_delivered(client, id, on, OPS, late_reason='Driver forgot to report it')
+    assert done.status_code == 200, done.text
+    with sessions() as db:
+        assert db.get(m.Order, id).recognized_on == on
+        [late] = db.scalars(select(m.LateEntry)).all()
+        assert (late.entity_table, late.entity_id, late.entry_date, late.reason) == (
+            'orders', id, on, 'Driver forgot to report it')
+        assert late.approved_by == seeded['operator_admin']
+
+
+def test_a_delivery_date_in_the_future_or_before_the_order_is_refused_and_today_is_the_default(client, sessions, seeded):
+    created = DAY - timedelta(days=1)
+    id = _in_transit(sessions, seeded, 'oct7-delivery-bad', created)
+    assert mark_delivered(client, id, DAY + timedelta(days=1)).status_code == 422
+    early = mark_delivered(client, id, created - timedelta(days=1))
+    assert early.status_code == 422 and created.isoformat() in early.json()['detail']
+    with sessions() as db:
+        assert db.get(m.Order, id).internal_status == 'in_transit'
+    # No date: today, as before.
+    assert mark_delivered(client, id).status_code == 200
+    with sessions() as db:
+        order = db.get(m.Order, id)
+        assert order.recognized_on == DAY and order.recognition_note == 'Marked delivered'

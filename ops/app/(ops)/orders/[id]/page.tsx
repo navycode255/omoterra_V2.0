@@ -39,6 +39,11 @@ export default async function OrderWorkspace({ params }: { params: Promise<{ id:
   const balance = Number(order.total_amount) - Number(order.amount_received);
   const reached = PIPELINE.indexOf(order.internal_status);
   const failed = order.internal_status === 'cancelled' || order.internal_status === 'payment_failed';
+  // Marking delivered takes the real delivery day (7 October 2026): from the
+  // day the order was placed (Dar es Salaam) up to today.
+  const darDay = (value: Date) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Dar_es_Salaam' }).format(value);
+  const today = darDay(new Date());
+  const placedOn = darDay(new Date(order.created_at));
 
   return (
     <>
@@ -94,6 +99,8 @@ export default async function OrderWorkspace({ params }: { params: Promise<{ id:
                 expected={quantity(order.expected_quantity)}
                 paymentRecorded={paymentRecorded}
                 items={order.items}
+                today={today}
+                placedOn={placedOn}
               />
             </Card>
 
