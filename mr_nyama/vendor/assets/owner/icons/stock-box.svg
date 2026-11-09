@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Drawn to match the Station reference (not traced): archive box. -->
+<svg viewBox="0 0 48 44" version="1.1" xmlns="http://www.w3.org/2000/svg" width="48" height="44">
+<g fill="none" stroke="#3A4256" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round">
+<rect x="3" y="3" width="42" height="11" rx="3"/>
+<path d="M6 14 V37 A4 4 0 0 0 10 41 H38 A4 4 0 0 0 42 37 V14"/>
+<path d="M18 23 H30"/>
+</g>
+</svg>

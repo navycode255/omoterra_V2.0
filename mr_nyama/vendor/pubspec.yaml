@@ -1,0 +1,65 @@
+name: mr_nyama_vendor
+description: Mr. Nyama vendor app.
+publish_to: none
+version: 0.1.0+1
+environment:
+  sdk: '>=3.5.0 <4.0.0'
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  flutter_riverpod: ^2.6.1
+  go_router: ^14.8.1
+  intl: ^0.20.2
+  # Session token storage (Android Keystore), as in mobile/.
+  flutter_secure_storage: ^9.2.4
+  # Renders the design system's 24 px line icons from their exported SVG paths.
+  file_picker: 10.2.4
+  image_picker: ^1.2.3
+  path_provider: ^2.1.5
+  flutter_svg: ^2.0.10
+  drift: ^2.35.2
+  drift_flutter: ^0.3.1
+  uuid: ^4.6.0
+  # PBKDF2 PIN verifier for offline unlock (policies §10); already in the lock file.
+  crypto: ^3.0.7
+  connectivity_plus: ^7.3.2
+  workmanager: ^0.10.10
+  dio: ^5.11.1
+  pdf: ^3.13.0
+  printing: ^5.15.0
+  local_auth: ^3.0.2
+  # The phone's fingerprint dialog texts (AndroidAuthMessages).
+  local_auth_android: ^2.3.0
+  firebase_core: ^4.15.0
+  firebase_messaging: ^16.7.0
+  flutter_contacts: ^2.6.0
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  integration_test:
+    sdk: flutter
+  flutter_driver:
+    sdk: flutter
+  flutter_lints: ^5.0.0
+  drift_dev: ^2.35.1
+  build_runner: ^2.15.1
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/brand/icon.png
+    - assets/brand/logo.png
+    - assets/errors/
+    - assets/owner/
+    - assets/sync/
+    - assets/owner/icons/
+    - assets/images/
+    - assets/products/
+  fonts:
+    - family: Inter
+      fonts:
+        - asset: assets/fonts/Inter.ttf
+    - family: Manrope
+      fonts:
+        - asset: assets/fonts/Manrope.ttf

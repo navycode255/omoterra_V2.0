@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Drawn to match the Station reference (not traced): list with round bullets. -->
+<svg viewBox="0 0 48 40" version="1.1" xmlns="http://www.w3.org/2000/svg" width="48" height="40">
+<g fill="none" stroke="#3A4256" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round">
+<circle cx="6" cy="6" r="3.6"/><circle cx="6" cy="20" r="3.6"/><circle cx="6" cy="34" r="3.6"/>
+<path d="M17 6 H45"/><path d="M17 20 H45"/><path d="M17 34 H45"/>
+</g>
+</svg>

@@ -1,0 +1,48 @@
+{
+  "project_info": {
+    "project_number": "574531999246",
+    "project_id": "mr-nyama",
+    "storage_bucket": "mr-nyama.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:574531999246:android:773a38f1b0e64197004e5f",
+        "android_client_info": {
+          "package_name": "com.transmark.mrnyama"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDGHGNYc2nnV4BDr-vYBRalbaOGijejY9w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    },
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:574531999246:android:e122b1304f14ffbf004e5f",
+        "android_client_info": {
+          "package_name": "com.transmark.mrnyama.vendor"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyDGHGNYc2nnV4BDr-vYBRalbaOGijejY9w"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
